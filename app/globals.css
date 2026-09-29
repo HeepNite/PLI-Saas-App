@@ -421,3 +421,66 @@ html {
     font-size: 16px !important;
   }
 }
+
+.qr-booking-route-loader {
+  display: none;
+}
+
+html[data-qr-booking="true"] .public-layout-chrome {
+  display: none !important;
+}
+
+html[data-qr-booking="true"] .qr-booking-route-loader {
+  position: fixed;
+  inset: 0;
+  z-index: 13000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: #09070d;
+  color: #fff;
+  text-align: center;
+}
+
+html[data-qr-booking-ready="true"] .qr-booking-route-loader {
+  display: none;
+}
+
+.qr-booking-route-badge {
+  margin-top: 6px;
+  border-radius: 999px;
+  background: #b61616;
+  padding: 7px 12px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.qr-booking-route-spinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #d51f2b;
+  border-radius: 999px;
+  animation: qrBookingSpin 1s linear infinite;
+}
+
+.qr-booking-route-status {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+@keyframes qrBookingSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qr-booking-route-spinner {
+    animation: none;
+  }
+}

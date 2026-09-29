@@ -101,18 +101,19 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 7. Campaign-only treatment MUST disappear automatically outside the configured acquisition window.
 8. Campaign copy MUST concisely communicate that online booking earns a selected-country pin and that the delivered-pin benefit is US$15 on eligible Sunday/Monday classes.
 9. Selecting `BOOK` MUST preserve the selected course, date, time, and country through the existing registration/checkout flow.
-10. Navigation MUST immediately show a branded PLI transition instead of the general course/home page.
-11. The compact form MUST retain the PLI logo and a concise summary of the selected class and campaign.
+10. Navigation MUST immediately show a branded PLI transition instead of the general course/home page or its loading skeleton.
+11. The compact form MUST retain the PLI logo, Heritage heading, and a concise summary of the selected class and campaign. The global announcement, catalog navigation, footer, home control, and assistant chrome MUST remain hidden for the entire public booking process.
 12. Campaign styling MUST remain within the PLI near-black, institutional red, and white palette. Additional color comes only from the flags; campaign chrome MUST NOT introduce gold and MUST NOT reduce toolbar or class-list usability.
-13. During the active campaign, eligible circular `BOOK` actions MUST resemble enamel pins through a dark graphite/silver rim, depth, and a rotating set of different national flags.
-14. Flag assignment to class buttons MUST be deterministic, decorative, and drawn from a centralized Latin American/Caribbean display set. It MUST NOT preselect or claim the visitor's country.
-15. On hover or keyboard focus, a flag-pin action SHOULD perform a short 3D turn from the flag face to a PLI-red `BOOK` face. Pointer activation MUST still book with one click.
-16. Because touch devices have no hover, mobile flag pins MUST retain a visible `BOOK` badge and book on the first tap. With reduced-motion preferences, the control MUST use a non-rotating transition while keeping `BOOK` visible.
-17. Every flag-pin action MUST retain its complete accessible booking name on desktop and phone.
-18. After country selection, the wizard SHOULD render the visitor's selected flag as a circular pin preview with the confirmation `We’ll have your pin ready.`
-19. Existing phone verification, Clerk account creation/sign-in, Stripe checkout, and `/client-profile` completion MUST remain authoritative.
-20. Abandoning before successful payment MUST create no entitlement and the campaign may be offered again on a later attempt.
-21. Once an entitlement exists, the system MUST not award another pin; known users should see their current pending/delivered status instead of a duplicate acquisition promise.
+13. During the active campaign, eligible circular `BOOK` actions MUST resemble enamel pins through a dark graphite/silver rim, a full enamel-style flag face, depth, and a rotating set of different national flags.
+14. Flag assignment to class buttons MUST be deterministic, decorative, and drawn from a centralized Latin American/Caribbean display set. Visible rows MUST cycle across the set instead of repeating one country because of hash collisions. Decorative flags MUST NOT preselect or claim the visitor's country.
+15. Wide desktop layouts SHOULD use otherwise empty side space for restrained, non-interactive rails of varied flag pins. These rails MUST be hidden when they could overlap the booking content and MUST remain absent from the accessibility tree.
+16. On hover or keyboard focus, a flag-pin action SHOULD perform a short 3D turn from the flag face to a PLI-red `BOOK` face. Pointer activation MUST still book with one click.
+17. Because touch devices have no hover, mobile flag pins MUST retain a visible `BOOK` badge and book on the first tap. With reduced-motion preferences, the control MUST use a non-rotating transition while keeping `BOOK` visible.
+18. Every flag-pin action MUST retain its complete accessible booking name on desktop and phone.
+19. After country selection, the wizard SHOULD render the visitor's selected flag as a circular pin preview with the confirmation `We’ll have your pin ready.`
+20. Existing phone verification, Clerk account creation/sign-in, Stripe checkout, and `/client-profile` completion MUST remain authoritative.
+21. Abandoning before successful payment MUST create no entitlement and the campaign may be offered again on a later attempt.
+22. Once an entitlement exists, the system MUST not award another pin; known users should see their current pending/delivered status instead of a duplicate acquisition promise.
 
 ## Security and Data Rules
 
@@ -136,6 +137,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - [ ] Remote public booking is card/wallet only, while trusted kiosk cash remains available.
 - [ ] Changing the bounded campaign end configuration extends eligibility without logic changes.
 - [ ] The booking transition never flashes the general course/home experience and retains PLI/class context.
+- [ ] Booking-row flags are visibly varied, retain the enamel-pin treatment, and wide-screen side rails remain decorative and non-overlapping.
 - [ ] Existing registration, sign-in, checkout, profile redirect, kiosk, and staff flows remain functional.
 
 ## Definition of Done

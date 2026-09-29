@@ -107,9 +107,15 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   }, [pathname, router, searchParams])
 
   const closeBooking = React.useCallback(() => {
+    if (shouldUseQrCompactBooking) {
+      delete document.documentElement.dataset.qrBooking
+      delete document.documentElement.dataset.qrBookingReady
+      router.push("/booking")
+      return
+    }
     setQrBookingContext(undefined)
     clearBookingQuery()
-  }, [clearBookingQuery])
+  }, [clearBookingQuery, router, shouldUseQrCompactBooking])
 
   React.useEffect(() => {
     const nextContext = readQrBookingContext()
@@ -122,8 +128,8 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
     if (window.matchMedia("(max-width: 1023px)").matches) {
       setMobileOpen(true)
     }
-    clearBookingQuery()
-  }, [shouldRestoreDraft, clearBookingQuery])
+    if (!qrBookingContext) clearBookingQuery()
+  }, [shouldRestoreDraft, clearBookingQuery, qrBookingContext])
 
   React.useEffect(() => {
     const footer = document.getElementById("site-footer")
@@ -203,6 +209,33 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       window.removeEventListener("resize", updateGap)
     }
   }, [mobileOpen])
+
+  if (shouldUseQrCompactBooking) {
+    return (
+      <div ref={containerRef} className="mx-auto w-full max-w-2xl">
+        {!qrAuthReady ? (
+          <div className="flex min-h-72 items-center justify-center rounded-3xl border border-white/10 bg-[#17151b]">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-[#d51f2b] motion-reduce:animate-none" />
+          </div>
+        ) : (
+          <EnrollModal
+            course={course}
+            open
+            onCloseAction={closeBooking}
+            initialStep={initialStep}
+            useDraft={shouldUseDraft}
+            checkInContext={qrBookingContext}
+            compactBookingSource="qr-mobile"
+            flowVariant={qrCompactFlowVariant}
+            completionMode="personal"
+            skipContactStep={shouldSkipQrContactStep}
+            photoFlowContext="qr_phone"
+            mode="inline"
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div ref={containerRef} className="space-y-4">

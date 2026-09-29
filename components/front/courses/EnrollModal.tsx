@@ -186,6 +186,7 @@ export default function EnrollModal({
   const isKioskTerminalFlow = photoFlowContext === "kiosk_terminal"
   const usesPhasedInfoForm = isKioskTerminalFlow || (isQrMobileCompactFlow && isCheckInNewFlow)
   const forceKioskDarkModal = isKioskTerminalFlow && !isInline
+  const forceCampaignDarkCard = isQrMobileCompactFlow && isInline
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = usesCompactCheckInExperience && completionMode === "personal"
   const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
@@ -1259,7 +1260,9 @@ export default function EnrollModal({
           "relative w-full p-0",
           forceKioskDarkModal
             ? "kiosk-terminal-enroll-modal border-white/12 bg-neutral-900/82 text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)] backdrop-blur-xl"
-            : "bg-white/70 dark:bg-white/10",
+            : forceCampaignDarkCard
+              ? "!border-white/12 !bg-[#17151b] text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)]"
+              : "bg-white/70 dark:bg-white/10",
           isInline
             ? "rounded-3xl overflow-hidden"
             : [
@@ -1281,7 +1284,7 @@ export default function EnrollModal({
           </button>
         )}
 
-        {bookingSource === "public_booking" && heritagePinCountryCode ? (
+        {bookingSource === "public_booking" && heritagePinCountryCode && !isInline ? (
           <div className="flex items-center gap-3 border-b border-white/10 bg-[#09070d] px-4 py-3 text-white sm:px-6">
             <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={88} height={35} className="h-auto w-[76px] shrink-0" />
             <div className="min-w-0 flex-1 border-l border-white/12 pl-3">
@@ -1296,7 +1299,7 @@ export default function EnrollModal({
 
         <div className={[
           isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12",
-          forceKioskDarkModal ? "dark" : "",
+          forceKioskDarkModal || forceCampaignDarkCard ? "dark" : "",
         ].join(" ")}>
           {/* Sidebar: stepper (form) OR calendar panel (success) */}
           {!hideCalendarSidebar && (

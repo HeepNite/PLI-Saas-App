@@ -38,10 +38,14 @@ export default function PublicLayout({
   return (
     <div className="min-h-screen w-full m-0 flex flex-col">
       {floatingChrome === "hidden" && <SuppressFloatingChrome />}
-      <NotificationBar {...specialAnnouncement} />
-      <Header variant={headerVariant} />
+      <div className="public-layout-chrome">
+        <NotificationBar {...specialAnnouncement} />
+        <Header variant={headerVariant} />
+      </div>
       <main>{children}</main>
-      <FooterQuote compactMobileTopSpacing={headerVariant === "special-event"} />
+      <div className="public-layout-chrome">
+        <FooterQuote compactMobileTopSpacing={headerVariant === "special-event"} />
+      </div>
     </div>
   )
 }

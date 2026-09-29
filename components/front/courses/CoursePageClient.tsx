@@ -6,6 +6,7 @@ import type { CourseData } from "@/constants/courses"
 import CourseAsideLeft from "./CourseAsideLeft"
 import CourseAsideRight from "./CourseAsideRight"
 import CourseSections from "./CourseSections"
+import { HeritageCampaignBanner } from "@/components/front/booking/HeritageCampaignBooking"
 
 // CoursePageClient: 3-column layout wrapper.
 // - Left and right columns are sticky on desktop.
@@ -207,11 +208,14 @@ export default function CoursePageClient({ course, isQrBooking }: { course: Cour
     </div>
   )
 
-  // Remove the vanilla-JS boot loader (injected by root layout script, not React-managed)
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!isQrBookingFlow) return
-    const bootLoader = document.getElementById("qr-boot-loader")
-    if (bootLoader) bootLoader.remove()
+    document.documentElement.dataset.qrBooking = "true"
+    document.documentElement.dataset.qrBookingReady = "true"
+    return () => {
+      delete document.documentElement.dataset.qrBooking
+      delete document.documentElement.dataset.qrBookingReady
+    }
   }, [isQrBookingFlow])
 
   // Public/QR booking owns the whole viewport on every breakpoint. Keeping the
@@ -222,12 +226,9 @@ export default function CoursePageClient({ course, isQrBooking }: { course: Cour
         <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.18),transparent_62%)]" />
         <section className="relative mx-auto w-full max-w-xl">
           <header className="mb-5 flex flex-col items-center text-center">
-            <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={176} height={70} priority className="h-auto w-36" />
-            <p className="mt-5 rounded-full bg-[#b61616] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] text-white">
-              Heritage pin booking
-            </p>
-            <h1 className="mt-3 text-2xl font-black tracking-tight text-white">{course.title}</h1>
-            <p className="mt-1 text-sm text-white/55">Your country. Your pin. Your community.</p>
+            <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={176} height={70} priority className="mb-4 h-auto w-36" />
+            <HeritageCampaignBanner />
+            <h1 className="text-xl font-black tracking-tight text-white sm:text-2xl">{course.title}</h1>
           </header>
           <div className="relative min-h-80">
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

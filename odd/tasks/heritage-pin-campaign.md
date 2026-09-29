@@ -53,6 +53,13 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Native review was not started because inspect selected an unrelated historical base scope instead of the immediate chain parent; review must be bound to each PR slice after publication.
   - Evidence: pending database-backed integration run, remote PR checks, and slice-bound review.
 
+- [x] 6. Improve decorative flag variety and desktop pin composition.
+  - Guarantee varied flag assignments across visible booking rows instead of repeated country collisions.
+  - Render each flag action with a fuller enamel-pin face while preserving first-click booking, accessibility, and reduced motion.
+  - Add non-interactive side rails of varied flag pins in otherwise empty wide-screen space without affecting mobile or the booking list.
+  - Make the public booking handoff continuously campaign-branded: no generic course skeleton, announcement, navigation, footer, or home chrome before/during the enrollment process; retain the PLI logo and Heritage heading above the process.
+  - Evidence: 14 focused Vitest checks passed; isolated Playwright booking journey passed; typecheck and diff check passed; scoped ESLint has only six pre-existing `EnrollModal` warnings; desktop/mobile screenshots verified varied filtered-row flag pins, campaign-window-only side rails, hidden chrome, logo + Heritage heading, and a centered dark process card; direct and delayed-SPA handoffs showed no generic course/home content. Final candidate is 333 changed lines and native review approved it. Work-unit commit: `27a33177420c4dc14b867a3f1d1a43acb40e0547`.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.

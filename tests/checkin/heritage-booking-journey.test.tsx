@@ -9,6 +9,7 @@ import {
   HeritageCampaignBanner,
   HeritageCampaignPromoDialog,
   HeritageCountryDialog,
+  HeritageFlagRails,
   countryCodeToFlag,
   getDecorativeBookingFlag,
   isHeritageCampaignAcquiringNow,
@@ -39,16 +40,29 @@ afterEach(() => {
 })
 
 describe("Heritage campaign booking presentation", () => {
-  it("uses deterministic decorative flags without selecting the visitor's country", () => {
+  it("cycles visible rows through varied deterministic flag pins without selecting the visitor's country", () => {
+    const firstCycle = Array.from({ length: 8 }, (_, index) => getDecorativeBookingFlag(occurrence.id, index))
+    expect(new Set(firstCycle).size).toBe(8)
     expect(getDecorativeBookingFlag(occurrence.id)).toBe(getDecorativeBookingFlag(occurrence.id))
     expect(countryCodeToFlag("MX")).toBe("🇲🇽")
 
     const html = renderToStaticMarkup(
-      <HeritageBookButton occurrence={occurrence} busy={false} disabled={false} onSelect={() => undefined} />,
+      <HeritageBookButton occurrence={occurrence} decorativeIndex={1} busy={false} disabled={false} onSelect={() => undefined} />,
     )
+    expect(html).toContain("🇲🇽")
     expect(html).toContain("BOOK")
     expect(html).toContain("rotateY(180deg)")
     expect(html).toContain("Book Salsa Timba")
+    expect(html).toContain("radial-gradient")
+  })
+
+  it("keeps wide-screen flag rails decorative, varied, and outside the accessibility tree", () => {
+    const html = renderToStaticMarkup(<HeritageFlagRails />)
+    expect(html).toContain('data-heritage-flag-rails="true"')
+    expect(html).toContain('aria-hidden="true"')
+    expect(html).toContain("2xl:block")
+    expect(html).toContain("🇦🇷")
+    expect(html).toContain("🇨🇺")
   })
 
   it("keeps the booking header compact with real pin cutouts and an accessible light sweep", () => {
