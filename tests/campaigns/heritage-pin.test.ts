@@ -13,6 +13,7 @@ import {
   resolveHeritagePinPrice,
   selectHeritagePinEntitlement,
 } from "@/lib/campaigns/heritage-pin"
+import { buildHeritagePinEntitlementsByUser } from "@/lib/campaigns/heritage-pin-entitlement"
 
 describe("Heritage Pin campaign", () => {
   it("uses bounded defaults and accepts a safe first-week-of-November extension", () => {
@@ -178,5 +179,16 @@ describe("Heritage Pin campaign", () => {
       { id: "pending-copy", metadata: pending },
       { id: "source", metadata: delivered },
     ])).toMatchObject({ sourcePurchaseId: "source", status: "delivered", countryCode: "CO" })
+  })
+
+  it("builds one resolved entitlement per user", () => {
+    const metadata = buildPendingHeritagePinMetadata({}, {
+      countryCode: "DO",
+      earnedAt: new Date("2026-10-01T14:00:00.000Z"),
+    })
+    expect(buildHeritagePinEntitlementsByUser([
+      { id: "p1", userId: "u1", metadata, createdAt: "2026-10-01T14:00:00.000Z" },
+      { id: "p2", userId: "u2", metadata: {}, createdAt: "2026-10-01T14:00:00.000Z" },
+    ]).get("u1")).toMatchObject({ countryCode: "DO", status: "pending" })
   })
 })
