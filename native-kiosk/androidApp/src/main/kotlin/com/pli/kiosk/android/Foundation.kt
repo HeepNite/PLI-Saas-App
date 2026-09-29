@@ -409,7 +409,7 @@ object Contract {
         string(payload, "locationId", Approved.LOCATION)
         string(payload, "currency", Approved.CURRENCY)
         require(payload.opt("amount") is Number && payload.getLong("amount") == Approved.AMOUNT) { "Invalid amount" }
-        require(payload.opt("paymentCreationEnabled") is Boolean) { "Invalid payment gate" }
+        require(payload.opt("paymentCreationEnabled") == true) { "Payment creation is disabled" }
         require(payload.opt("livemode") == true) { "The server is not LIVE" }
     }
 
