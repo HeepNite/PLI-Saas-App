@@ -10,6 +10,8 @@ export type EnrollCheckInContext = {
   date?: string
   time?: string
   durationMinutes?: number
+  bookingSource?: "public_booking"
+  heritagePinCountryCode?: string
 }
 
 export type EnrollPrefillSelection = {
