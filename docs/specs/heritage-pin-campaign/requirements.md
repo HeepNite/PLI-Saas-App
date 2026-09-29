@@ -114,6 +114,8 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 20. Existing phone verification, Clerk account creation/sign-in, Stripe checkout, and `/client-profile` completion MUST remain authoritative.
 21. Abandoning before successful payment MUST create no entitlement and the campaign may be offered again on a later attempt.
 22. Once an entitlement exists, the system MUST not award another pin; known users should see their current pending/delivered status instead of a duplicate acquisition promise.
+23. The inline public booking footer MUST render exactly two actions on one row: `Cancel | Continue` in the initial information phase and `Back | Continue` in later phases or steps. A context-equivalent final action MAY replace `Continue`, but a third profile/panel action MUST NOT appear.
+24. Clerk's reserved `+1 555-555-0100…0199` test range MAY be accepted only when runtime evidence identifies the `codex/develop` Vercel preview and a Clerk test instance. Production and every environment that fails those guards MUST reject that range.
 
 ## Security and Data Rules
 
