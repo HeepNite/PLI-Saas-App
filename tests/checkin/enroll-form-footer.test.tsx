@@ -43,9 +43,7 @@ const renderFooter = (overrides: Partial<React.ComponentProps<typeof EnrollFormF
 }
 
 const buttonLabels = (html: string) =>
-  [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((match) =>
-    match[1].replace(/<[^>]+>/g, "").trim(),
-  )
+  [...html.matchAll(/<button[^>]*>(.*?)<\/button>/g)].map((match) => match[1].trim())
 
 describe("EnrollFormFooter", () => {
   it("shows exactly Cancel and Continue on one row in the initial phase", () => {
