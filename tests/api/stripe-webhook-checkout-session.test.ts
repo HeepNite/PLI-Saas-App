@@ -421,6 +421,10 @@ describe("stripe webhook checkout session persistence", () => {
       expect((await sendInternalEvent()).status).toBe(200)
       expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
       expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+      expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        where: { eventId: event.id },
+        data: expect.objectContaining({ status: "completed" }),
+      }))
     },
   )
   it("does not rematerialize a credit when a completed internal webhook is replayed", async () => {

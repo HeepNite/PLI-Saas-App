@@ -788,7 +788,10 @@ async function persistInternalManualResolution(eventId: string, reason: string, 
 }
 
 async function fulfillInternalPaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
-  if (intent.status !== "succeeded") return
+  if (intent.status !== "succeeded") {
+    await completeStripeWebhookEvent(eventId)
+    return
+  }
   const purchaseId = intent.metadata?.purchaseId
   if (!purchaseId) throw new InternalPurchaseError("Internal purchase identity is missing", 400)
 
