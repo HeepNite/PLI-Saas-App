@@ -47,6 +47,8 @@ export type CheckoutBody = {
   kioskCurrentCourseTime?: string
   checkoutKind?: string
   specialClassId?: string
+  bookingSource?: string
+  heritagePinCountryCode?: string
 }
 
 export type CheckoutValidation = {

@@ -22,6 +22,13 @@ import {
 import {
   SPECIAL_SALSA_CLASS,
 } from "@/lib/special-salsa-class/config"
+import {
+  HERITAGE_PIN_CAMPAIGN_KEY,
+  normalizeHeritagePinCountryCode,
+  resolveHeritagePinPrice,
+} from "@/lib/campaigns/heritage-pin"
+import { findHeritagePinEntitlementForIdentity } from "@/lib/campaigns/heritage-pin-entitlement"
+import { prisma } from "@/lib/prisma"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -251,6 +258,18 @@ export async function POST(req: Request) {
     kioskSessionToken,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
+  const bookingSource = typeof body.bookingSource === "string" ? body.bookingSource.trim() : ""
+  const heritagePinCountryCode = normalizeHeritagePinCountryCode(body.heritagePinCountryCode)
+  if (bookingSource === "public_booking" && !heritagePinCountryCode) {
+    return NextResponse.json({ error: "Select a valid country for the Heritage pin." }, { status: 400 })
+  }
+  const heritagePinMetadata: Record<string, string> = bookingSource === "public_booking" && heritagePinCountryCode
+    ? {
+        heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
+        heritagePinCountryCode,
+        heritagePinSource: "public_booking",
+      }
+    : {}
   // Mobile-QR check-in booking paid via Stripe HOSTED checkout (full-page redirect).
   // The client sets `checkInBooking: true` on the QR-phone check-in payload so the
   // webhook can complete the booking as a real check-in (attendance = checked-in),
@@ -286,7 +305,7 @@ export async function POST(req: Request) {
         courseSlug: validation.courseSlug,
         date: effectiveSession.date ?? undefined,
         time: effectiveSession.time ?? undefined,
-      })}${validation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel`
+      })}${validation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel${bookingSource === "public_booking" && heritagePinCountryCode ? `&bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}` : ""}`
     : `${base}/courses/${validation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(
@@ -325,6 +344,33 @@ export async function POST(req: Request) {
     return toErrorResponse(newStudentError)
   }
 
+  const heritagePinEntitlement = await findHeritagePinEntitlementForIdentity(prisma, {
+    clerkId: resolvedUserId,
+    email: identity.resolvedEmail,
+    phone: identity.phoneNormalized,
+  })
+  const heritagePinPricing = resolveHeritagePinPrice({
+    entitlement: heritagePinEntitlement,
+    classDate: effectiveSession.date || validation.date,
+    participants: validation.safeParticipants,
+    serviceId: validation.serviceId,
+    packageId: validation.packageId,
+    coupon: validation.coupon,
+    addonCount: validation.addons.length,
+    consecutivePriceCents: validation.consecutivePriceCents,
+    consecutiveAddOnOnly: validation.consecutiveAddOnOnly,
+  })
+  const effectiveAmountCents = heritagePinPricing.applied
+    ? heritagePinPricing.amountCents
+    : validation.amountInt
+  const heritagePinPricingMetadata: Record<string, string> = heritagePinPricing.applied
+    ? {
+        heritagePinPriceApplied: "true",
+        heritagePinPriceCents: String(heritagePinPricing.amountCents),
+        heritagePinEntitlementPurchaseId: heritagePinPricing.entitlementPurchaseId,
+      }
+    : {}
+
   const expiresAt =
     photoContext === FLOW_CONTEXT.KIOSK_TERMINAL ? Math.floor(Date.now() / 1000) + 30 * 60 : undefined
 
@@ -338,7 +384,7 @@ export async function POST(req: Request) {
           quantity: 1,
           price_data: {
             currency: validation.currency,
-            unit_amount: validation.amountInt,
+            unit_amount: effectiveAmountCents,
             product_data: {
               name: validation.courseTitle,
               description: [validation.courseSlug, effectiveSession.date, effectiveSession.time].filter(Boolean).join(" • "),
@@ -381,6 +427,8 @@ export async function POST(req: Request) {
         consecutiveLinkedCourseTime: validation.consecutiveLinkedCourseTime || "",
         consecutiveAddOnOnly: String(validation.consecutiveAddOnOnly),
         linkedFromCourseSlug: validation.linkedFromCourseSlug || "",
+        ...heritagePinMetadata,
+        ...heritagePinPricingMetadata,
       },
     })
 
