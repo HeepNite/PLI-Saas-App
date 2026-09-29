@@ -8,6 +8,7 @@ import {
   normalizeHeritagePinCountryCode,
   resolveHeritagePinPrice,
 } from "@/lib/campaigns/heritage-pin"
+import type { HeritagePinEntitlement } from "@/lib/campaigns/heritage-pin"
 
 describe("Heritage Pin campaign", () => {
   it("uses bounded defaults and accepts a safe first-week-of-November extension", () => {
@@ -65,7 +66,7 @@ describe("Heritage Pin campaign", () => {
   })
 
   it("applies the fixed price only to a delivered holder's non-stacked Sunday or Monday drop-in", () => {
-    const delivered = {
+    const delivered: HeritagePinEntitlement = {
       campaign: HERITAGE_PIN_CAMPAIGN_KEY,
       sourcePurchaseId: "source",
       countryCode: "CO",
