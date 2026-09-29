@@ -238,6 +238,15 @@ export type ProfileLastCourse = {
 
 export type ProfilePinStatus = "enrolled" | "provisional" | "none"
 
+export type ProfileHeritagePin = {
+  status: "pending" | "delivered"
+  countryCode: string
+  countryName: string
+  sourcePurchaseId: string
+  earnedAt: string
+  deliveredAt: string | null
+}
+
 export type ProfileCashSettlement = {
   paymentId: string
   settlementStatus: "pending" | "paid"
@@ -271,6 +280,7 @@ export type StudentProfileCard = {
   outstandingBalance: number | null
   pinStatus: ProfilePinStatus
   provisionalPinExpiresAt?: string
+  heritagePin?: ProfileHeritagePin | null
   cashSettlement: ProfileCashSettlement | null
   pendingSettlement: ProfileCashSettlement | null
   pointsBalance: number
