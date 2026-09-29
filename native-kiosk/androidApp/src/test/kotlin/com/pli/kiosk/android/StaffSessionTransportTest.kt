@@ -56,7 +56,7 @@ class StaffSessionTransportTest {
     fun purchaseApiSendsOnlyPhoneForLookupAndMapsExplicitLookupOutcomes() {
         val session = StaffSession(origin.value, "association", "session-value", now + 1)
         val successClient = RecordingStaffSessionHttpClient(
-            HttpResponse(200, emptyMap(), """{"student":{"id":"student_fixture","name":"Fixture student"}}""".toByteArray()),
+            HttpResponse(200, emptyMap(), """{"student":{"name":"Fixture student"}}""".toByteArray()),
         )
         val successApi = StaffSessionPurchaseApi(StaffSessionTransport(origin, successClient) { now })
 
