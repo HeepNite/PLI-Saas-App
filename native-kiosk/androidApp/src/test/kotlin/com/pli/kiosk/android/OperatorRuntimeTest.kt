@@ -28,6 +28,25 @@ class OperatorRuntimeTest {
     }
 
     @Test
+    fun resolvedStartupStateRollsOverToTheCleanOriginalSession() {
+        val session = StaffSession("https://approved.invalid", "session", "cookie", 2_000_000)
+        val resolved = DurableState(session, AttemptState(
+            AttemptTicket("ticket", 2_000_000, "tmr_current", Approved.LOCATION),
+            session.association, session.origin, "pi_paid", resolved = true,
+        ))
+        var written: DurableState? = null
+        val store = object : StateStore {
+            override fun read() = resolved
+            override fun write(state: DurableState) { written = state }
+        }
+
+        val clean = clearResolvedAttempt(store, resolved)
+
+        assertEquals(DurableState(session), clean)
+        assertEquals(clean, written)
+    }
+
+    @Test
     fun kioskApplicationComposesTheRealProductionRuntimeAndFailsClosedWithoutFreshContext() {
         val app = KioskApplication()
         val terminal = AsyncTerminal()
