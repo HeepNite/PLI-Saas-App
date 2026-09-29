@@ -6,6 +6,13 @@ import { useRouter } from "next/navigation"
 import { RefreshCw, Search } from "lucide-react"
 import type { CourseData } from "@/constants/courses"
 import {
+  HeritageBookButton,
+  HeritageCampaignBanner,
+  HeritageCampaignPromoDialog,
+  HeritageCountryDialog,
+  isHeritageCampaignAcquiringNow,
+} from "@/components/front/booking/HeritageCampaignBooking"
+import {
   BOOKING_CLASS_TYPE_LABELS,
   buildShareableBookingOccurrences,
   filterBookingOccurrences,
@@ -85,7 +92,10 @@ export function BookingBrandHeader() {
         priority
         className="h-auto w-44 object-contain sm:w-52"
       />
-      <h1 className="mt-7 text-4xl font-black tracking-[-0.035em] text-white sm:text-5xl">Upcoming classes</h1>
+      <div className="mt-7 w-full">
+        <HeritageCampaignBanner />
+      </div>
+      <h1 className="text-4xl font-black tracking-[-0.035em] text-white sm:text-5xl">Upcoming classes</h1>
       <p className="mt-3 text-base text-white/58">Choose your month, find your style, and book your class.</p>
     </header>
   )
@@ -267,15 +277,12 @@ export function BookingPageContent({
                         </p>
                         <p className="mt-1 truncate text-[10px] text-white/42 sm:text-xs">{occurrence.instructorName}</p>
                       </div>
-                      <button
-                        type="button"
-                        aria-label={`Book ${occurrence.title} on ${occurrence.date} at ${formatTime(occurrence.time)}`}
+                      <HeritageBookButton
+                        occurrence={occurrence}
+                        busy={isNavigating}
                         disabled={isDisabled}
-                        onClick={() => onSelect(occurrence)}
-                        className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-[#b61616] text-[9px] font-black tracking-[0.08em] text-white transition hover:scale-[1.03] hover:bg-[#d51f2b] disabled:cursor-not-allowed disabled:opacity-45 sm:h-[60px] sm:w-[60px] sm:text-[10px]"
-                      >
-                        {isNavigating ? "OPEN" : "BOOK"}
-                      </button>
+                        onSelect={() => onSelect(occurrence)}
+                      />
                     </article>
                   )
                 })}
@@ -296,6 +303,9 @@ export default function ShareableBookingPage() {
   const [selectedClassType, setSelectedClassType] = React.useState<BookingClassTypeFilter>("all")
   const [searchQuery, setSearchQuery] = React.useState("")
   const [navigatingId, setNavigatingId] = React.useState<string | null>(null)
+  const [pendingOccurrence, setPendingOccurrence] = React.useState<ShareableBookingOccurrence | null>(null)
+  const [promoOpen, setPromoOpen] = React.useState(false)
+  const pendingOccurrenceRef = React.useRef<ShareableBookingOccurrence | null>(null)
   const navigationStartedRef = React.useRef(false)
   const [requestVersion, setRequestVersion] = React.useState(0)
 
@@ -322,12 +332,48 @@ export default function ShareableBookingPage() {
     return () => controller.abort()
   }, [requestVersion])
 
-  const selectOccurrence = (occurrence: ShareableBookingOccurrence) => {
+  React.useEffect(() => {
+    pendingOccurrenceRef.current = pendingOccurrence
+  }, [pendingOccurrence])
+
+  React.useEffect(() => {
+    if (!isHeritageCampaignAcquiringNow()) return
+    const sessionKey = "pli:heritage-promo-seen"
+    if (window.sessionStorage.getItem(sessionKey)) return
+
+    const timer = window.setTimeout(() => {
+      window.sessionStorage.setItem(sessionKey, "true")
+      if (!pendingOccurrenceRef.current && !navigationStartedRef.current) setPromoOpen(true)
+    }, 10_000)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const closePromo = React.useCallback(() => setPromoOpen(false), [])
+
+  const navigateToOccurrence = React.useCallback((occurrence: ShareableBookingOccurrence, countryCode?: string) => {
     if (navigationStartedRef.current) return
     navigationStartedRef.current = true
+    setPendingOccurrence(null)
     setNavigatingId(occurrence.id)
-    router.push(occurrence.bookingUrl)
+    if (!countryCode) {
+      router.push(occurrence.bookingUrl)
+      return
+    }
+    const separator = occurrence.bookingUrl.includes("?") ? "&" : "?"
+    router.push(`${occurrence.bookingUrl}${separator}bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(countryCode)}`)
+  }, [router])
+
+  const selectOccurrence = (occurrence: ShareableBookingOccurrence) => {
+    setPromoOpen(false)
+    window.sessionStorage.setItem("pli:heritage-promo-seen", "true")
+    if (isHeritageCampaignAcquiringNow()) {
+      setPendingOccurrence(occurrence)
+      return
+    }
+    navigateToOccurrence(occurrence)
   }
+
+  const closeCountryDialog = React.useCallback(() => setPendingOccurrence(null), [])
 
   return (
     <main className="min-h-screen bg-[#09070d] px-4 py-8 font-bricolage sm:px-6 sm:py-12 lg:py-16">
@@ -348,6 +394,14 @@ export default function ShareableBookingPage() {
           onRetry={() => setRequestVersion((version) => version + 1)}
         />
       </section>
+      {promoOpen ? <HeritageCampaignPromoDialog onClose={closePromo} /> : null}
+      {pendingOccurrence ? (
+        <HeritageCountryDialog
+          occurrence={pendingOccurrence}
+          onCancel={closeCountryDialog}
+          onConfirm={(countryCode) => navigateToOccurrence(pendingOccurrence, countryCode)}
+        />
+      ) : null}
     </main>
   )
 }
