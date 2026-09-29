@@ -19,6 +19,11 @@ data class SelfServiceRollover(
     val startSource: () -> TransientCollectionStart,
 )
 
+internal fun clearResolvedAttempt(store: StateStore, state: DurableState): DurableState {
+    if (state.attempt?.resolved != true) return state
+    return DurableState(state.session).also(store::write)
+}
+
 /**
  * Production UI binding. Its collection source is a coordinator call, so the original ID is
  * durable before Terminal receives its transient client secret. Login is available only where the
@@ -194,7 +199,7 @@ class KioskApplication : Application() {
         val transport = StaffSessionTransport(origin, System::currentTimeMillis)
         var purchase = PurchaseCoordinator(origin, store, StaffSessionPurchaseApi(transport), System::currentTimeMillis)
         val loginSource = { slug: String, pin: CharArray -> purchase.login { transport.login(slug, pin) }; Unit }
-        val state = runCatching(store::read).getOrElse { return }
+        val state = runCatching { clearResolvedAttempt(store, store.read()) }.getOrElse { return }
         val nativeForTicket: (AttemptTicket) -> NativeCollectionRuntime = { boundTicket ->
             val latest = store.read()
             val boundSession = requireNotNull(latest.session) { "Original staff session is unavailable" }
