@@ -58,7 +58,10 @@ object DisabledOperatorRuntime : OperatorRuntime {
     override val recoveryEnabled = false
     override val studentLookupEnabled = false
     override val discoveredReaders: List<ConnectedReader> = emptyList()
-    override fun login(slug: String, pin: CharArray) { pin.fill('\u0000') }
+    override fun login(slug: String, pin: CharArray) {
+        pin.fill('\u0000')
+        throw IllegalStateException("Staff login is unavailable")
+    }
     override fun beginAttempt() = Unit
     override fun lookupStudent(phone: String): StudentLookupResult = StudentLookupResult.Invalid
     override fun confirmSelectedStudent(): MinimumStudentIdentity = error("Collection is unavailable")
