@@ -1492,7 +1492,6 @@ export default function EnrollModal({
                   steps={steps}
                   activeStepKey={activeStepKey}
                   isInline={isInline}
-                  allowPanelAccess={allowPanelAccess}
                   usesPhasedInfoForm={usesPhasedInfoForm}
                   kioskInfoPhase={kioskInfoPhase}
                   kioskQrCheckoutLocked={kioskQrCheckoutLocked}

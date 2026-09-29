@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mockFindClerkUserByIdentifiers = vi.fn()
 const mockUserFindMany = vi.fn()
@@ -33,6 +33,8 @@ vi.mock("@/lib/prisma", () => ({
 }))
 
 describe("qr new-student verify route", () => {
+  afterEach(() => vi.unstubAllEnvs())
+
   beforeEach(() => {
     mockFindClerkUserByIdentifiers.mockReset()
     mockUserFindMany.mockReset()
@@ -92,6 +94,30 @@ describe("qr new-student verify route", () => {
       expect(JSON.stringify(mockPurchaseFindFirst.mock.calls[0]?.[0])).not.toContain("contains")
     }
   )
+
+  it("recognizes a reserved Clerk phone in the guarded codex/develop preview", async () => {
+    vi.stubEnv("VERCEL_ENV", "preview")
+    vi.stubEnv("VERCEL_GIT_COMMIT_REF", "codex/develop")
+    vi.stubEnv("CLERK_SECRET_KEY", "sk_test_example")
+    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_demo" })
+    mockPurchaseFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const res = await POST(new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+1 (555) 555-0111" }),
+    }))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.exists).toBe(true)
+    expect(data.sources.clerk).toBe(true)
+    expect(mockFindClerkUserByIdentifiers).toHaveBeenCalledWith({
+      phone: "+15555550111",
+      email: undefined,
+    })
+  })
 
   it.each(["525512345678", "+80012345678", "+12005550123"])(
     "rejects unsupported phone input %s before lookup",

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
   buildExactPhoneLookup,
@@ -6,9 +6,12 @@ import {
   getPhoneCountryCatalog,
   parseCanonicalPhone,
   parseNationalPhone,
+  parseServerPhoneInput,
   type ParsedPhone,
   type PhoneParseResult,
 } from "@/lib/phone"
+
+afterEach(() => vi.unstubAllEnvs())
 
 const expectParsedPhone = (result: PhoneParseResult): ParsedPhone => {
   expect(result.ok).toBe(true)
@@ -111,6 +114,43 @@ describe("phone domain", () => {
       ["+80012345678", "non_geographic"],
     ] as const)("rejects %j as %s", (input, reason) => {
       expect(parseCanonicalPhone(input)).toEqual({ ok: false, reason })
+    })
+  })
+
+  describe("guarded Clerk test numbers", () => {
+    const enableCodexDemo = () => {
+      vi.stubEnv("VERCEL_ENV", "preview")
+      vi.stubEnv("VERCEL_GIT_COMMIT_REF", "codex/develop")
+      vi.stubEnv("CLERK_SECRET_KEY", "sk_test_example")
+    }
+
+    it("accepts Clerk's reserved range only in the codex/develop test preview", () => {
+      enableCodexDemo()
+
+      expect(expectParsedPhone(parseServerPhoneInput("+1 (555) 555-0111"))).toMatchObject({
+        country: "US",
+        e164: "+15555550111",
+        digits: "15555550111",
+        nationalNumber: "5555550111",
+      })
+    })
+
+    it.each([
+      ["production", "codex/develop", "sk_test_example"],
+      ["preview", "feature/other", "sk_test_example"],
+      ["preview", "codex/develop", "sk_live_example"],
+    ])("rejects the range outside the guarded demo environment", (environment, branch, secret) => {
+      vi.stubEnv("VERCEL_ENV", environment)
+      vi.stubEnv("VERCEL_GIT_COMMIT_REF", branch)
+      vi.stubEnv("CLERK_SECRET_KEY", secret)
+
+      expect(parseServerPhoneInput("+15555550111")).toEqual({ ok: false, reason: "invalid" })
+    })
+
+    it("does not expand the exception beyond Clerk's documented range", () => {
+      enableCodexDemo()
+
+      expect(parseServerPhoneInput("+15555550200")).toEqual({ ok: false, reason: "invalid" })
     })
   })
 

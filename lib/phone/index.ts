@@ -109,10 +109,39 @@ export const parseCanonicalPhone = (input: string): PhoneParseResult => {
   }
 }
 
+const isCodexDevelopClerkTestPreview = () =>
+  process.env.VERCEL_ENV === "preview" &&
+  process.env.VERCEL_GIT_COMMIT_REF === "codex/develop" &&
+  process.env.CLERK_SECRET_KEY?.startsWith("sk_test_") === true
+
+const parseGuardedClerkTestPhone = (value: string): PhoneParseResult | null => {
+  if (!isCodexDevelopClerkTestPreview()) return null
+  if (!/^\d{10}$/.test(value) && !/^\+1[\d\s().-]+$/.test(value)) return null
+
+  const digits = value.replace(/\D/g, "")
+  const nationalNumber = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits
+  if (!/^55555501\d{2}$/.test(nationalNumber)) return null
+
+  return {
+    ok: true,
+    phone: {
+      country: "US",
+      callingCode: "1",
+      nationalNumber,
+      nationalDisplay: `(${nationalNumber.slice(0, 3)}) ${nationalNumber.slice(3, 6)}-${nationalNumber.slice(6)}`,
+      e164: `+1${nationalNumber}`,
+      digits: `1${nationalNumber}`,
+    },
+  }
+}
+
 export const parseServerPhoneInput = (input: string): PhoneParseResult => {
   const value = input.trim()
   const canonical = parseCanonicalPhone(value)
   if (canonical.ok || !value) return canonical
+
+  const clerkTestPhone = parseGuardedClerkTestPhone(value)
+  if (clerkTestPhone) return clerkTestPhone
 
   if (/^\d{10}$/.test(value)) {
     return parseNationalPhone(value, "US")

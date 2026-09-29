@@ -60,6 +60,13 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Make the public booking handoff continuously campaign-branded: no generic course skeleton, announcement, navigation, footer, or home chrome before/during the enrollment process; retain the PLI logo and Heritage heading above the process.
   - Evidence: 14 focused Vitest checks passed; isolated Playwright booking journey passed; typecheck and diff check passed; scoped ESLint has only six pre-existing `EnrollModal` warnings; desktop/mobile screenshots verified varied filtered-row flag pins, campaign-window-only side rails, hidden chrome, logo + Heritage heading, and a centered dark process card; direct and delayed-SPA handoffs showed no generic course/home content. Final candidate is 333 changed lines and native review approved it. Work-unit commit: `27a33177420c4dc14b867a3f1d1a43acb40e0547`.
 
+- [ ] 7. Polish compact booking navigation and reconcile demo test phones.
+  - Keep exactly two footer actions: `Cancel | Continue` on the first step and `Back | Continue` afterward.
+  - Accept Clerk's reserved `+1 555-555-0100…0199` test range only in the `codex/develop` preview/demo environment; production MUST continue rejecting it.
+  - Reconcile only the authorized Clerk test instance and Railway demo database after a read-only dry-run and local backup, aborting if either environment guard fails.
+  - Cover production rejection, demo acceptance, footer behavior, and exact identity lookup with focused tests.
+  - Evidence: UI and guarded parser implemented in commit `0b07fb74c7b11d3c226621b79f1601249a41dbc0`; 85 focused tests, typecheck, diff check, and scoped ESLint (six pre-existing `EnrollModal` warnings only) passed; native reliability review `review-0d1258da8b1db53e` approved and was acknowledged. Infrastructure analysis proved `dev.palladiumlatin.art` still resolves the historical 7-course `Postgres`, while `Postgres-g1Qy` is the intended 8-course demo with all six current Clerk test phones. The user selected a six-user source-of-truth strategy: switch only the `codex/develop` preview override to `Postgres-g1Qy`, relink stale `0101`/`0123` rows to current Clerk IDs, and leave five DB-only demo rows untouched. Backup, transactional write, branch-scoped Vercel update, redeploy, and rollback evidence are pending.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.
