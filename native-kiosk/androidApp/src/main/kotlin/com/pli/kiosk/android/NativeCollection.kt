@@ -112,9 +112,7 @@ class NativeCollectionRuntime(
     private val provisionedReaderId: String? = originalTicket.readerId,
     private val deadlineScheduler: CollectionDeadlineScheduler = NoopCollectionDeadlineScheduler,
     private val backgroundExecutor: NativeBackgroundExecutor = DirectNativeBackgroundExecutor,
-    private val authority: () -> NativeCollectionAuthority = {
-        NativeCollectionAuthority(originalSession, originalTicket, null)
-    },
+    private val authority: (() -> NativeCollectionAuthority)? = null,
 ) {
     companion object { const val DISCOVERY_TIMEOUT_MS = 10_000; const val COLLECTION_TIMEOUT_MS = 90_000L }
     private var initialized = false
@@ -325,12 +323,13 @@ class NativeCollectionRuntime(
     private fun notifyState() { stateListener?.invoke() }
     private fun requireReadyForReaderWork() { check(configuration.collectionEnabled && initialized) { "Native collection is disabled or uninitialized" }; validateOriginalContext() }
     private fun hasCurrentAuthority(): Boolean {
-        val current = authority()
+        val current = authority?.invoke()
+            ?: NativeCollectionAuthority(originalSession, originalTicket, connectedReaderId)
         return current.session == originalSession && current.ticket == originalTicket &&
             originalSession.origin == configuration.approvedOrigin && originalSession.association.isNotBlank() &&
             originalSession.expiresAt > clock() && originalTicket.expiresAt > clock() &&
             originalTicket.locationId == Approved.LOCATION &&
-            (connectedReaderId == null || current.observedReaderId == null || current.observedReaderId == connectedReaderId)
+            (connectedReaderId == null || current.observedReaderId == connectedReaderId)
     }
     private fun validateOriginalContext() { require(hasCurrentAuthority()) { "Original session, ticket, reader, or expiry changed" } }
 }
