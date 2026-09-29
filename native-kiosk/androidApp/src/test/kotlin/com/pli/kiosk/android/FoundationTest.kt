@@ -238,7 +238,7 @@ class FoundationTest {
     private fun config() = JSONObject().put("accountId", Approved.ACCOUNT)
         .put("productId", Approved.PRODUCT).put("priceId", Approved.PRICE)
         .put("locationId", Approved.LOCATION).put("amount", 100).put("currency", "usd")
-        .put("paymentCreationEnabled", true)
+        .put("paymentCreationEnabled", true).put("livemode", true)
 
     @Test fun parserRejectsCatalogAndModeOverridesAndInconsistentPaid() {
         Contract.preflight(config())
@@ -246,6 +246,7 @@ class FoundationTest {
             assertFails { Contract.preflight(config().put(it, "wrong")) }
         }
         assertFails { Contract.preflight(config().put("livemode", false)) }
+        assertFails { Contract.preflight(config().apply { remove("livemode") }) }
         assertFails { Contract.preflight(config().put("paymentCreationEnabled", "true")) }
         assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"processing","paid":true}"""), false) }
         assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"succeeded","paid":false}"""), false) }
