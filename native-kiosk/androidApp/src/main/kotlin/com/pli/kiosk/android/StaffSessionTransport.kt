@@ -91,8 +91,8 @@ class StaffSessionTransport private constructor(
 
 /**
  * Maps only the fixed internal-purchase protocol onto the durable coordinator. The lookup response
- * deliberately discards the server's internal user ID after validating it: later attempt creation
- * carries the confirmed phone, and the server re-resolves and signs its own recipient binding.
+ * exposes only the display name: later attempt creation carries the confirmed phone, and the server
+ * re-resolves and signs its own recipient binding without exposing its internal user ID.
  */
 class StaffSessionPurchaseApi(
     private val transport: StaffSessionTransport,
@@ -103,8 +103,6 @@ class StaffSessionPurchaseApi(
             200 -> {
                 val root = json(response)
                 val student = root.opt("student") as? JSONObject ?: throw IOException("Student lookup response is invalid")
-                val id = student.opt("id") as? String ?: throw IOException("Student lookup response is invalid")
-                if (id.isBlank()) throw IOException("Student lookup response is invalid")
                 val name = when (val value = student.opt("name")) {
                     JSONObject.NULL -> null
                     is String -> value
