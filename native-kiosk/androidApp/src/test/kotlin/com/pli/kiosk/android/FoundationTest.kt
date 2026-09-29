@@ -247,6 +247,7 @@ class FoundationTest {
         }
         assertFails { Contract.preflight(config().put("livemode", false)) }
         assertFails { Contract.preflight(config().apply { remove("livemode") }) }
+        assertFails { Contract.preflight(config().put("paymentCreationEnabled", false)) }
         assertFails { Contract.preflight(config().put("paymentCreationEnabled", "true")) }
         assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"processing","paid":true}"""), false) }
         assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"succeeded","paid":false}"""), false) }
