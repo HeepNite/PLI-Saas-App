@@ -60,6 +60,13 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Make the public booking handoff continuously campaign-branded: no generic course skeleton, announcement, navigation, footer, or home chrome before/during the enrollment process; retain the PLI logo and Heritage heading above the process.
   - Evidence: 14 focused Vitest checks passed; isolated Playwright booking journey passed; typecheck and diff check passed; scoped ESLint has only six pre-existing `EnrollModal` warnings; desktop/mobile screenshots verified varied filtered-row flag pins, campaign-window-only side rails, hidden chrome, logo + Heritage heading, and a centered dark process card; direct and delayed-SPA handoffs showed no generic course/home content. Final candidate is 333 changed lines and native review approved it. Work-unit commit: `27a33177420c4dc14b867a3f1d1a43acb40e0547`.
 
+- [ ] 7. Polish compact booking navigation and reconcile demo test phones.
+  - Keep exactly two footer actions: `Cancel | Continue` on the first step and `Back | Continue` afterward.
+  - Accept Clerk's reserved `+1 555-555-0100…0199` test range only in the `codex/develop` preview/demo environment; production MUST continue rejecting it.
+  - Reconcile only the authorized Clerk test instance and Railway demo database after a read-only dry-run and local backup, aborting if either environment guard fails.
+  - Cover production rejection, demo acceptance, footer behavior, and exact identity lookup with focused tests.
+  - Evidence: UI and guarded parser implemented; 85 focused tests, typecheck, diff check, and scoped ESLint (six pre-existing `EnrollModal` warnings only) passed. Existing Playwright journey passed before the new footer assertions; local browser readback is currently blocked because locally retrievable environment files do not expose the branch deployment's populated catalog/complete sensitive configuration. Read-only reconciliation dry-run found six Clerk test identities requiring DB mirrors and one orphaned DB `0102` row, created a mode-0600 `/tmp` backup, and performed zero writes. Vercel CLI redacts current sensitive DB values while a historical production env references the same Railway endpoint, so the user-authorized demo-only reconciliation remains fail-closed until database isolation is independently proven.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.
