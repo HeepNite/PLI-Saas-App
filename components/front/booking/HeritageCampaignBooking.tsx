@@ -16,9 +16,63 @@ export const countryCodeToFlag = (countryCode: string) =>
     .toUpperCase()
     .replace(/[A-Z]/g, (character) => String.fromCodePoint(127397 + character.charCodeAt(0)))
 
-export const getDecorativeBookingFlag = (occurrenceId: string) => {
-  const hash = [...occurrenceId].reduce((sum, character) => sum + character.charCodeAt(0), 0)
-  return DECORATIVE_FLAG_CODES[hash % DECORATIVE_FLAG_CODES.length]
+const stableFlagHash = (value: string) => {
+  let hash = 2166136261
+  for (const character of value) {
+    hash ^= character.charCodeAt(0)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+export const getDecorativeBookingFlag = (occurrenceId: string, occurrenceIndex?: number) => {
+  const index = typeof occurrenceIndex === "number" && occurrenceIndex >= 0
+    ? occurrenceIndex
+    : stableFlagHash(occurrenceId)
+  return DECORATIVE_FLAG_CODES[index % DECORATIVE_FLAG_CODES.length]
+}
+
+function EnamelFlagPin({ code, className = "" }: { code: string; className?: string }) {
+  return (
+    <span
+      className={`relative flex items-center justify-center overflow-hidden rounded-full border-[3px] border-[#777982] bg-[linear-gradient(145deg,#555861,#191a20_72%)] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34),inset_0_-5px_10px_rgba(0,0,0,0.42),0_7px_18px_rgba(0,0,0,0.48)] ${className}`}
+      aria-hidden="true"
+    >
+      <span className="absolute inset-[4px] rounded-full bg-[radial-gradient(circle_at_35%_26%,#ffffff_0%,#f4f4f4_46%,#d5d5d5_72%,#8f9198_100%)] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.16)]" />
+      <span className="relative z-10 scale-[1.18] drop-shadow-[0_1px_1px_rgba(0,0,0,0.28)]">
+        {countryCodeToFlag(code)}
+      </span>
+      <span className="absolute left-[18%] top-[10%] z-20 h-[24%] w-[42%] -rotate-[28deg] rounded-full bg-white/45 blur-[1px]" />
+    </span>
+  )
+}
+
+export function HeritageFlagRails() {
+  const leftFlags = DECORATIVE_FLAG_CODES.slice(0, 4)
+  const rightFlags = DECORATIVE_FLAG_CODES.slice(4)
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-0 hidden 2xl:block" aria-hidden="true" data-heritage-flag-rails="true">
+      <div className="absolute left-10 top-1/2 flex -translate-y-1/2 flex-col items-center gap-9 opacity-75">
+        {leftFlags.map((code, index) => (
+          <EnamelFlagPin
+            key={code}
+            code={code}
+            className={`h-12 w-12 text-[27px] ${index % 2 === 0 ? "-translate-x-1 -rotate-6" : "translate-x-3 rotate-6"}`}
+          />
+        ))}
+      </div>
+      <div className="absolute right-10 top-1/2 flex -translate-y-1/2 flex-col items-center gap-9 opacity-75">
+        {rightFlags.map((code, index) => (
+          <EnamelFlagPin
+            key={code}
+            code={code}
+            className={`h-12 w-12 text-[27px] ${index % 2 === 0 ? "translate-x-1 rotate-6" : "-translate-x-3 -rotate-6"}`}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export const isHeritageCampaignAcquiringNow = () => isHeritagePinAcquisitionDate(new Date())
@@ -125,16 +179,18 @@ export function HeritageCampaignPromoDialog({ onClose }: { onClose: () => void }
 
 export function HeritageBookButton({
   occurrence,
+  decorativeIndex,
   busy,
   disabled,
   onSelect,
 }: {
   occurrence: ShareableBookingOccurrence
+  decorativeIndex?: number
   busy: boolean
   disabled: boolean
   onSelect: () => void
 }) {
-  const flagCode = getDecorativeBookingFlag(occurrence.id)
+  const flagCode = getDecorativeBookingFlag(occurrence.id, decorativeIndex)
   const label = `Book ${occurrence.title} on ${occurrence.date}`
 
   return (
@@ -146,12 +202,9 @@ export function HeritageBookButton({
       className="group h-[52px] w-[52px] rounded-full [perspective:600px] disabled:cursor-not-allowed disabled:opacity-45 sm:h-[60px] sm:w-[60px]"
     >
       <span className="relative block h-full w-full rounded-full transition-transform duration-500 [transform-style:preserve-3d] motion-safe:group-hover:[transform:rotateY(180deg)] motion-safe:group-focus-visible:[transform:rotateY(180deg)] motion-reduce:transition-colors">
-        <span
-          className="absolute inset-0 flex items-center justify-center rounded-full border-[3px] border-[#74747c] bg-[#24242a] text-[25px] shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),0_5px_16px_rgba(0,0,0,0.38)] [backface-visibility:hidden] sm:text-[30px]"
-          aria-hidden="true"
-        >
-          <span>{countryCodeToFlag(flagCode)}</span>
-          <span className="absolute bottom-[-2px] rounded-full bg-[#b61616] px-1.5 py-0.5 text-[7px] font-black tracking-[0.08em] text-white shadow sm:hidden">
+        <span className="absolute inset-0 [backface-visibility:hidden]" aria-hidden="true">
+          <EnamelFlagPin code={flagCode} className="h-full w-full text-[28px] sm:text-[34px]" />
+          <span className="absolute bottom-[-2px] left-1/2 z-30 -translate-x-1/2 rounded-full border border-white/20 bg-[#b61616] px-1.5 py-0.5 text-[7px] font-black tracking-[0.08em] text-white shadow sm:hidden">
             BOOK
           </span>
         </span>
