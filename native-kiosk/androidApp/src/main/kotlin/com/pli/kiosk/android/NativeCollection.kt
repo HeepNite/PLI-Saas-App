@@ -311,9 +311,11 @@ class NativeCollectionRuntime(
                     RecoveryState.ManualReconciliation -> transition(NativeCollectionState.MANUAL_RECONCILIATION)
                     is RecoveryState.FromServer -> {
                         val payment = recovered.payment
-                        if (manualReconnectRequired) transition(NativeCollectionState.RECONNECT_REQUIRED)
-                        else if (payment.id != attempt.paymentIntentId || (payment.status == "succeeded") != payment.paid) transition(NativeCollectionState.MANUAL_RECONCILIATION)
-                        else transition(if (payment.paid) NativeCollectionState.PAID else NativeCollectionState.UNRESOLVED)
+                        if (payment.id != attempt.paymentIntentId || (payment.status == "succeeded") != payment.paid) {
+                            transition(NativeCollectionState.MANUAL_RECONCILIATION)
+                        } else if (payment.paid) transition(NativeCollectionState.PAID)
+                        else if (manualReconnectRequired) transition(NativeCollectionState.RECONNECT_REQUIRED)
+                        else transition(NativeCollectionState.UNRESOLVED)
                     }
                 }
             }
