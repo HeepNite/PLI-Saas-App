@@ -21,6 +21,12 @@ import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
 import java.util.concurrent.Executors
 
+internal class RotatingConnectionTokenProvider {
+    @Volatile private var source: (() -> String)? = null
+    fun update(source: () -> String) { this.source = source }
+    fun fetch(): String = requireNotNull(source) { "Connection token provider is unavailable" }.invoke()
+}
+
 /**
  * The sole production mapping to the locally verified Terminal 5.6.0 APIs. It makes no reader
  * selection, payment decision, or server-authority decision; NativeCollectionRuntime owns those.
@@ -47,6 +53,7 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
 
     override fun initialize(connectionTokenProvider: () -> String) {
         synchronized(processLock) {
+            connectionTokens.update(connectionTokenProvider)
             if (initialized) return
             check(!Terminal.isInitialized()) { "Stripe Terminal was initialized outside this application composition" }
             Terminal.init(
@@ -56,7 +63,7 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
                     override fun fetchConnectionToken(callback: ConnectionTokenCallback) {
                         tokenExecutor.execute {
                             try {
-                                callback.onSuccess(connectionTokenProvider())
+                                callback.onSuccess(connectionTokens.fetch())
                             } catch (error: Exception) {
                                 callback.onFailure(ConnectionTokenException("Original-session connection token unavailable", error))
                             }
@@ -219,6 +226,7 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
 
     private companion object {
         val processLock = Any()
+        val connectionTokens = RotatingConnectionTokenProvider()
         var initialized = false
     }
 }
