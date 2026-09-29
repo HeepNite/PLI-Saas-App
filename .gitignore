@@ -56,3 +56,6 @@ test-results/
 
 # agent teams / atl
 .atl/
+
+# production credential scratch space
+.scratch-prod/

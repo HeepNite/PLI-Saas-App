@@ -42,7 +42,7 @@ describe("qr new-student verify route", () => {
     mockClerkGetUser.mockReset()
     mockAuth.mockResolvedValue({ userId: null })
     mockUserFindMany.mockResolvedValue([])
-    process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/test"
+    process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/test" // secret-scan: allow
   })
 
   it("returns 400 for invalid identifiers", async () => {
