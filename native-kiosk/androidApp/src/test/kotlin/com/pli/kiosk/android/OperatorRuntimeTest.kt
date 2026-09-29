@@ -17,6 +17,17 @@ import kotlin.test.assertTrue
 @Config(sdk = [35], application = Application::class)
 class OperatorRuntimeTest {
     @Test
+    fun disabledRuntimeRejectsLoginAndClearsPin() {
+        val pin = "1234".toCharArray()
+        var accepted = true
+
+        DisabledOperatorRuntime.loginAsync("front-desk", pin) { accepted = it }
+
+        assertFalse(accepted)
+        assertTrue(pin.all { it == '\u0000' })
+    }
+
+    @Test
     fun kioskApplicationComposesTheRealProductionRuntimeAndFailsClosedWithoutFreshContext() {
         val app = KioskApplication()
         val terminal = AsyncTerminal()
