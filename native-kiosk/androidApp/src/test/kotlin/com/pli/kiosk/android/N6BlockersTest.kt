@@ -92,6 +92,21 @@ class N6BlockersTest {
         assertTrue(terminal.operations.none { it.startsWith("collect") })
     }
 
+    @Test fun disconnectRecoveryHonorsServerPaidWithoutRequiringReaderReconnect() {
+        val terminal = DeferredTerminal(reader).apply { retrieveImmediately = true; deferCollect = true }
+        val recovery = RecordingRecovery(PaymentResult("pi_same", "succeeded", true))
+        val runtime = runtime(terminal, recovery)
+        connect(runtime, terminal)
+        runtime.start(DurableAttempt(ticket, "pi_same"), "secret")
+
+        runtime.onReaderDisconnected()
+        assertEquals(NativeCollectionState.CANCELLING, runtime.state)
+        terminal.completeCollectFailure()
+
+        assertEquals(listOf("pi_same"), recovery.ids)
+        assertEquals(NativeCollectionState.PAID, runtime.state)
+    }
+
     @Test fun actualTicketExpiryDuringCollectCancelsThenRecoversTheRetainedId() {
         var clock = now
         val expiringTicket = ticket.copy(expiresAt = now + 1)
@@ -291,9 +306,14 @@ class N6BlockersTest {
         override fun schedule(delayMs: Long, task: () -> Unit): NativeCancelable { this.task = task; return NativeCancelable { this.task = null } }
         fun fire() = requireNotNull(task).invoke()
     }
-    private class RecordingRecovery : PaymentRecovery {
+    private class RecordingRecovery(
+        private val result: PaymentResult = PaymentResult("pi_same", "processing", false),
+    ) : PaymentRecovery {
         val ids = mutableListOf<String>()
-        override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): RecoveryState { ids += paymentIntentId; return RecoveryState.FromServer(PaymentResult(paymentIntentId, "processing", false)) }
+        override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): RecoveryState {
+            ids += paymentIntentId
+            return RecoveryState.FromServer(result)
+        }
     }
     private class QueueExecutor : OperatorBackgroundExecutor {
         private val tasks = ArrayDeque<() -> Unit>()
