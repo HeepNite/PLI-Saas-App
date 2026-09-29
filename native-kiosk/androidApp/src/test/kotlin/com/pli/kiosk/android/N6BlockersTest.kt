@@ -166,21 +166,21 @@ class N6BlockersTest {
         assertFalse(runtime.paymentActionsReachable)
     }
 
-    @Test fun onStartRevalidationDoesNothingWhenAuthorityIsValidButCancelsWhenItChanges() {
+    @Test fun onStartRevalidationDoesNothingWhenAuthorityIsValidButCancelsWhenObservedReaderDisappears() {
         val terminal = DeferredTerminal(reader).apply { retrieveImmediately = true; deferCollect = true }
         val recovery = RecordingRecovery()
-        var currentSession: StaffSession? = session
+        var observedReaderId: String? = reader.id
         val runtime = NativeCollectionRuntime(
             NativeCollectionConfiguration(origin, true), session, ticket, terminal, Permissions(),
             object : ConnectionTokenSource { override fun connectionToken(session: StaffSession) = "token" }, recovery, { now },
-            authority = { NativeCollectionAuthority(currentSession, ticket, null) },
+            authority = { NativeCollectionAuthority(session, ticket, observedReaderId) },
         )
         connect(runtime, terminal)
         runtime.start(DurableAttempt(ticket, "pi_same"), "secret")
         runtime.onApplicationResumed()
         assertEquals(NativeCollectionState.COLLECTING, runtime.state)
 
-        currentSession = session.copy(association = "replacement")
+        observedReaderId = null
         runtime.onApplicationResumed()
         assertEquals(NativeCollectionState.CANCELLING, runtime.state)
         terminal.completeCollectFailure()
