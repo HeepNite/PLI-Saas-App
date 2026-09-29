@@ -7,6 +7,14 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NativeCollectionCompositionTest {
+    @Test fun processTokenProviderUsesTheLatestOriginalSessionSource() {
+        val provider = RotatingConnectionTokenProvider()
+        provider.update { "expired-session-token" }
+        assertEquals("expired-session-token", provider.fetch())
+        provider.update { "replacement-session-token" }
+        assertEquals("replacement-session-token", provider.fetch())
+    }
+
     private val now = 1_000_000L
     private val origin = ApprovedOrigin("https://approved.invalid")
     private val session = StaffSession(origin.value, "session-a", "cookie", now + 120_000)
