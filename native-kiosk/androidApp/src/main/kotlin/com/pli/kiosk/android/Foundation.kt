@@ -410,7 +410,7 @@ object Contract {
         string(payload, "currency", Approved.CURRENCY)
         require(payload.opt("amount") is Number && payload.getLong("amount") == Approved.AMOUNT) { "Invalid amount" }
         require(payload.opt("paymentCreationEnabled") is Boolean) { "Invalid payment gate" }
-        if (payload.has("livemode")) require(payload.opt("livemode") == true) { "The server is not LIVE" }
+        require(payload.opt("livemode") == true) { "The server is not LIVE" }
     }
 
     /** `recovery` rejects a client secret even if the server accidentally sends one. */
