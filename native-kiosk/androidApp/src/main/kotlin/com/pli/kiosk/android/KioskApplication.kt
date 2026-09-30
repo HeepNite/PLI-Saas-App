@@ -1,6 +1,7 @@
 package com.pli.kiosk.android
 
 import android.app.Application
+import android.os.Handler
 import java.util.concurrent.Executors
 
 /** Server calls are serialized off the UI thread; tests inject the direct executor explicitly. */
@@ -22,6 +23,22 @@ data class SelfServiceRollover(
 internal fun clearResolvedAttempt(store: StateStore, state: DurableState): DurableState {
     if (state.attempt?.resolved != true) return state
     return DurableState(state.session).also(store::write)
+}
+
+internal fun retryRuntimeInitialization(
+    attempts: Int = 3,
+    delayMillis: Long = 250,
+    schedule: (Long, () -> Unit) -> Unit,
+    initialize: () -> OperatorRuntime,
+    publish: (OperatorRuntime) -> Unit,
+) {
+    require(attempts > 0)
+    fun attempt(remaining: Int, delay: Long) {
+        val runtime = runCatching(initialize).getOrNull()
+        if (runtime != null) publish(runtime)
+        else if (remaining > 1) runCatching { schedule(delay) { attempt(remaining - 1, delay * 2) } }
+    }
+    attempt(attempts, delayMillis)
 }
 
 /**
@@ -190,16 +207,24 @@ class KioskApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val configuration = NativeCollectionConfiguration.fromBuildConfig()
+        val configuration = runCatching(NativeCollectionConfiguration::fromBuildConfig).getOrElse { return }
         if (!configuration.collectionEnabled) return
+        val handler = Handler(mainLooper)
+        retryRuntimeInitialization(
+            schedule = { delay, task -> handler.postDelayed(task, delay) },
+            initialize = { createProductionRuntime(configuration) },
+            publish = { operatorRuntime = it },
+        )
+    }
 
+    private fun createProductionRuntime(configuration: NativeCollectionConfiguration): OperatorRuntime {
         val origin = ApprovedOrigin(configuration.approvedOrigin)
         val networkExecutor = AndroidOperatorBackgroundExecutor()
         val store = EncryptedStateStore(this)
         val transport = StaffSessionTransport(origin, System::currentTimeMillis)
         var purchase = PurchaseCoordinator(origin, store, StaffSessionPurchaseApi(transport), System::currentTimeMillis)
         val loginSource = { slug: String, pin: CharArray -> purchase.login { transport.login(slug, pin) }; Unit }
-        val state = runCatching { clearResolvedAttempt(store, store.read()) }.getOrElse { return }
+        val state = clearResolvedAttempt(store, store.read())
         val nativeForTicket: (AttemptTicket) -> NativeCollectionRuntime = { boundTicket ->
             val latest = store.read()
             val boundSession = requireNotNull(latest.session) { "Original staff session is unavailable" }
@@ -238,17 +263,14 @@ class KioskApplication : Application() {
         if (session == null || attempt == null || ticket == null || attempt.resolved ||
             attempt.sessionAssociation != session.association || attempt.origin != session.origin
         ) {
-            // The configured runtime can log in and bind a student, but no reader work is exposed
-            // until beginAttempt has durably retained the opaque signed ticket.
-            operatorRuntime = ProductionOperatorRuntime(
+            return ProductionOperatorRuntime(
                 null, purchase, startSource, loginSource, nativeForTicket, networkExecutor, paidRollover,
             )
-            return
         }
 
         val native = nativeForTicket(ticket)
         native.initialize()
-        operatorRuntime = ProductionOperatorRuntime(
+        return ProductionOperatorRuntime(
             native, purchase, startSource, loginSource, nativeForTicket, networkExecutor, paidRollover,
         )
     }
