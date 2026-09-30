@@ -18,8 +18,10 @@ import { detectQrFlow } from "./qr-flow"
  *
  * Reactive via a MutationObserver on `body`'s style attribute + route changes.
  */
-export const shouldHideFloatingChromeForPath = (pathname: string | null | undefined) =>
-  pathname?.replace(/\/+$/, "") === "/booking"
+export const shouldHideFloatingChromeForPath = (pathname: string | null | undefined) => {
+  const normalizedPath = pathname?.replace(/\/+$/, "")
+  return normalizedPath === "/booking" || normalizedPath === "/monday-salsa-beginner"
+}
 
 export function useHideFloatingChrome(): boolean {
   const pathname = usePathname()

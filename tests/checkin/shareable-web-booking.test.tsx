@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it } from "vitest"
 import { BookingBrandHeader, BookingPageContent } from "@/components/front/booking/ShareableBookingPage"
 import { shouldHideFloatingChromeForPath } from "@/lib/checkin/use-hide-floating-chrome"
-import type { ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
+import { focusBookingOccurrences, type ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
 
 const readyOccurrence: ShareableBookingOccurrence = {
   id: "salsa-timba:2026-06-11:19:00",
@@ -32,11 +32,48 @@ describe("booking page brand and chrome", () => {
     expect(html).not.toContain(">BOOK<")
   })
 
-  it("hides floating chrome only on the booking route", () => {
+  it("hides floating chrome on the catalog and promotional booking routes", () => {
     expect(shouldHideFloatingChromeForPath("/booking")).toBe(true)
     expect(shouldHideFloatingChromeForPath("/booking/")).toBe(true)
+    expect(shouldHideFloatingChromeForPath("/monday-salsa-beginner")).toBe(true)
+    expect(shouldHideFloatingChromeForPath("/monday-salsa-beginner/")).toBe(true)
     expect(shouldHideFloatingChromeForPath("/bookings")).toBe(false)
     expect(shouldHideFloatingChromeForPath("/")).toBe(false)
+  })
+})
+
+describe("promotional booking focus", () => {
+  it("keeps only the promoted course's Monday occurrences", () => {
+    const monday = { ...readyOccurrence, id: "monday", slug: "salsa-night-beginner", date: "2026-06-08" }
+    const tuesday = { ...monday, id: "tuesday", date: "2026-06-09" }
+    const otherMonday = { ...monday, id: "other", slug: "bachata-afternoon-for-beginners" }
+
+    expect(focusBookingOccurrences(
+      [monday, tuesday, otherMonday],
+      { courseSlug: "salsa-night-beginner", weekday: 1 },
+    )).toEqual([monday])
+  })
+
+  it("hides broad discovery controls in focused mode", () => {
+    const html = renderToStaticMarkup(
+      <BookingPageContent
+        status="ready"
+        occurrences={[{ ...readyOccurrence, date: "2026-06-08" }]}
+        selectedMonth="2026-06"
+        selectedClassType="all"
+        searchQuery=""
+        onMonthChange={() => undefined}
+        onClassTypeChange={() => undefined}
+        onSearchQueryChange={() => undefined}
+        navigatingId={null}
+        onSelect={() => undefined}
+        focused
+      />
+    )
+
+    expect(html).toContain("Salsa Timba")
+    expect(html).not.toContain("Search classes")
+    expect(html).not.toContain("Filter by month")
   })
 })
 

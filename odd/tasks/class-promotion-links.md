@@ -17,23 +17,23 @@ A staff dashboard for creating and managing promotional aliases is explicitly de
   - Require the Heritage country step to continue into the existing preloaded personal-data and purchase flow.
   - Evidence: `docs/specs/shareable-web-booking/requirements.md` defines the exact route, course/day focus, route-owned filtering, canonical country-to-form handoff, safe empty state, chrome suppression, and deferred dashboard.
 
-- [ ] 2. Add reusable focused-occurrence behavior.
+- [x] 2. Add reusable focused-occurrence behavior.
   - Let the existing booking page accept a trusted route-owned course/day focus.
   - Filter the catalog-derived occurrences without introducing a new endpoint or trusting public query parameters.
   - Hide broad discovery controls in focused mode while preserving the campaign presentation and 90-day policy.
-  - Evidence: pending.
+  - Evidence: `BookingPromotionFocus` and `focusBookingOccurrences` filter the existing catalog-derived 90-day occurrences by exact course slug and New York schedule date; `ShareableBookingPage` hides the discovery toolbar only in route-owned focused mode.
 
-- [ ] 3. Add the short promotional route.
+- [x] 3. Add the short promotional route.
   - Serve `/monday-salsa-beginner` with only future Monday occurrences of `salsa-night-beginner`.
   - Preserve country selection and the canonical booking URL with class, date, time, duration, source, and country.
   - Preserve route-scoped floating chrome suppression and fail safely if the course or Monday occurrences disappear.
-  - Evidence: pending.
+  - Evidence: `app/monday-salsa-beginner/page.tsx` binds the exact slug to weekday 1; focused empty state inherits safe catalog behavior; floating chrome suppression includes the exact route. 30 focused booking/campaign handoff tests, typecheck, diff check, and scoped ESLint pass.
 
 - [ ] 4. Verify and deliver the slice.
   - Cover focused filtering, rendering, route behavior, and country-to-form handoff.
   - Run focused tests, typecheck, scoped lint, diff check, and production build where needed.
   - Deliver to `codex/develop` and verify the short URL only with explicit publishing authorization.
-  - Evidence: pending.
+  - Evidence: 30 focused booking/campaign handoff tests, typecheck, scoped ESLint, diff check, and the production build pass; the build emits `/monday-salsa-beginner`. Remote delivery and live route verification remain pending.
 
 ## Decisions
 
