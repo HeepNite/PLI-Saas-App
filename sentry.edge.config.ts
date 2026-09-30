@@ -5,7 +5,10 @@
 
 import * as Sentry from "@sentry/nextjs"
 
+import { resolveSentryRuntimeConfig } from "./lib/sentry/runtime-config"
+
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN
+const sentryRuntimeConfig = resolveSentryRuntimeConfig(process.env)
 
 Sentry.init({
   dsn,
@@ -16,6 +19,8 @@ Sentry.init({
   // Modest trace sampling — this is a small studio app, not a high-traffic
   // service. Tune upward only if performance data proves useful.
   tracesSampleRate: 0.1,
+  release: sentryRuntimeConfig.release,
+  environment: sentryRuntimeConfig.environment,
 
   debug: false,
 })

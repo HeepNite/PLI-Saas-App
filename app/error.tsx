@@ -2,6 +2,8 @@
 
 import React from "react"
 
+import { captureBoundaryError } from "@/lib/sentry/capture-boundary-error"
+
 export default function GlobalError({
   error,
   reset,
@@ -11,6 +13,7 @@ export default function GlobalError({
 }) {
   React.useEffect(() => {
     console.error("Unhandled error:", error)
+    captureBoundaryError(error, "app")
   }, [error])
 
   return (

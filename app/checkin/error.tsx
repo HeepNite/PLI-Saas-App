@@ -2,6 +2,8 @@
 
 import React from "react"
 
+import { captureBoundaryError } from "@/lib/sentry/capture-boundary-error"
+
 export default function CheckinError({
   error,
   reset,
@@ -11,6 +13,7 @@ export default function CheckinError({
 }) {
   React.useEffect(() => {
     console.error("Check-in error:", error)
+    captureBoundaryError(error, "checkin")
   }, [error])
 
   return (

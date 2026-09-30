@@ -1,7 +1,13 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
 
+import { resolveSentryRuntimeConfig } from "./lib/sentry/runtime-config"
+
 const isDevelopment = process.env.NODE_ENV === "development"
+const sentryRuntimeConfig = resolveSentryRuntimeConfig(process.env)
+const hasSecureSentryBuildMetadata = Boolean(
+  sentryRuntimeConfig.release && process.env.SENTRY_AUTH_TOKEN && process.env.SENTRY_ORG && process.env.SENTRY_PROJECT,
+)
 const devDistId = process.env.PORT?.trim() || String(process.pid)
 
 const securityHeaders = [
@@ -21,6 +27,9 @@ const nextConfig: NextConfig = {
   // in production; without it the feature silently no-ops.
   env: {
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env.VERCEL_GIT_COMMIT_SHA,
+    // Only resolved, non-secret runtime identity is exposed to browser code.
+    NEXT_PUBLIC_SENTRY_RELEASE: sentryRuntimeConfig.release ?? "",
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT: sentryRuntimeConfig.environment,
   },
   experimental: {
     middlewareClientMaxBodySize: "220mb",
@@ -35,16 +44,20 @@ const nextConfig: NextConfig = {
   },
 }
 
-// Source-map upload requires SENTRY_AUTH_TOKEN. Without it, withSentryConfig
-// skips the upload step entirely (dryRun) so local/preview builds without the
-// token never fail — only environments with the token configured (e.g. CI
-// deploys) get uploaded source maps and release annotations.
+// Only invoke Sentry's build wrapper when every upload prerequisite is present.
+// This prevents the SDK from independently detecting a release or configuring an
+// upload path in local and preview builds without scoped build credentials.
 const sentryBuildOptions = {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,
   silent: !process.env.CI,
-  dryRun: !process.env.SENTRY_AUTH_TOKEN,
+  release: {
+    name: sentryRuntimeConfig.release,
+    create: true,
+    finalize: true,
+    deploy: { env: sentryRuntimeConfig.environment },
+  },
 
   // Reduce Sentry's build-time footprint; only opt in to extras we use.
   widenClientFileUpload: false,
@@ -54,6 +67,6 @@ const sentryBuildOptions = {
       removeDebugLogging: true,
     },
   },
-}
+} satisfies NonNullable<Parameters<typeof withSentryConfig>[1]>
 
-export default withSentryConfig(nextConfig, sentryBuildOptions)
+export default hasSecureSentryBuildMetadata ? withSentryConfig(nextConfig, sentryBuildOptions) : nextConfig
