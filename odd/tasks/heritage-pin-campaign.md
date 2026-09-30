@@ -79,6 +79,13 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Add focused coverage proving included boundary examples and excluding unrelated countries such as Albania and Algeria.
   - Evidence: `HERITAGE_PIN_COUNTRY_CODES` is the shared selector/server allowlist; 13 focused campaign tests pass and explicitly reject Albania, Algeria, Brazil, and Equatorial Guinea while accepting Colombia, Puerto Rico, and Spain.
 
+- [x] 10. Normalize country-dialog scrolling.
+  - Lock document scrolling while the modal is open and prevent wheel/touch scroll chaining to the booking page.
+  - Keep the dialog header, search, confirmation action, and explanatory copy fixed; only the country list may scroll.
+  - Replace competing native scrollbars with one narrow rounded thumb that appears during list scrolling and fades afterward.
+  - Verify desktop and compact viewport behavior against the Docker-backed local booking flow.
+  - Evidence: the dialog uses one bounded `overscroll-contain` country list, fixed document locking, explicit wheel containment, and a transient six-pixel campaign thumb. Local Chromium confirmed list scroll `0 → 211`, page scroll remained `0`, the thumb activated during input and faded after 700 ms; 29 focused tests, typecheck, diff check, and scoped ESLint pass.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.

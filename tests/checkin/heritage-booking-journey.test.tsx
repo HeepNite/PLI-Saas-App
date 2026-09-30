@@ -94,6 +94,13 @@ describe("Heritage campaign booking presentation", () => {
       <HeritageCountryDialog occurrence={occurrence} onCancel={() => undefined} onConfirm={onConfirm} />,
     ))
 
+    expect(document.documentElement.style.overflow).toBe("hidden")
+    expect(document.body.style.overflow).toBe("hidden")
+    expect(document.body.style.position).toBe("fixed")
+    const countryList = container.querySelector('[role="listbox"]') as HTMLDivElement
+    await act(async () => countryList.dispatchEvent(new Event("scroll", { bubbles: true })))
+    expect(countryList.className).toContain("heritage-country-scroll--active")
+
     const search = container.querySelector('input[aria-label="Search countries"]') as HTMLInputElement
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "Mexico")
@@ -110,6 +117,9 @@ describe("Heritage campaign booking presentation", () => {
     expect(onConfirm).toHaveBeenCalledWith("MX")
     expect(container.textContent).toContain("flag on the class button is decorative")
     await act(async () => root.unmount())
+    expect(document.documentElement.style.overflow).toBe("")
+    expect(document.body.style.overflow).toBe("")
+    expect(document.body.style.position).toBe("")
   })
 
   it("opens the country step only during the configured New York acquisition window", () => {
