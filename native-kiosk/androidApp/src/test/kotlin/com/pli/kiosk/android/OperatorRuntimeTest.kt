@@ -126,6 +126,18 @@ class OperatorRuntimeTest {
     }
 
     @Test
+    fun bluetoothPermissionsCoverLegacyLocationAndModernScanRequirements() {
+        assertEquals(
+            listOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+            requiredBluetoothPermissions(30).toList(),
+        )
+        assertEquals(
+            listOf(android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_CONNECT),
+            requiredBluetoothPermissions(31).toList(),
+        )
+    }
+
+    @Test
     fun permissionDenialNeverStartsPhysicalDiscoveryOrConnection() {
         val permissions = ResultPermissions(granted = false)
         val terminal = AsyncTerminal()
