@@ -86,6 +86,13 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Verify desktop and compact viewport behavior against the Docker-backed local booking flow.
   - Evidence: the dialog uses one bounded `overscroll-contain` country list, fixed document locking, explicit wheel containment, and a transient six-pixel campaign thumb. Local Chromium confirmed list scroll `0 → 211`, page scroll remained `0`, the thumb activated during input and faded after 700 ms; 29 focused tests, typecheck, diff check, and scoped ESLint pass.
 
+- [x] 11. Preserve Heritage context behind phone verification.
+  - Keep the PLI logo, Heritage campaign heading/tagline, and selected class visible while SMS access is requested.
+  - Present the phone dialog above a translucent near-black overlay with restrained blur instead of replacing the viewport with opaque black.
+  - Preserve kiosk behavior and the existing verification authority; this is presentation-only.
+  - Verify the public campaign SMS state locally without sending a code.
+  - Evidence: `HeritageVerificationBackdrop` renders the PLI logo, campaign heading/tagline, selected class, and country beneath a 55% near-black two-pixel blur overlay only for public Heritage QR bookings; kiosk fallback styling is unchanged. Docker-backed local Chromium reached Phone access for `+1 555-555-0103`, confirmed all branded context and `Send code` visibility, and sent no SMS. 33 focused tests, typecheck, diff check, and scoped ESLint pass (six pre-existing EnrollModal warnings only).
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.

@@ -14,6 +14,7 @@ import {
   getDecorativeBookingFlag,
   isHeritageCampaignAcquiringNow,
 } from "@/components/front/booking/HeritageCampaignBooking"
+import { HeritageVerificationBackdrop } from "@/components/front/courses/enroll/HeritageVerificationBackdrop"
 import type { ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -83,6 +84,19 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).toContain("$15 Sunday &amp; Monday classes after pickup.")
     expect(html).not.toContain("heritage-country-pins")
     expect(html).not.toContain("photograph")
+  })
+
+  it("keeps branded campaign context visible behind phone verification", () => {
+    const html = renderToStaticMarkup(
+      <HeritageVerificationBackdrop courseTitle="Salsa Beginner / Open Level" countryCode="MX" />,
+    )
+
+    expect(html).toContain('data-heritage-verification-context="true"')
+    expect(html).toContain("%2Flogo%2Flogo-white.png")
+    expect(html).toContain("¡Feliz Mes de la Herencia Latina!")
+    expect(html).toContain("Your country. Your pin. Your community.")
+    expect(html).toContain("Salsa Beginner / Open Level")
+    expect(html).toContain("Mexico")
   })
 
   it("lets the visitor search and explicitly select a country before continuing", async () => {

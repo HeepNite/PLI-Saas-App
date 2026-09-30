@@ -117,6 +117,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 23. The inline public booking footer MUST render exactly two actions on one row: `Cancel | Continue` in the initial information phase and `Back | Continue` in later phases or steps. A context-equivalent final action MAY replace `Continue`, but a third profile/panel action MUST NOT appear.
 24. Clerk's reserved `+1 555-555-0100…0199` test range MAY be accepted only when runtime evidence identifies the `codex/develop` Vercel preview and a Clerk test instance. Production and every environment that fails those guards MUST reject that range.
 25. While the country-selection dialog is open, document scrolling MUST be locked and list-boundary wheel/touch input MUST NOT chain to the booking page. The dialog header, search, confirmation action, and explanatory copy MUST remain fixed; only the country list may scroll. Its scrollbar MUST use a narrow rounded campaign treatment, remain visually hidden at rest, appear while the list is scrolling, and fade after interaction.
+26. During public campaign SMS access and verification, the PLI logo, Heritage campaign heading/tagline, and selected class MUST remain visibly identifiable behind the verification card. The card MUST sit above a translucent near-black overlay with restrained blur; the campaign context MUST NOT be replaced by an opaque black viewport. Kiosk verification presentation and all existing identity authority MUST remain unchanged.
 
 ## Security and Data Rules
 
