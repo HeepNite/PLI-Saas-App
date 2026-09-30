@@ -45,8 +45,8 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 
 1. Any student without an existing Heritage country-pin entitlement MAY earn the benefit once.
 2. The public booking campaign announcement MUST explain that a completed online payment earns a country pin and that delivered pin holders receive eligible classes for US$15.
-3. The booking journey MUST request a country from a controlled country selector for a student attempting to earn the benefit.
-4. Country input and campaign markers MUST be treated as untrusted until validated server-side.
+3. The booking journey MUST request a country from a controlled country selector for a student attempting to earn the benefit. The campaign geography MUST be limited to Hispanic America and Spain: Argentina, Bolivia, Chile, Colombia, Costa Rica, Cuba, Dominican Republic, Ecuador, El Salvador, Guatemala, Honduras, Mexico, Nicaragua, Panama, Paraguay, Peru, Puerto Rico, Uruguay, Venezuela, and Spain.
+4. Country input and campaign markers MUST be treated as untrusted until validated server-side. Every country outside the campaign geography MUST be rejected even when it is otherwise a valid ISO country code.
 5. A qualifying acquisition MUST:
    - originate from the public campaign booking journey;
    - complete through Stripe card/wallet payment;
@@ -121,7 +121,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 
 - Store structured campaign fields in purchase metadata associated with the user; do not infer entitlement by parsing notes.
 - Preserve unrelated metadata on webhook and staff updates.
-- Validate country codes against the campaign country list.
+- Validate country codes against the same centralized Hispanic America, Puerto Rico, and Spain allowlist used by the selector; UI filtering alone is insufficient.
 - Keep payment, entitlement, and delivery transitions idempotent.
 - Apply existing staff authorization, rate limiting, and audit conventions to delivery updates.
 - Do not expose staff-only entitlement mutation through public endpoints.

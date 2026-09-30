@@ -4,6 +4,7 @@ import {
   buildDeliveredHeritagePinMetadata,
   buildPendingHeritagePinMetadata,
   getHeritagePinCampaignConfig,
+  getHeritagePinCountryOptions,
   getHeritagePinDateKey,
   isHeritagePinAcquisitionDate,
   isHeritagePinBenefitClassDate,
@@ -75,9 +76,18 @@ describe("Heritage Pin campaign", () => {
     })).toBe(true)
   })
 
-  it("normalizes only real ISO country codes", () => {
+  it("limits pin countries to Hispanic America, Puerto Rico, and Spain", () => {
+    expect(getHeritagePinCountryOptions().map(({ code }) => code).sort()).toEqual([
+      "AR", "BO", "CL", "CO", "CR", "CU", "DO", "EC", "ES", "GT",
+      "HN", "MX", "NI", "PA", "PE", "PR", "PY", "SV", "UY", "VE",
+    ])
     expect(normalizeHeritagePinCountryCode(" co ")).toBe("CO")
     expect(normalizeHeritagePinCountryCode("PR")).toBe("PR")
+    expect(normalizeHeritagePinCountryCode("es")).toBe("ES")
+    expect(normalizeHeritagePinCountryCode("AL")).toBeNull()
+    expect(normalizeHeritagePinCountryCode("DZ")).toBeNull()
+    expect(normalizeHeritagePinCountryCode("BR")).toBeNull()
+    expect(normalizeHeritagePinCountryCode("GQ")).toBeNull()
     expect(normalizeHeritagePinCountryCode("ZZ")).toBeNull()
   })
 
