@@ -118,6 +118,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 24. Clerk's reserved `+1 555-555-0100…0199` test range MAY be accepted only when runtime evidence identifies the `codex/develop` Vercel preview and a Clerk test instance. Production and every environment that fails those guards MUST reject that range.
 25. While the country-selection dialog is open, document scrolling MUST be locked and list-boundary wheel/touch input MUST NOT chain to the booking page. The dialog header, search, confirmation action, and explanatory copy MUST remain fixed; only the country list may scroll. Its scrollbar MUST use a narrow rounded campaign treatment, remain visually hidden at rest, appear while the list is scrolling, and fade after interaction.
 26. During public campaign SMS access and verification, the PLI logo, Heritage campaign heading/tagline, and selected class MUST remain visibly identifiable behind the verification card. The card MUST sit above a translucent near-black overlay with restrained blur; the campaign context MUST NOT be replaced by an opaque black viewport. Kiosk verification presentation and all existing identity authority MUST remain unchanged.
+27. A public campaign booking MUST include the information/contact step before packages, promotions, or payment even when Clerk already has a signed-in user. Existing contact-step shortcuts MAY remain only for their trusted profile and non-public QR contexts.
 
 ## Security and Data Rules
 
@@ -141,6 +142,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - [ ] Remote public booking is card/wallet only, while trusted kiosk cash remains available.
 - [ ] Changing the bounded campaign end configuration extends eligibility without logic changes.
 - [ ] The booking transition never flashes the general course/home experience and retains PLI/class context.
+- [ ] Signed-in public campaign visitors still review the information/contact step before packages or payment.
 - [ ] Booking-row flags are visibly varied, retain the enamel-pin treatment, and wide-screen side rails remain decorative and non-overlapping.
 - [ ] Existing registration, sign-in, checkout, profile redirect, kiosk, and staff flows remain functional.
 

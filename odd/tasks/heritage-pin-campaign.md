@@ -93,6 +93,12 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Verify the public campaign SMS state locally without sending a code.
   - Evidence: `HeritageVerificationBackdrop` renders the PLI logo, campaign heading/tagline, selected class, and country beneath a 55% near-black two-pixel blur overlay only for public Heritage QR bookings; kiosk fallback styling is unchanged. Docker-backed local Chromium reached Phone access for `+1 555-555-0103`, confirmed all branded context and `Send code` visibility, and sent no SMS. 33 focused tests, typecheck, diff check, and scoped ESLint pass (six pre-existing EnrollModal warnings only).
 
+- [x] 12. Preserve the public booking information step for signed-in customers.
+  - Never let a signed-in public Heritage booking skip directly from class selection to packages or payment.
+  - Keep trusted profile and non-public QR flows eligible for their established contact-step shortcut.
+  - Cover the routing decision with focused regression tests and verify the live signed-in handoff after deployment.
+  - Evidence: `shouldSkipQrBookingContactStep` now rejects the shortcut for `public_booking` while preserving signed-in non-public QR behavior. The regression test failed before implementation and then passed; 25 focused tests, typecheck, scoped ESLint, and diff check pass. Live signed-in verification remains pending deployment.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.
