@@ -47,6 +47,39 @@ class OperatorRuntimeTest {
     }
 
     @Test
+    fun startupRetriesTransientFailureBeforePublishingRuntime() {
+        val ready = FakeActions(enabled = true)
+        var calls = 0
+        var retry: (() -> Unit)? = null
+        var published: OperatorRuntime? = null
+
+        retryRuntimeInitialization(
+            schedule = { _, task -> retry = task },
+            initialize = { if (calls++ == 0) error("state unavailable") else ready },
+            publish = { published = it },
+        )
+
+        assertEquals(null, published)
+        retry?.invoke()
+        assertTrue(published === ready)
+    }
+
+    @Test
+    fun startupStopsAfterBoundedFailuresWithoutPublishingRuntime() {
+        val delays = mutableListOf<Long>()
+        var calls = 0
+
+        retryRuntimeInitialization(
+            schedule = { delay, task -> delays += delay; task() },
+            initialize = { calls++; error("state unavailable") },
+            publish = { error("failed initialization must stay disabled") },
+        )
+
+        assertEquals(3, calls)
+        assertEquals(listOf(250L, 500L), delays)
+    }
+
+    @Test
     fun kioskApplicationComposesTheRealProductionRuntimeAndFailsClosedWithoutFreshContext() {
         val app = KioskApplication()
         val terminal = AsyncTerminal()
