@@ -164,4 +164,23 @@ describe("staff terminal session lastSeen throttling", () => {
     expect(result).toMatchObject({ ok: true })
     expect(mockSessionUpdate).not.toHaveBeenCalled()
   })
+
+  it("does not write a stale session when authorization explicitly disables lastSeen updates", async () => {
+    mockSessionFindFirst.mockResolvedValue({
+      id: "session_1", lastSeenAt: null,
+      terminal: { id: "terminal_1", active: true },
+    })
+    const { authorizeStaffTerminalSession } = await import("@/lib/security/staff-terminal")
+    expect(await authorizeStaffTerminalSession({ touchLastSeen: false })).toMatchObject({ ok: true })
+    expect(mockSessionUpdate).not.toHaveBeenCalled()
+  })
+
+  it.each(["missing", "expired", "inactive"])("denies %s terminal sessions without writing", async (reason) => {
+    if (reason === "missing") mockCookies.mockResolvedValue({ get: () => undefined })
+    mockSessionFindFirst.mockResolvedValue(reason === "inactive" ? { terminal: { active: false } } : null)
+    const { authorizeStaffTerminalSession } = await import("@/lib/security/staff-terminal")
+    expect(await authorizeStaffTerminalSession({ touchLastSeen: false })).toEqual({ ok: false, reason })
+    expect(mockSessionUpdate).not.toHaveBeenCalled()
+    if (reason === "missing") expect(mockSessionFindFirst).not.toHaveBeenCalled()
+  })
 })
