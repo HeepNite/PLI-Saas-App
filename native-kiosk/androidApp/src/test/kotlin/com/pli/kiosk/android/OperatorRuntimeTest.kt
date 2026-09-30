@@ -28,6 +28,58 @@ class OperatorRuntimeTest {
     }
 
     @Test
+    fun resolvedStartupStateRollsOverToTheCleanOriginalSession() {
+        val session = StaffSession("https://approved.invalid", "session", "cookie", 2_000_000)
+        val resolved = DurableState(session, AttemptState(
+            AttemptTicket("ticket", 2_000_000, "tmr_current", Approved.LOCATION),
+            session.association, session.origin, "pi_paid", resolved = true,
+        ))
+        var written: DurableState? = null
+        val store = object : StateStore {
+            override fun read() = resolved
+            override fun write(state: DurableState) { written = state }
+        }
+
+        val clean = clearResolvedAttempt(store, resolved)
+
+        assertEquals(DurableState(session), clean)
+        assertEquals(clean, written)
+    }
+
+    @Test
+    fun startupRetriesTransientFailureBeforePublishingRuntime() {
+        val ready = FakeActions(enabled = true)
+        var calls = 0
+        var retry: (() -> Unit)? = null
+        var published: OperatorRuntime? = null
+
+        retryRuntimeInitialization(
+            schedule = { _, task -> retry = task },
+            initialize = { if (calls++ == 0) error("state unavailable") else ready },
+            publish = { published = it },
+        )
+
+        assertEquals(null, published)
+        retry?.invoke()
+        assertTrue(published === ready)
+    }
+
+    @Test
+    fun startupStopsAfterBoundedFailuresWithoutPublishingRuntime() {
+        val delays = mutableListOf<Long>()
+        var calls = 0
+
+        retryRuntimeInitialization(
+            schedule = { delay, task -> delays += delay; task() },
+            initialize = { calls++; error("state unavailable") },
+            publish = { error("failed initialization must stay disabled") },
+        )
+
+        assertEquals(3, calls)
+        assertEquals(listOf(250L, 500L), delays)
+    }
+
+    @Test
     fun kioskApplicationComposesTheRealProductionRuntimeAndFailsClosedWithoutFreshContext() {
         val app = KioskApplication()
         val terminal = AsyncTerminal()
@@ -71,6 +123,18 @@ class OperatorRuntimeTest {
         runtime.selectReader(current)
         runtime.connectSelectedReader()
         assertEquals(listOf("tmr_current"), terminal.connects)
+    }
+
+    @Test
+    fun bluetoothPermissionsCoverLegacyLocationAndModernScanRequirements() {
+        assertEquals(
+            listOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+            requiredBluetoothPermissions(30).toList(),
+        )
+        assertEquals(
+            listOf(android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_CONNECT),
+            requiredBluetoothPermissions(31).toList(),
+        )
     }
 
     @Test
