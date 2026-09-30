@@ -1,7 +1,8 @@
 "use client"
 
 import React from "react"
-import * as Sentry from "@sentry/nextjs"
+
+import { captureBoundaryError } from "@/lib/sentry/capture-boundary-error"
 
 export default function StaffError({
   error,
@@ -12,7 +13,7 @@ export default function StaffError({
 }) {
   React.useEffect(() => {
     console.error("Staff error:", error)
-    Sentry.captureException(error, { tags: { area: "staff" } })
+    captureBoundaryError(error, "staff")
   }, [error])
 
   return (
