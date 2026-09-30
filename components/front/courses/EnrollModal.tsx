@@ -18,6 +18,7 @@ import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { useNewStudentVerification } from "./hooks/useNewStudentVerification"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
+import { HeritageVerificationBackdrop } from "./enroll/HeritageVerificationBackdrop"
 import {
   getPhotoPolicy,
   isPhotoRequiredForAccount,
@@ -187,6 +188,7 @@ export default function EnrollModal({
   const usesPhasedInfoForm = isKioskTerminalFlow || (isQrMobileCompactFlow && isCheckInNewFlow)
   const forceKioskDarkModal = isKioskTerminalFlow && !isInline
   const forceCampaignDarkCard = isQrMobileCompactFlow && isInline
+  const isPublicHeritageBooking = bookingSource === "public_booking" && Boolean(heritagePinCountryCode)
   const isStationCompletion = isCheckInFlow && completionMode === "station"
   const isPersonalCompletion = usesCompactCheckInExperience && completionMode === "personal"
   const photoPolicy = React.useMemo(() => getPhotoPolicy(photoFlowContext), [photoFlowContext])
@@ -1284,7 +1286,7 @@ export default function EnrollModal({
           </button>
         )}
 
-        {bookingSource === "public_booking" && heritagePinCountryCode && !isInline ? (
+        {isPublicHeritageBooking && heritagePinCountryCode && !isInline ? (
           <div className="flex items-center gap-3 border-b border-white/10 bg-[#09070d] px-4 py-3 text-white sm:px-6">
             <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={88} height={35} className="h-auto w-[76px] shrink-0" />
             <div className="min-w-0 flex-1 border-l border-white/12 pl-3">
@@ -1623,10 +1625,13 @@ export default function EnrollModal({
       )}
       {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
+          {isPublicHeritageBooking && heritagePinCountryCode && !isKioskTerminalFlow ? (
+            <HeritageVerificationBackdrop courseTitle={course.title} countryCode={heritagePinCountryCode} />
+          ) : null}
           <button
             type="button"
             aria-label={t("aria_close")}
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            className={`absolute inset-0 z-[1] ${isPublicHeritageBooking && !isKioskTerminalFlow ? "bg-[#09070d]/55 backdrop-blur-[2px]" : "bg-black/70 backdrop-blur-sm"}`}
             onClick={() => {
               invalidateRecovery()
               resetVerification()

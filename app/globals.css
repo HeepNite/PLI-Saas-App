@@ -475,6 +475,33 @@ html[data-qr-booking-ready="true"] .qr-booking-route-loader {
   font-weight: 500;
 }
 
+.heritage-country-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.heritage-country-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.heritage-country-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.heritage-country-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: transparent;
+}
+
+.heritage-country-scroll--active {
+  scrollbar-color: rgba(239, 75, 85, 0.72) transparent;
+}
+
+.heritage-country-scroll--active::-webkit-scrollbar-thumb {
+  background: rgba(239, 75, 85, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
 @keyframes qrBookingSpin {
   to { transform: rotate(360deg); }
 }

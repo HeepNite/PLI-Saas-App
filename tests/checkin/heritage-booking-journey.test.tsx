@@ -14,6 +14,7 @@ import {
   getDecorativeBookingFlag,
   isHeritageCampaignAcquiringNow,
 } from "@/components/front/booking/HeritageCampaignBooking"
+import { HeritageVerificationBackdrop } from "@/components/front/courses/enroll/HeritageVerificationBackdrop"
 import type { ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -85,6 +86,19 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).not.toContain("photograph")
   })
 
+  it("keeps branded campaign context visible behind phone verification", () => {
+    const html = renderToStaticMarkup(
+      <HeritageVerificationBackdrop courseTitle="Salsa Beginner / Open Level" countryCode="MX" />,
+    )
+
+    expect(html).toContain('data-heritage-verification-context="true"')
+    expect(html).toContain("%2Flogo%2Flogo-white.png")
+    expect(html).toContain("¡Feliz Mes de la Herencia Latina!")
+    expect(html).toContain("Your country. Your pin. Your community.")
+    expect(html).toContain("Salsa Beginner / Open Level")
+    expect(html).toContain("Mexico")
+  })
+
   it("lets the visitor search and explicitly select a country before continuing", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
@@ -93,6 +107,13 @@ describe("Heritage campaign booking presentation", () => {
     await act(async () => root.render(
       <HeritageCountryDialog occurrence={occurrence} onCancel={() => undefined} onConfirm={onConfirm} />,
     ))
+
+    expect(document.documentElement.style.overflow).toBe("hidden")
+    expect(document.body.style.overflow).toBe("hidden")
+    expect(document.body.style.position).toBe("fixed")
+    const countryList = container.querySelector('[role="listbox"]') as HTMLDivElement
+    await act(async () => countryList.dispatchEvent(new Event("scroll", { bubbles: true })))
+    expect(countryList.className).toContain("heritage-country-scroll--active")
 
     const search = container.querySelector('input[aria-label="Search countries"]') as HTMLInputElement
     await act(async () => {
@@ -110,6 +131,9 @@ describe("Heritage campaign booking presentation", () => {
     expect(onConfirm).toHaveBeenCalledWith("MX")
     expect(container.textContent).toContain("flag on the class button is decorative")
     await act(async () => root.unmount())
+    expect(document.documentElement.style.overflow).toBe("")
+    expect(document.body.style.overflow).toBe("")
+    expect(document.body.style.position).toBe("")
   })
 
   it("opens the country step only during the configured New York acquisition window", () => {
