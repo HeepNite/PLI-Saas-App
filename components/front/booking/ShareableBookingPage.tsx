@@ -243,7 +243,9 @@ export function BookingPageContent({
     )
   }
 
-  const filteredOccurrences = filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
+  const filteredOccurrences = focused
+    ? occurrences
+    : filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
   const groups = groupBookingOccurrencesByDate(filteredOccurrences)
   const decorativeFlagIndexes = new Map(filteredOccurrences.map((occurrence, index) => [occurrence.id, index]))
 

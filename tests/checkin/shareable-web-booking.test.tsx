@@ -59,9 +59,9 @@ describe("promotional booking focus", () => {
       <BookingPageContent
         status="ready"
         occurrences={[{ ...readyOccurrence, date: "2026-06-08" }]}
-        selectedMonth="2026-06"
-        selectedClassType="all"
-        searchQuery=""
+        selectedMonth="2026-05"
+        selectedClassType="other"
+        searchQuery="does-not-match"
         onMonthChange={() => undefined}
         onClassTypeChange={() => undefined}
         onSearchQueryChange={() => undefined}
