@@ -5,11 +5,10 @@ import Image from "next/image"
 import { Search, X } from "lucide-react"
 import {
   getHeritagePinCountryOptions,
+  HERITAGE_PIN_DECORATIVE_FLAG_CODES,
   isHeritagePinAcquisitionDate,
 } from "@/lib/campaigns/heritage-pin"
 import type { ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
-
-const DECORATIVE_FLAG_CODES = ["AR", "MX", "CO", "DO", "PR", "BR", "PE", "CU"] as const
 
 export const countryCodeToFlag = (countryCode: string) =>
   countryCode
@@ -29,7 +28,7 @@ export const getDecorativeBookingFlag = (occurrenceId: string, occurrenceIndex?:
   const index = typeof occurrenceIndex === "number" && occurrenceIndex >= 0
     ? occurrenceIndex
     : stableFlagHash(occurrenceId)
-  return DECORATIVE_FLAG_CODES[index % DECORATIVE_FLAG_CODES.length]
+  return HERITAGE_PIN_DECORATIVE_FLAG_CODES[index % HERITAGE_PIN_DECORATIVE_FLAG_CODES.length]
 }
 
 function EnamelFlagPin({ code, className = "" }: { code: string; className?: string }) {
@@ -48,8 +47,8 @@ function EnamelFlagPin({ code, className = "" }: { code: string; className?: str
 }
 
 export function HeritageFlagRails() {
-  const leftFlags = DECORATIVE_FLAG_CODES.slice(0, 4)
-  const rightFlags = DECORATIVE_FLAG_CODES.slice(4)
+  const leftFlags = HERITAGE_PIN_DECORATIVE_FLAG_CODES.slice(0, 4)
+  const rightFlags = HERITAGE_PIN_DECORATIVE_FLAG_CODES.slice(4)
 
   return (
     <div className="pointer-events-none fixed inset-0 z-0 hidden 2xl:block" aria-hidden="true" data-heritage-flag-rails="true">
@@ -141,8 +140,8 @@ export function HeritageCampaignPromoDialog({ onClose }: { onClose: () => void }
           <X className="h-4 w-4" />
         </button>
 
-        <div className="mx-auto grid w-fit grid-cols-4 gap-2" aria-label="Latin American and Caribbean flags">
-          {DECORATIVE_FLAG_CODES.map((code) => (
+        <div className="mx-auto grid w-fit grid-cols-4 gap-2" aria-label="Hispanic American and Spanish flags">
+          {HERITAGE_PIN_DECORATIVE_FLAG_CODES.map((code) => (
             <span
               key={code}
               className="flex h-12 w-12 items-center justify-center rounded-full border-[3px] border-[#74747c] bg-[#24242a] text-2xl shadow-[inset_0_0_0_2px_rgba(255,255,255,0.08),0_6px_16px_rgba(0,0,0,0.4)]"

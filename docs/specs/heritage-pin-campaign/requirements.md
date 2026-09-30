@@ -45,8 +45,8 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 
 1. Any student without an existing Heritage country-pin entitlement MAY earn the benefit once.
 2. The public booking campaign announcement MUST explain that a completed online payment earns a country pin and that delivered pin holders receive eligible classes for US$15.
-3. The booking journey MUST request a country from a controlled country selector for a student attempting to earn the benefit.
-4. Country input and campaign markers MUST be treated as untrusted until validated server-side.
+3. The booking journey MUST request a country from a controlled country selector for a student attempting to earn the benefit. The campaign geography MUST be limited to Hispanic America and Spain: Argentina, Bolivia, Chile, Colombia, Costa Rica, Cuba, Dominican Republic, Ecuador, El Salvador, Guatemala, Honduras, Mexico, Nicaragua, Panama, Paraguay, Peru, Puerto Rico, Uruguay, Venezuela, and Spain.
+4. Country input and campaign markers MUST be treated as untrusted until validated server-side. Every country outside the campaign geography MUST be rejected even when it is otherwise a valid ISO country code.
 5. A qualifying acquisition MUST:
    - originate from the public campaign booking journey;
    - complete through Stripe card/wallet payment;
@@ -105,7 +105,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 11. The compact form MUST retain the PLI logo, Heritage heading, and a concise summary of the selected class and campaign. The global announcement, catalog navigation, footer, home control, and assistant chrome MUST remain hidden for the entire public booking process.
 12. Campaign styling MUST remain within the PLI near-black, institutional red, and white palette. Additional color comes only from the flags; campaign chrome MUST NOT introduce gold and MUST NOT reduce toolbar or class-list usability.
 13. During the active campaign, eligible circular `BOOK` actions MUST resemble enamel pins through a dark graphite/silver rim, a full enamel-style flag face, depth, and a rotating set of different national flags.
-14. Flag assignment to class buttons MUST be deterministic, decorative, and drawn from a centralized Latin American/Caribbean display set. Visible rows MUST cycle across the set instead of repeating one country because of hash collisions. Decorative flags MUST NOT preselect or claim the visitor's country.
+14. Flag assignment to class buttons MUST be deterministic, decorative, and drawn only from a centralized Hispanic America and Spain display subset of the campaign country allowlist. Visible rows MUST cycle across the set instead of repeating one country because of hash collisions. Decorative flags MUST NOT preselect or claim the visitor's country.
 15. Wide desktop layouts SHOULD use otherwise empty side space for restrained, non-interactive rails of varied flag pins. These rails MUST be hidden when they could overlap the booking content and MUST remain absent from the accessibility tree.
 16. On hover or keyboard focus, a flag-pin action SHOULD perform a short 3D turn from the flag face to a PLI-red `BOOK` face. Pointer activation MUST still book with one click.
 17. Because touch devices have no hover, mobile flag pins MUST retain a visible `BOOK` badge and book on the first tap. With reduced-motion preferences, the control MUST use a non-rotating transition while keeping `BOOK` visible.
@@ -121,7 +121,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 
 - Store structured campaign fields in purchase metadata associated with the user; do not infer entitlement by parsing notes.
 - Preserve unrelated metadata on webhook and staff updates.
-- Validate country codes against the campaign country list.
+- Validate country codes against the same centralized Hispanic America, Puerto Rico, and Spain allowlist used by the selector; UI filtering alone is insufficient.
 - Keep payment, entitlement, and delivery transitions idempotent.
 - Apply existing staff authorization, rate limiting, and audit conventions to delivery updates.
 - Do not expose staff-only entitlement mutation through public endpoints.
