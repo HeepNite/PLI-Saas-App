@@ -230,7 +230,9 @@ export function HeritageCountryDialog({
   const countries = React.useMemo(() => getHeritagePinCountryOptions(), [])
   const [query, setQuery] = React.useState("")
   const [selectedCountry, setSelectedCountry] = React.useState("")
+  const [listScrolling, setListScrolling] = React.useState(false)
   const searchRef = React.useRef<HTMLInputElement>(null)
+  const scrollIdleTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const normalizedQuery = query.trim().toLowerCase()
   const filteredCountries = countries.filter(({ code, name }) =>
     !normalizedQuery || code.toLowerCase().includes(normalizedQuery) || name.toLowerCase().includes(normalizedQuery),
@@ -238,22 +240,55 @@ export function HeritageCountryDialog({
 
   React.useEffect(() => {
     searchRef.current?.focus()
+    const previousHtmlOverflow = document.documentElement.style.overflow
+    const previousBodyOverflow = document.body.style.overflow
+    const previousBodyPosition = document.body.style.position
+    const previousBodyTop = document.body.style.top
+    const previousBodyWidth = document.body.style.width
+    const lockedScrollY = window.scrollY
+    document.documentElement.style.overflow = "hidden"
+    document.body.style.overflow = "hidden"
+    document.body.style.position = "fixed"
+    document.body.style.top = `-${lockedScrollY}px`
+    document.body.style.width = "100%"
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel()
     }
     window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown)
+      document.documentElement.style.overflow = previousHtmlOverflow
+      document.body.style.overflow = previousBodyOverflow
+      document.body.style.position = previousBodyPosition
+      document.body.style.top = previousBodyTop
+      document.body.style.width = previousBodyWidth
+      if (lockedScrollY > 0) window.scrollTo(0, lockedScrollY)
+      if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current)
+    }
   }, [onCancel])
 
+  const handleCountryListScroll = React.useCallback(() => {
+    setListScrolling(true)
+    if (scrollIdleTimerRef.current) clearTimeout(scrollIdleTimerRef.current)
+    scrollIdleTimerRef.current = setTimeout(() => setListScrolling(false), 700)
+  }, [])
+
+  const handleCountryListWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (event.deltaY === 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.scrollTop += event.deltaY
+  }, [])
+
   return (
-    <div className="fixed inset-0 z-[13000] flex items-end justify-center bg-black/80 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="presentation">
+    <div className="fixed inset-0 z-[13000] flex items-end justify-center overscroll-none bg-black/80 p-0 backdrop-blur-sm sm:items-center sm:p-5" role="presentation">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="heritage-country-title"
-        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-t-[30px] border border-white/12 bg-[#151217] p-5 shadow-2xl sm:rounded-[30px] sm:p-7"
+        className="flex h-[min(92dvh,44rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-[30px] border border-white/12 bg-[#151217] p-5 shadow-2xl sm:rounded-[30px] sm:p-7"
       >
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex shrink-0 items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#ef4b55]">Your country pin</p>
             <h2 id="heritage-country-title" className="mt-2 text-2xl font-black text-white">Which country do you represent?</h2>
@@ -264,7 +299,7 @@ export function HeritageCountryDialog({
           </button>
         </div>
 
-        <div className="relative mt-6">
+        <div className="relative mt-6 shrink-0">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/40" aria-hidden="true" />
           <input
             ref={searchRef}
@@ -277,7 +312,13 @@ export function HeritageCountryDialog({
           />
         </div>
 
-        <div role="listbox" aria-label="Available country pins" className="mt-3 grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
+        <div
+          role="listbox"
+          aria-label="Available country pins"
+          onScroll={handleCountryListScroll}
+          onWheel={handleCountryListWheel}
+          className={`heritage-country-scroll mt-3 grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto overscroll-contain pr-1 ${listScrolling ? "heritage-country-scroll--active" : ""}`}
+        >
           {filteredCountries.map(({ code, name }) => {
             const selected = selectedCountry === code
             return (
@@ -300,11 +341,11 @@ export function HeritageCountryDialog({
           type="button"
           disabled={!selectedCountry}
           onClick={() => onConfirm(selectedCountry)}
-          className="mt-5 h-12 w-full rounded-full bg-[#b61616] text-sm font-black tracking-[0.08em] text-white transition hover:bg-[#d51f2b] disabled:cursor-not-allowed disabled:opacity-40"
+          className="mt-5 h-12 w-full shrink-0 rounded-full bg-[#b61616] text-sm font-black tracking-[0.08em] text-white transition hover:bg-[#d51f2b] disabled:cursor-not-allowed disabled:opacity-40"
         >
           CONTINUE TO BOOK
         </button>
-        <p className="mt-3 text-center text-[11px] text-white/40">The flag on the class button is decorative and does not choose your pin.</p>
+        <p className="mt-3 shrink-0 text-center text-[11px] text-white/40">The flag on the class button is decorative and does not choose your pin.</p>
       </section>
     </div>
   )
