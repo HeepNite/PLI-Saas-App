@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const { withSentryConfig } = vi.hoisted(() => ({ withSentryConfig: vi.fn((config: unknown) => config) }))
+const { withSentryConfig } = vi.hoisted(() => ({
+  withSentryConfig: vi.fn((config: unknown, options: unknown) => {
+    void options
+    return config
+  }),
+}))
 
 vi.mock("@sentry/nextjs", () => ({ withSentryConfig }))
 
