@@ -17,11 +17,13 @@ import {
   BOOKING_CLASS_TYPE_LABELS,
   buildShareableBookingOccurrences,
   filterBookingOccurrences,
+  focusBookingOccurrences,
   getBookingFilterOptions,
   getCurrentBookingDateKey,
   getCurrentBookingMonthKey,
   groupBookingOccurrencesByDate,
   type BookingClassTypeFilter,
+  type BookingPromotionFocus,
   type ShareableBookingOccurrence,
 } from "@/lib/checkin/shareable-booking"
 
@@ -39,6 +41,7 @@ type BookingPageContentProps = {
   navigatingId: string | null
   onSelect: (occurrence: ShareableBookingOccurrence) => void
   onRetry?: () => void
+  focused?: boolean
 }
 
 type CatalogCoursesResponse = {
@@ -82,7 +85,7 @@ const StateCard = ({ children }: { children: React.ReactNode }) => (
   </div>
 )
 
-export function BookingBrandHeader() {
+export function BookingBrandHeader({ focused = false }: { focused?: boolean }) {
   return (
     <header className="mb-9 flex flex-col items-center text-center">
       <Image
@@ -96,8 +99,12 @@ export function BookingBrandHeader() {
       <div className="mt-7 w-full">
         <HeritageCampaignBanner />
       </div>
-      <h1 className="text-4xl font-black tracking-[-0.035em] text-white sm:text-5xl">Upcoming classes</h1>
-      <p className="mt-3 text-base text-white/58">Choose your month, find your style, and book your class.</p>
+      <h1 className="text-4xl font-black tracking-[-0.035em] text-white sm:text-5xl">
+        {focused ? "Monday Salsa Beginner" : "Upcoming classes"}
+      </h1>
+      <p className="mt-3 text-base text-white/58">
+        {focused ? "Choose an upcoming Monday and reserve your class." : "Choose your month, find your style, and book your class."}
+      </p>
     </header>
   )
 }
@@ -201,6 +208,7 @@ export function BookingPageContent({
   navigatingId,
   onSelect,
   onRetry,
+  focused = false,
 }: BookingPageContentProps) {
   if (status === "loading") {
     return (
@@ -235,21 +243,25 @@ export function BookingPageContent({
     )
   }
 
-  const filteredOccurrences = filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
+  const filteredOccurrences = focused
+    ? occurrences
+    : filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
   const groups = groupBookingOccurrencesByDate(filteredOccurrences)
   const decorativeFlagIndexes = new Map(filteredOccurrences.map((occurrence, index) => [occurrence.id, index]))
 
   return (
     <section aria-live="polite">
-      <BookingDiscoveryToolbar
-        occurrences={occurrences}
-        selectedMonth={selectedMonth}
-        selectedClassType={selectedClassType}
-        searchQuery={searchQuery}
-        onMonthChange={onMonthChange}
-        onClassTypeChange={onClassTypeChange}
-        onSearchQueryChange={onSearchQueryChange}
-      />
+      {!focused ? (
+        <BookingDiscoveryToolbar
+          occurrences={occurrences}
+          selectedMonth={selectedMonth}
+          selectedClassType={selectedClassType}
+          searchQuery={searchQuery}
+          onMonthChange={onMonthChange}
+          onClassTypeChange={onClassTypeChange}
+          onSearchQueryChange={onSearchQueryChange}
+        />
+      ) : null}
 
       {groups.length === 0 ? (
         <StateCard>
@@ -298,8 +310,10 @@ export function BookingPageContent({
   )
 }
 
-export default function ShareableBookingPage() {
+export default function ShareableBookingPage({ focus }: { focus?: BookingPromotionFocus }) {
   const router = useRouter()
+  const focusCourseSlug = focus?.courseSlug
+  const focusWeekday = focus?.weekday
   const [status, setStatus] = React.useState<BookingPageStatus>("loading")
   const [occurrences, setOccurrences] = React.useState<ShareableBookingOccurrence[]>([])
   const [selectedMonth, setSelectedMonth] = React.useState<string | "all">(() => getCurrentBookingMonthKey())
@@ -326,7 +340,9 @@ export default function ShareableBookingPage() {
       .then(async (response) => {
         const data = (await response.json().catch(() => null)) as CatalogCoursesResponse | null
         if (!response.ok || !Array.isArray(data?.courses)) throw new Error("Invalid catalog response")
-        return buildShareableBookingOccurrences(data.courses)
+        const nextOccurrences = buildShareableBookingOccurrences(data.courses)
+        if (!focusCourseSlug || typeof focusWeekday !== "number") return nextOccurrences
+        return focusBookingOccurrences(nextOccurrences, { courseSlug: focusCourseSlug, weekday: focusWeekday })
       })
       .then((nextOccurrences) => {
         setOccurrences(nextOccurrences)
@@ -339,7 +355,7 @@ export default function ShareableBookingPage() {
       })
 
     return () => controller.abort()
-  }, [requestVersion])
+  }, [focusCourseSlug, focusWeekday, requestVersion])
 
   React.useEffect(() => {
     pendingOccurrenceRef.current = pendingOccurrence
@@ -391,7 +407,7 @@ export default function ShareableBookingPage() {
       <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.16),transparent_58%)]" />
       {isHeritageCampaignAcquiringNow() ? <HeritageFlagRails /> : null}
       <section className="relative z-10 mx-auto w-full max-w-3xl">
-        <BookingBrandHeader />
+        <BookingBrandHeader focused={Boolean(focus)} />
         <BookingPageContent
           status={status}
           occurrences={occurrences}
@@ -404,6 +420,7 @@ export default function ShareableBookingPage() {
           navigatingId={navigatingId}
           onSelect={selectOccurrence}
           onRetry={() => setRequestVersion((version) => version + 1)}
+          focused={Boolean(focus)}
         />
       </section>
       {navigatingOccurrence ? (
