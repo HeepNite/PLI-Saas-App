@@ -4,6 +4,7 @@ const mockHeaders = vi.fn()
 const mockClerkClient = vi.fn()
 const mockUpsertUserByIdentifiers = vi.fn()
 const mockSyncPackagePurchaseFromPaidPurchase = vi.fn()
+const mockRevokeUnusedInternalPackagePurchaseTx = vi.fn()
 const mockSyncScheduledAttendanceFromPurchase = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockPurchaseUpsert = vi.fn()
@@ -11,7 +12,9 @@ const mockPurchaseFindUnique = vi.fn()
 const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
 const mockPurchaseUpdate = vi.fn()
+const mockPurchaseUpdateMany = vi.fn()
 const mockConstructEvent = vi.fn()
+const mockStripePaymentIntentRetrieve = vi.fn()
 const mockStripeWebhookEventCreate = vi.fn()
 const mockStripeWebhookEventUpdateMany = vi.fn()
 const mockStripeWebhookEventFindUnique = vi.fn()
@@ -27,6 +30,7 @@ const mockPrisma = {
     findFirst: (...args: unknown[]) => mockPurchaseFindFirst(...args),
     create: (...args: unknown[]) => mockPurchaseCreate(...args),
     update: (...args: unknown[]) => mockPurchaseUpdate(...args),
+    updateMany: (...args: unknown[]) => mockPurchaseUpdateMany(...args),
   },
   stripeWebhookEvent: {
     create: (...args: unknown[]) => mockStripeWebhookEventCreate(...args),
@@ -60,6 +64,7 @@ vi.mock("@/lib/users", () => ({
 
 vi.mock("@/lib/packages", () => ({
   syncPackagePurchaseFromPaidPurchase: (...args: unknown[]) => mockSyncPackagePurchaseFromPaidPurchase(...args),
+  revokeUnusedInternalPackagePurchaseTx: (...args: unknown[]) => mockRevokeUnusedInternalPackagePurchaseTx(...args),
 }))
 
 vi.mock("@/lib/bookings", () => ({
@@ -75,6 +80,9 @@ vi.mock("stripe", () => ({
     webhooks = {
       constructEvent: (...args: unknown[]) => mockConstructEvent(...args),
     }
+    paymentIntents = {
+      retrieve: (...args: unknown[]) => mockStripePaymentIntentRetrieve(...args),
+    }
     constructor() {}
   },
 }))
@@ -84,11 +92,13 @@ describe("stripe webhook checkout session persistence", () => {
     vi.resetModules()
     process.env.STRIPE_SECRET_KEY = "sk_test"
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test"
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "false")
 
     mockHeaders.mockReset()
     mockClerkClient.mockReset()
     mockUpsertUserByIdentifiers.mockReset()
     mockSyncPackagePurchaseFromPaidPurchase.mockReset()
+    mockRevokeUnusedInternalPackagePurchaseTx.mockReset()
     mockSyncScheduledAttendanceFromPurchase.mockReset()
     mockAwardPointsFromRule.mockReset()
     mockPurchaseUpsert.mockReset()
@@ -96,7 +106,9 @@ describe("stripe webhook checkout session persistence", () => {
     mockPurchaseFindFirst.mockReset()
     mockPurchaseCreate.mockReset()
     mockPurchaseUpdate.mockReset()
+    mockPurchaseUpdateMany.mockReset()
     mockConstructEvent.mockReset()
+    mockStripePaymentIntentRetrieve.mockReset()
     mockStripeWebhookEventCreate.mockReset()
     mockStripeWebhookEventUpdateMany.mockReset()
     mockStripeWebhookEventFindUnique.mockReset()
@@ -118,6 +130,7 @@ describe("stripe webhook checkout session persistence", () => {
     mockPurchaseFindUnique.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue(null)
     mockPurchaseCreate.mockResolvedValue({ id: "purchase_child_1" })
+    mockPurchaseUpdateMany.mockResolvedValue({ count: 1 })
     mockStripeWebhookEventCreate.mockResolvedValue({
       id: "swe_1",
       eventId: "evt_test",
@@ -138,13 +151,314 @@ describe("stripe webhook checkout session persistence", () => {
     mockDayOfWeekUpdate.mockResolvedValue({})
     mockDayOfWeekCreate.mockResolvedValue({})
     mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue({ id: "package_purchase_1", packageId: "pkg_123" })
+    mockRevokeUnusedInternalPackagePurchaseTx.mockResolvedValue("revoked")
     mockSyncScheduledAttendanceFromPurchase.mockResolvedValue(undefined)
     mockAwardPointsFromRule.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.unstubAllEnvs()
   })
+
+  const internalEvent = async () => {
+    vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", "fixture-signing-secret-at-least-32-bytes")
+    const { issueInternalAttempt, internalIntentMetadata } = await import("@/lib/stripe/internal-purchase")
+    const ticket = issueInternalAttempt({ terminalId: "terminal_live", sessionId: "session_live" }, "tmr_fixture", "student_1")
+    return { id: "evt_internal", type: "payment_intent.succeeded", livemode: true, data: { object: {
+      id: "pi_internal", object: "payment_intent", livemode: true, status: "succeeded", amount: 100,
+      amount_received: 100, currency: "usd", customer: null, receipt_email: null,
+      payment_method_types: ["card_present"], metadata: internalIntentMetadata(ticket, "purchase_internal_1"),
+    } } }
+  }
+  const sendInternalEvent = async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    return POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+  }
+  const expectNoInternalSideEffects = () => {
+    for (const mock of [mockStripeWebhookEventCreate, mockPurchaseFindUnique, mockPurchaseFindFirst, mockPurchaseUpsert,
+      mockPurchaseCreate, mockPurchaseUpdate, mockUpsertUserByIdentifiers, mockSyncScheduledAttendanceFromPurchase,
+      mockSyncPackagePurchaseFromPaidPurchase, mockAwardPointsFromRule, mockPrisma.$transaction]) expect(mock).not.toHaveBeenCalled()
+  }
+  it("dispatches a signed succeeded internal payment to one fixed-credit fulfillment without ordinary checkout effects", async () => {
+    const event = await internalEvent()
+    vi.stubEnv("INTERNAL_PURCHASE_LIVE_ENABLED", "false")
+    vi.stubEnv("INTERNAL_PURCHASE_LIVE_PAYMENT_ENABLED", "false")
+    const { internalAttemptKey } = await import("@/lib/stripe/internal-purchase")
+    mockPurchaseFindUnique.mockResolvedValue({
+      id: "purchase_internal_1", userId: "student_1", idempotencyKey: internalAttemptKey(event.data.object.metadata.pliInternalAttempt), stripePaymentIntentId: null,
+      amount: 100, currency: "usd", status: "pending", courseSlug: "general-class-credit", packageId: "pli-internal-general-class-credit-v1",
+      metadata: { flowContext: "pli_internal_purchase_v1", attemptId: event.data.object.metadata.attemptId, recipientUserId: "student_1", creditType: "general_class_credit", creditQuantity: 1 },
+    })
+    mockConstructEvent.mockReturnValue(event)
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockConstructEvent).toHaveBeenCalled()
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "student_1", purchaseId: "purchase_internal_1", metadata: expect.objectContaining({
+        packageId: "pli-internal-general-class-credit-v1", packageTotalCredits: "1", packageIsUnlimited: "false",
+      }),
+    }))
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+  })
+  const boundInternalPurchase = async (event: Awaited<ReturnType<typeof internalEvent>>, overrides: Record<string, unknown> = {}) => {
+    const { internalAttemptKey } = await import("@/lib/stripe/internal-purchase")
+    return {
+      id: "purchase_internal_1", userId: "student_1", idempotencyKey: internalAttemptKey(event.data.object.metadata.pliInternalAttempt),
+      stripePaymentIntentId: "pi_internal", amount: 100, currency: "usd", status: "paid",
+      courseSlug: "general-class-credit", packageId: "pli-internal-general-class-credit-v1",
+      metadata: {
+        flowContext: "pli_internal_purchase_v1", attemptId: event.data.object.metadata.attemptId,
+        recipientUserId: "student_1", creditType: "general_class_credit", creditQuantity: 1,
+      },
+      ...overrides,
+    }
+  }
+  const internalReversalEvent = async (type: "charge.refunded" | "charge.dispute.created", overrides: Record<string, unknown> = {}) => {
+    const paid = await internalEvent()
+    const object = type === "charge.refunded"
+      ? { id: "ch_internal", object: "charge", payment_intent: "pi_internal", amount: 100, amount_refunded: 100, refunded: true, currency: "usd" }
+      : { id: "dp_internal", object: "dispute", payment_intent: "pi_internal", amount: 100, currency: "usd" }
+    return { event: { id: `evt_${type.replaceAll(".", "_")}`, type, livemode: true, data: { object: { ...object, ...overrides } } }, paid }
+  }
+
+  it("defaults reversal handling OFF: it tombstones and persists manual resolution without provider or credit effects", async () => {
+    const { event, paid } = await internalReversalEvent("charge.refunded")
+    mockPurchaseFindUnique.mockResolvedValue(await boundInternalPurchase(paid))
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockStripePaymentIntentRetrieve).not.toHaveBeenCalled()
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).not.toHaveBeenCalled()
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "purchase_internal_1", status: { in: ["pending", "paid"] } },
+      data: { status: "reversed" },
+    }))
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "reversal_feature_disabled", purchaseId: "purchase_internal_1" }),
+    }))
+  })
+
+  it.each(["charge.refunded", "charge.dispute.created"] as const)("revokes one unused internal credit for signed %s", async (type) => {
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "true")
+    const { event, paid } = await internalReversalEvent(type)
+    mockPurchaseFindUnique.mockResolvedValue(await boundInternalPurchase(paid))
+    mockStripePaymentIntentRetrieve.mockResolvedValue(paid.data.object)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockStripePaymentIntentRetrieve).toHaveBeenCalledWith("pi_internal")
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).toHaveBeenCalledWith(mockPrisma, {
+      purchaseId: "purchase_internal_1", userId: "student_1",
+    })
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+  })
+
+  it("keeps concurrent refund and dispute reversals idempotent", async () => {
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "true")
+    const refund = await internalReversalEvent("charge.refunded")
+    const dispute = await internalReversalEvent("charge.dispute.created")
+    mockPurchaseFindUnique.mockResolvedValue(await boundInternalPurchase(refund.paid))
+    mockStripePaymentIntentRetrieve.mockResolvedValue(refund.paid.data.object)
+    mockRevokeUnusedInternalPackagePurchaseTx.mockResolvedValueOnce("revoked").mockResolvedValueOnce("already-revoked")
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+
+    mockConstructEvent.mockReturnValue(refund.event)
+    expect((await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-refund" }))).status).toBe(200)
+    mockConstructEvent.mockReturnValue(dispute.event)
+    expect((await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-dispute" }))).status).toBe(200)
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).toHaveBeenCalledTimes(2)
+  })
+
+  it("records a consumed or missing internal credit for manual resolution without mutating it", async () => {
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "true")
+    const { event, paid } = await internalReversalEvent("charge.refunded")
+    mockPurchaseFindUnique.mockResolvedValue(await boundInternalPurchase(paid))
+    mockStripePaymentIntentRetrieve.mockResolvedValue(paid.data.object)
+    mockRevokeUnusedInternalPackagePurchaseTx.mockResolvedValue("manual-resolution")
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).toHaveBeenCalledTimes(1)
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "credit_consumed_or_ambiguous", purchaseId: "purchase_internal_1" }),
+    }))
+  })
+
+  it("records an explicitly marked reversal with a missing Purchase for manual resolution without fabricating one", async () => {
+    const { event } = await internalReversalEvent("charge.refunded", { metadata: { flowContext: "pli_internal_purchase_v1" } })
+    mockPurchaseFindUnique.mockResolvedValue(null)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockStripePaymentIntentRetrieve).not.toHaveBeenCalled()
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "purchase_binding_missing" }),
+    }))
+  })
+
+  it.each([
+    ["partial refund", { amount_refunded: 50, refunded: false }, {}],
+    ["binding mismatch", {}, { metadata: { flowContext: "pli_internal_purchase_v1", attemptId: "different", recipientUserId: "student_1", creditType: "general_class_credit", creditQuantity: 1 } }],
+  ])("records %s reversal for terminal manual resolution without mutating credit", async (_caseName, eventOverrides, purchaseOverrides) => {
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "true")
+    const { event, paid } = await internalReversalEvent("charge.refunded", eventOverrides)
+    mockPurchaseFindUnique.mockResolvedValue(await boundInternalPurchase(paid, purchaseOverrides))
+    mockStripePaymentIntentRetrieve.mockResolvedValue(paid.data.object)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "internal_binding_invalid", purchaseId: "purchase_internal_1" }),
+    }))
+  })
+
+  it("keeps an ordinary signed refund outside internal reversal handling without PaymentIntent retrieval", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_ordinary_refund", type: "charge.refunded", livemode: true,
+      data: { object: { id: "ch_ordinary", object: "charge", payment_intent: "pi_ordinary", amount: 1000, amount_refunded: 1000, refunded: true, currency: "usd" } },
+    })
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockStripePaymentIntentRetrieve).not.toHaveBeenCalled()
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).not.toHaveBeenCalled()
+  })
+
+  it("uses fresh package outcomes after reversal-before-paid instead of stale Purchase status", async () => {
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "true")
+    const { event, paid } = await internalReversalEvent("charge.refunded", {
+      metadata: { flowContext: "pli_internal_purchase_v1", purchaseId: "purchase_internal_1" },
+    })
+    const pending = await boundInternalPurchase(paid, { status: "pending", stripePaymentIntentId: null })
+    mockPurchaseFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(pending).mockResolvedValueOnce(pending)
+    mockStripePaymentIntentRetrieve.mockResolvedValue(paid.data.object)
+    mockRevokeUnusedInternalPackagePurchaseTx.mockResolvedValue("not-materialized")
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseFindUnique).toHaveBeenNthCalledWith(1, { where: { stripePaymentIntentId: "pi_internal" } })
+    expect(mockPurchaseFindUnique).toHaveBeenNthCalledWith(2, { where: { id: "purchase_internal_1" } })
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: "purchase_internal_1", status: { in: ["pending", "paid"] },
+        OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_internal" }],
+      },
+      data: { status: "reversed" },
+    }))
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).toHaveBeenCalledWith(mockPrisma, {
+      purchaseId: "purchase_internal_1", userId: "student_1",
+    })
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+  })
+
+  it("does not automatically reverse an internal purchase bound to another PaymentIntent", async () => {
+    vi.stubEnv("INTERNAL_PURCHASE_CREDIT_REVERSAL_ENABLED", "true")
+    const { event, paid } = await internalReversalEvent("charge.refunded", {
+      metadata: { flowContext: "pli_internal_purchase_v1", purchaseId: "purchase_internal_1" },
+    })
+    mockPurchaseFindUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(
+      await boundInternalPurchase(paid, { status: "pending", stripePaymentIntentId: "pi_other" }),
+    )
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockStripePaymentIntentRetrieve).not.toHaveBeenCalled()
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "purchase_binding_missing" }),
+    }))
+  })
+
+  it("fails closed when paid races a reversal tombstone", async () => {
+    const event = await internalEvent()
+    const pending = await boundInternalPurchase(event, { status: "pending", stripePaymentIntentId: null })
+    const tombstoned = await boundInternalPurchase(event, { status: "reversed", stripePaymentIntentId: null })
+    mockPurchaseFindUnique.mockResolvedValueOnce(pending).mockResolvedValueOnce(tombstoned)
+    mockPurchaseUpdateMany.mockResolvedValue({ count: 0 })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "completed", purchaseId: "purchase_internal_1" }),
+    }))
+  })
+
+  it("does not regrant a credit on a later signed paid-event replay after a reversal tombstone", async () => {
+    const event = await internalEvent()
+    mockPurchaseFindUnique.mockResolvedValue(await boundInternalPurchase(event, { status: "reversed" }))
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+    expect(mockRevokeUnusedInternalPackagePurchaseTx).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "completed", purchaseId: "purchase_internal_1" }),
+    }))
+  })
+
+  it("rejects internal fulfillment when the Purchase attempt binding differs from the signed PaymentIntent", async () => {
+    const event = await internalEvent()
+    const { internalAttemptKey } = await import("@/lib/stripe/internal-purchase")
+    mockPurchaseFindUnique.mockResolvedValue({
+      id: "purchase_internal_1", userId: "student_1", idempotencyKey: internalAttemptKey(event.data.object.metadata.pliInternalAttempt), stripePaymentIntentId: null,
+      amount: 100, currency: "usd", status: "pending", courseSlug: "general-class-credit", packageId: "pli-internal-general-class-credit-v1",
+      metadata: { flowContext: "pli_internal_purchase_v1", attemptId: "other-attempt", recipientUserId: "student_1", creditType: "general_class_credit", creditQuantity: 1 },
+    })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(500)
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+  })
+  it.each(["payment_intent.payment_failed", "payment_intent.canceled"])(
+    "keeps signed internal %s out of ordinary checkout handling", async (type) => {
+      const event = await internalEvent()
+      const status = type === "payment_intent.canceled" ? "canceled" : "requires_payment_method"
+      mockConstructEvent.mockReturnValue({ ...event, type, data: { object: { ...event.data.object, status, amount_received: 0 } } })
+      expect((await sendInternalEvent()).status).toBe(200)
+      expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+      expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+      expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        where: { eventId: event.id },
+        data: expect.objectContaining({ status: "completed" }),
+      }))
+    },
+  )
+  it("does not rematerialize a credit when a completed internal webhook is replayed", async () => {
+    const { Prisma } = await import("@prisma/client")
+    const event = await internalEvent()
+    mockConstructEvent.mockReturnValue(event)
+    mockStripeWebhookEventCreate.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", {
+      code: "P2002", clientVersion: "test",
+    }))
+    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({ eventId: event.id, status: "completed" })
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+  })
+  it("still rejects invalid Stripe signatures before internal exclusion", async () => {
+    await internalEvent()
+    mockConstructEvent.mockImplementation(() => { throw new Error("invalid signature") })
+    expect((await sendInternalEvent()).status).toBe(400)
+    expectNoInternalSideEffects()
+  })
+  it.each(["partial", "tampered", "wrong_amount", "test_mode", "missing_signing_key"])(
+    "never acknowledges an unproven internal marker (%s)", async (mismatch) => {
+      const event = await internalEvent()
+      if (mismatch === "partial") delete event.data.object.metadata.pliInternalAttempt
+      if (mismatch === "tampered") event.data.object.metadata.terminalId = "other_terminal"
+      if (mismatch === "wrong_amount") event.data.object.amount = 200
+      if (mismatch === "test_mode") event.livemode = false
+      if (mismatch === "missing_signing_key") vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", undefined)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBeGreaterThanOrEqual(400)
+      expectNoInternalSideEffects()
+    },
+  )
 
   it("persists hosted checkout success through Purchase upsert", async () => {
     mockConstructEvent.mockReturnValue({
@@ -753,7 +1067,7 @@ describe("stripe webhook checkout session persistence", () => {
     )
   })
 
-  it("normalizes payment intent success to paid before persisting", async () => {
+  it.each([undefined, "pli_internal_purchase_unknown"])("normalizes ordinary intent success with marker %s to paid before persisting", async (flowContext) => {
     mockConstructEvent.mockReturnValue({
       id: "evt_456",
       type: "payment_intent.succeeded",
@@ -767,6 +1081,7 @@ describe("stripe webhook checkout session persistence", () => {
           receipt_email: "intent@example.com",
           metadata: {
             courseSlug: "bachata",
+            flowContext,
             courseTitle: "Bachata",
             packageId: "pkg_456",
             packageLabel: "Package",
