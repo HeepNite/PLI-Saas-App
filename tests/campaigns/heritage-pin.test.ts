@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest"
 import {
   HERITAGE_PIN_CAMPAIGN_KEY,
+  HERITAGE_PIN_DECORATIVE_FLAG_CODES,
   buildDeliveredHeritagePinMetadata,
   buildPendingHeritagePinMetadata,
   getHeritagePinCampaignConfig,
+  getHeritagePinCountryOptions,
   getHeritagePinDateKey,
   isHeritagePinAcquisitionDate,
   isHeritagePinBenefitClassDate,
@@ -75,10 +77,22 @@ describe("Heritage Pin campaign", () => {
     })).toBe(true)
   })
 
-  it("normalizes only real ISO country codes", () => {
+  it("limits pin countries to Hispanic America, Puerto Rico, and Spain", () => {
+    expect(getHeritagePinCountryOptions().map(({ code }) => code).sort()).toEqual([
+      "AR", "BO", "CL", "CO", "CR", "CU", "DO", "EC", "ES", "GT",
+      "HN", "MX", "NI", "PA", "PE", "PR", "PY", "SV", "UY", "VE",
+    ])
     expect(normalizeHeritagePinCountryCode(" co ")).toBe("CO")
     expect(normalizeHeritagePinCountryCode("PR")).toBe("PR")
+    expect(normalizeHeritagePinCountryCode("es")).toBe("ES")
+    expect(normalizeHeritagePinCountryCode("AL")).toBeNull()
+    expect(normalizeHeritagePinCountryCode("DZ")).toBeNull()
+    expect(normalizeHeritagePinCountryCode("BR")).toBeNull()
+    expect(normalizeHeritagePinCountryCode("GQ")).toBeNull()
     expect(normalizeHeritagePinCountryCode("ZZ")).toBeNull()
+    expect(HERITAGE_PIN_DECORATIVE_FLAG_CODES).toContain("ES")
+    expect(HERITAGE_PIN_DECORATIVE_FLAG_CODES).not.toContain("BR")
+    expect(HERITAGE_PIN_DECORATIVE_FLAG_CODES.every((code) => normalizeHeritagePinCountryCode(code) === code)).toBe(true)
   })
 
   it("admits only a valid public-booking award intent settled inside the acquisition window", () => {

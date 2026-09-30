@@ -73,6 +73,12 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Redeploy `codex/develop` and verify country selection, successful-payment entitlement visibility, and staff delivery controls without changing production configuration.
   - Evidence: shared config reads browser-safe acquisition overrides with private server values taking precedence; 39 focused campaign/checkout tests, typecheck, diff check, and scoped ESLint passed. Both `HERITAGE_PIN_ACQUISITION_START` and `NEXT_PUBLIC_HERITAGE_PIN_ACQUISITION_START` are set to `2026-09-29` only for the `codex/develop` preview. Production defaults and the `2026-10-01` benefit start remain unchanged. Delivery, redeploy, country-dialog readback, and paid entitlement/staff lifecycle evidence are pending.
 
+- [x] 9. Restrict Heritage pin countries to Hispanic America and Spain.
+  - Update the requirements to define the exact campaign geography: the 18 sovereign Spanish-speaking American countries, Puerto Rico, and Spain.
+  - Centralize the allowlist so both the country selector and server-side normalization reject every other ISO country code.
+  - Add focused coverage proving included boundary examples and excluding unrelated countries such as Albania and Algeria.
+  - Evidence: `HERITAGE_PIN_COUNTRY_CODES` is the shared selector/server allowlist; 13 focused campaign tests pass and explicitly reject Albania, Algeria, Brazil, and Equatorial Guinea while accepting Colombia, Puerto Rico, and Spain.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.
