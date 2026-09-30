@@ -11,6 +11,10 @@ export const HERITAGE_PIN_COUNTRY_CODES = [
   "AR", "BO", "CL", "CO", "CR", "CU", "DO", "EC", "ES", "GT",
   "HN", "MX", "NI", "PA", "PE", "PR", "PY", "SV", "UY", "VE",
 ] as const
+export type HeritagePinCountryCode = typeof HERITAGE_PIN_COUNTRY_CODES[number]
+export const HERITAGE_PIN_DECORATIVE_FLAG_CODES = [
+  "AR", "MX", "CO", "DO", "PR", "ES", "PE", "CU",
+] as const satisfies readonly HeritagePinCountryCode[]
 const COUNTRY_CODES = new Set<string>(HERITAGE_PIN_COUNTRY_CODES)
 
 export type HeritagePinStatus = "pending" | "delivered"

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   HERITAGE_PIN_CAMPAIGN_KEY,
+  HERITAGE_PIN_DECORATIVE_FLAG_CODES,
   buildDeliveredHeritagePinMetadata,
   buildPendingHeritagePinMetadata,
   getHeritagePinCampaignConfig,
@@ -89,6 +90,9 @@ describe("Heritage Pin campaign", () => {
     expect(normalizeHeritagePinCountryCode("BR")).toBeNull()
     expect(normalizeHeritagePinCountryCode("GQ")).toBeNull()
     expect(normalizeHeritagePinCountryCode("ZZ")).toBeNull()
+    expect(HERITAGE_PIN_DECORATIVE_FLAG_CODES).toContain("ES")
+    expect(HERITAGE_PIN_DECORATIVE_FLAG_CODES).not.toContain("BR")
+    expect(HERITAGE_PIN_DECORATIVE_FLAG_CODES.every((code) => normalizeHeritagePinCountryCode(code) === code)).toBe(true)
   })
 
   it("admits only a valid public-booking award intent settled inside the acquisition window", () => {
