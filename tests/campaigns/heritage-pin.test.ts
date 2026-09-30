@@ -32,6 +32,17 @@ describe("Heritage Pin campaign", () => {
     })
   })
 
+  it("uses the browser-safe acquisition override while keeping the private server value authoritative", () => {
+    expect(getHeritagePinCampaignConfig(
+      {},
+      "2026-09-29",
+    )).toMatchObject({ acquisitionStart: "2026-09-29", benefitStart: "2026-10-01" })
+    expect(getHeritagePinCampaignConfig(
+      { HERITAGE_PIN_ACQUISITION_START: "2026-09-30" },
+      "2026-09-29",
+    )).toMatchObject({ acquisitionStart: "2026-09-30" })
+  })
+
   it("rejects malformed, reversed, and unbounded date overrides", () => {
     expect(getHeritagePinCampaignConfig({
       HERITAGE_PIN_ACQUISITION_START: "nope",

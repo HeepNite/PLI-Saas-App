@@ -66,9 +66,10 @@ const resolveCampaignWindow = (
 
 export const getHeritagePinCampaignConfig = (
   env: Partial<Record<string, string | undefined>> = process.env,
+  publicAcquisitionStart = process.env.NEXT_PUBLIC_HERITAGE_PIN_ACQUISITION_START,
 ): HeritagePinCampaignConfig => {
   const acquisition = resolveCampaignWindow(
-    env.HERITAGE_PIN_ACQUISITION_START,
+    env.HERITAGE_PIN_ACQUISITION_START ?? publicAcquisitionStart,
     env.HERITAGE_PIN_ACQUISITION_END,
     DEFAULT_ACQUISITION_START,
     DEFAULT_ACQUISITION_END,
