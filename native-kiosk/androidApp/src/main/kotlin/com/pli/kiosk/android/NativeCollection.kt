@@ -17,22 +17,17 @@ interface BluetoothPermissions {
     fun requestBluetoothPermissions()
 }
 object BluetoothPermissionRequest { const val CODE = 801 }
-internal fun requiredBluetoothPermissions(sdk: Int): Array<String> = if (sdk >= 31) {
-    arrayOf(android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_CONNECT)
-} else {
-    arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
-}
 class AndroidBluetoothPermissions(private var activity: android.app.Activity? = null) : BluetoothPermissions {
     fun attach(activity: android.app.Activity) { this.activity = activity }
     override fun hasBluetoothPermissions(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < 31) return true
         val owner = activity ?: return false
-        return requiredBluetoothPermissions(android.os.Build.VERSION.SDK_INT).all {
-            owner.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
+        return owner.checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            owner.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED
     }
     override fun requestBluetoothPermissions() {
-        requireNotNull(activity) { "Activity permission owner is unavailable" }.requestPermissions(
-            requiredBluetoothPermissions(android.os.Build.VERSION.SDK_INT), BluetoothPermissionRequest.CODE)
+        if (android.os.Build.VERSION.SDK_INT >= 31) requireNotNull(activity) { "Activity permission owner is unavailable" }.requestPermissions(
+            arrayOf(android.Manifest.permission.BLUETOOTH_SCAN, android.Manifest.permission.BLUETOOTH_CONNECT), BluetoothPermissionRequest.CODE)
     }
 }
 
