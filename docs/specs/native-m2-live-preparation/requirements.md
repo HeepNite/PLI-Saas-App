@@ -138,3 +138,13 @@ Rollback is a build-time disable of the separate native collection flag. It must
 ### Self-service post-payment rollover
 
 A fresh server-authoritative `Paid` result must end the active device collection context and return the kiosk to a clean self-service start state without front-desk enablement or cashier participation. Stripe and the backend retain the financial, Purchase, entitlement, and webhook history. Before another purchase can begin, the device must discard the prior student's selection and the completed local attempt binding, require a new student lookup/confirmation, and create a new signed attempt through the ordinary server path. Rollover is never available from `Unresolved`, `ManualReconciliation`, cancellation, SDK completion, or an uncertain callback; those states retain the same PaymentIntent and remain blocked for recovery or reconciliation. Deployment feature flags remain global activation controls, not per-transaction staff actions. Every listener that can render Android UI must be delivered on the UI thread.
+
+## T7a LIVE M2 reader provisioning
+
+Stripe Reader M2 is a mobile Bluetooth reader registered to the LIVE account/location through the Terminal SDK connection flow, not the Dashboard serial-registration form. Before the first payment-enabled build, a separate one-time provisioning build may obtain the reader's LIVE `tmr_*` identity under all of these constraints:
+
+- Provisioning requires the approved HTTPS origin, the authenticated existing staff-terminal session, a separate build-time provisioning flag that defaults OFF, and `INTERNAL_PURCHASE_LIVE_PAYMENT_ENABLED=false` on the server.
+- It may call only the existing `connection-token` action, request runtime Bluetooth permission, discover physical non-simulated readers, accept only M2 serial `STRM2D533025669`, and explicitly connect it to LIVE location `tml_GqQ6wPY5rSAhAt` with automatic reconnect disabled.
+- It may display the SDK-confirmed connected `tmr_*` ID for configuration evidence. It must not persist a client secret, issue an attempt, select a student, create or retrieve a PaymentIntent, collect, confirm, refund, grant credit, or expose any payment control.
+- A missing session, origin mismatch, permission denial, wrong serial/type/location, multiple matching readers, disconnect, backgrounding, or SDK error fails closed and requires an explicit retry.
+- Provisioning and payment collection are mutually exclusive build modes. The provisioning flag must be disabled before configuring the captured reader ID and enabling the separately authorized USD 1 payment flow.
