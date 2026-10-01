@@ -7,6 +7,7 @@ import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText } from "@/lib/shared"
 import { ATTENDANCE_STATUS, ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+import { guardPackagePurchaseEligibleForCreditTx, reservePackageCreditForAttendanceTx } from "@/lib/packages"
 
 export const runtime = "nodejs"
 
@@ -77,20 +78,13 @@ async function applyAdd(
   })
 
   if (activePackage && activePackage.remainingCredits! > 0) {
-    await tx.packagePurchase.update({
-      where: { id: activePackage.id },
-      data: { remainingCredits: { decrement: 1 }, lastUsedAt: new Date() },
-    })
-
-    await tx.packageUsageLedger.create({
-      data: {
-        packagePurchaseId: activePackage.id,
-        userId,
-        attendanceId: attendance.id,
-        delta: -1,
-        reason: "staff_override_add_attendance",
-        meta: { sessionId, overriddenBy: authResult.userId },
-      },
+    await reservePackageCreditForAttendanceTx(tx, {
+      packagePurchaseId: activePackage.id,
+      userId,
+      attendanceId: attendance.id,
+      courseSlug: session.courseSlug,
+      at: new Date(),
+      reason: "staff_override_add_attendance",
     })
   }
 
@@ -146,6 +140,12 @@ async function applyRemove(
       metadata: { path: ["attendanceId"], equals: attendance.id },
     },
   })
+
+  // A reversed or manually-resolved Purchase is financial evidence, not a
+  // credit to undo. Stop before deleting either attendance or its ledger row.
+  if (usageEntry && (!usageEntry.packagePurchase || !await guardPackagePurchaseEligibleForCreditTx(tx, usageEntry.packagePurchase))) {
+    return { error: "Package credit requires manual resolution.", status: 409 }
+  }
 
   // Now delete the attendance
   await tx.attendance.delete({
@@ -229,32 +229,35 @@ async function applyUpdate(
 
   const valueBefore = { status: attendance.status }
 
+  // Check the financial authority before changing attendance. A failed guard
+  // preserves both attendance and immutable usage history for manual review.
+  const wasAttended = ATTENDED_CHECKIN_STATUSES.includes(attendance.status)
+  const isAttended = ATTENDED_CHECKIN_STATUSES.includes(status)
+  const usageEntry = wasAttended && !isAttended
+    ? await tx.packageUsageLedger.findFirst({
+        where: { attendanceId: attendance.id },
+        include: { packagePurchase: true },
+      })
+    : null
+  if (usageEntry && (!usageEntry.packagePurchase || !await guardPackagePurchaseEligibleForCreditTx(tx, usageEntry.packagePurchase))) {
+    return { error: "Package credit requires manual resolution.", status: 409 }
+  }
+
   const updated = await tx.attendance.update({
     where: { userId_sessionId: { userId, sessionId } },
     data: { status },
   })
 
   // Handle credit restoration/consumption based on status change
-  const wasAttended = ATTENDED_CHECKIN_STATUSES.includes(attendance.status)
-  const isAttended = ATTENDED_CHECKIN_STATUSES.includes(status)
-
-  if (wasAttended && !isAttended) {
-    // Restoring credit: status changed from attended to non-attended
-    const usageEntry = await tx.packageUsageLedger.findFirst({
-      where: { attendanceId: attendance.id },
-      include: { packagePurchase: true },
+  if (usageEntry) {
+    await tx.packagePurchase.update({
+      where: { id: usageEntry.packagePurchaseId },
+      data: { remainingCredits: { increment: 1 } },
     })
 
-    if (usageEntry) {
-      await tx.packagePurchase.update({
-        where: { id: usageEntry.packagePurchaseId },
-        data: { remainingCredits: { increment: 1 } },
-      })
-
-      await tx.packageUsageLedger.delete({
-        where: { id: usageEntry.id },
-      })
-    }
+    await tx.packageUsageLedger.delete({
+      where: { id: usageEntry.id },
+    })
   } else if (!wasAttended && isAttended) {
     // Consuming credit: status changed from non-attended to attended
     const activePackage = await tx.packagePurchase.findFirst({
@@ -269,20 +272,12 @@ async function applyUpdate(
     })
 
     if (activePackage && activePackage.remainingCredits! > 0) {
-      await tx.packagePurchase.update({
-        where: { id: activePackage.id },
-        data: { remainingCredits: { decrement: 1 }, lastUsedAt: new Date() },
-      })
-
-      await tx.packageUsageLedger.create({
-        data: {
-          packagePurchaseId: activePackage.id,
-          userId,
-          attendanceId: attendance.id,
-          delta: -1,
-          reason: "staff_override_update_attendance",
-          meta: { sessionId, overriddenBy: authResult.userId },
-        },
+      await reservePackageCreditForAttendanceTx(tx, {
+        packagePurchaseId: activePackage.id,
+        userId,
+        attendanceId: attendance.id,
+        at: new Date(),
+        reason: "staff_override_update_attendance",
       })
     }
   }
