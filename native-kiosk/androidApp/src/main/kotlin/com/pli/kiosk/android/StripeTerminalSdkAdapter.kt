@@ -110,7 +110,10 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
             },
             object : Callback {
                 override fun onSuccess() = Unit
-                override fun onFailure(e: TerminalException) = onFailure()
+                override fun onFailure(e: TerminalException) {
+                    System.err.println("PLI provisioning discovery failed: ${e.errorCode}: ${e.message}")
+                    onFailure()
+                }
             },
         )
         return NativeCancelable {
@@ -160,6 +163,7 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
                     } else onFailure()
                 }
                 override fun onFailure(e: TerminalException) {
+                    System.err.println("PLI provisioning connection failed: ${e.errorCode}: ${e.message}")
                     observedConnectedReaderId = null
                     onFailure()
                 }
