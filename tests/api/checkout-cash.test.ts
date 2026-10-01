@@ -234,7 +234,7 @@ describe("checkout cash route", () => {
     expect(mockUpsertUser).not.toHaveBeenCalled()
   })
 
-  it("charges the delivered-holder Heritage price in a trusted kiosk cash flow", async () => {
+  it("keeps trusted-kiosk regular pricing independent from delivered Heritage pin state", async () => {
     mockValidate.mockResolvedValueOnce({
       courseSlug: "salsa-feminine-morning",
       courseTitle: "Salsa feminine style (morning)",
@@ -280,15 +280,10 @@ describe("checkout cash route", () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(mockPrisma.purchase.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        amount: 1500,
-        metadata: expect.objectContaining({
-          heritagePinPriceApplied: true,
-          heritagePinEntitlementPurchaseId: "pin_purchase_1",
-        }),
-      }),
-    }))
+    const purchase = mockPrisma.purchase.create.mock.calls.at(-1)?.[0]?.data
+    expect(purchase?.amount).toBe(2000)
+    expect(purchase?.metadata).not.toHaveProperty("heritagePinPriceApplied")
+    expect(purchase?.metadata).not.toHaveProperty("heritagePinEntitlementPurchaseId")
   })
 
   it("routes special-class cash checkout to atomic cash admission", async () => {

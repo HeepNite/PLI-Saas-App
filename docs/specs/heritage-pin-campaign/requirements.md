@@ -6,7 +6,7 @@
 
 ## Objective
 
-Convert public booking visitors during the Latin Heritage campaign by awarding one physical country pin after a qualifying card payment, recording the benefit against the identified student, and charging delivered pin holders a fixed US$15 price for eligible Sunday and Monday classes.
+Convert public booking visitors during the Latin Heritage campaign by awarding one physical country pin after a qualifying card payment and recording its fulfillment against the identified student. The physical pin is independent from class pricing, customer eligibility, and package usage.
 
 ## Scope
 
@@ -18,7 +18,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - Create a pending country-pin entitlement only after a successful qualifying card payment.
 - Let authorized staff mark the physical pin as delivered.
 - Show campaign country and pending/delivered status in the staff student panel.
-- Apply a server-authoritative US$15 price to eligible Sunday/Monday classes after delivery.
+- Preserve the existing server-authoritative pricing contract: verified first-time customers receive the US$15 new-student price, existing customers receive the current regular price, and applicable package holders book against their package.
 - Make campaign acquisition and benefit dates centrally configurable, initially October 2026 in `America/New_York`.
 - Require card/wallet for remote public web booking while preserving cash for trusted in-studio kiosk flows.
 - Preserve PLI branding and selected class context throughout the booking handoff without flashing the general course/home experience.
@@ -30,21 +30,20 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - A new authentication, registration, checkout, or student identity flow.
 - Reusing the authentication `StudentPinCredential` for the physical country pin.
 - An admin campaign editor, coupon marketplace, or unbounded promotion engine.
-- Changes to unrelated kiosk, package, consecutive-class, or staff cash behavior.
+- Changes to unrelated kiosk, consecutive-class, or staff cash behavior.
 
 ## Campaign Windows
 
 1. All date and weekday decisions MUST use `America/New_York`.
 2. Acquisition and benefit windows MUST be defined in one campaign configuration module.
 3. Default acquisition dates MUST be `2026-10-01` through `2026-10-31`, inclusive.
-4. Default benefit dates MUST be `2026-10-01` through `2026-10-31`, inclusive.
-5. An operator MUST be able to extend an end date, such as through the first week of November, through central configuration without changing campaign decision logic.
-6. Invalid or missing overrides MUST fail closed to the documented defaults or disable the invalid override; they MUST NOT create an unbounded campaign.
+4. An operator MUST be able to extend the acquisition end date through central configuration without changing campaign decision logic.
+5. Invalid or missing overrides MUST fail closed to the documented defaults or disable the invalid override; they MUST NOT create an unbounded campaign.
 
 ## Acquisition Requirements
 
 1. Any student without an existing Heritage country-pin entitlement MAY earn the benefit once.
-2. The public booking campaign announcement MUST explain that a completed online payment earns a country pin and that delivered pin holders receive eligible classes for US$15.
+2. The public booking campaign announcement MUST explain that a completed online payment earns a country pin. It MUST NOT imply that pin status changes class pricing.
 3. The booking journey MUST request a country from a controlled country selector for a student attempting to earn the benefit. The campaign geography MUST be limited to Hispanic America and Spain: Argentina, Bolivia, Chile, Colombia, Costa Rica, Cuba, Dominican Republic, Ecuador, El Salvador, Guatemala, Honduras, Mexico, Nicaragua, Panama, Paraguay, Peru, Puerto Rico, Uruguay, Venezuela, and Spain.
 4. Country input and campaign markers MUST be treated as untrusted until validated server-side. Every country outside the campaign geography MUST be rejected even when it is otherwise a valid ISO country code.
 5. A qualifying acquisition MUST:
@@ -56,7 +55,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 7. A successful qualifying payment MUST create exactly one pending entitlement associated with the user and source purchase.
 8. Replayed Stripe events or later qualifying purchases MUST NOT create duplicate entitlements.
 9. A free-form note MAY expose the country for staff readability, but MUST NOT be the authorization source for delivery status or pricing.
-10. Existing new-student pricing remains independent. The campaign does not add a pre-delivery discount and does not stack with the new-student offer.
+10. Existing new-student, regular drop-in, and package pricing remain independent from the campaign and authoritative.
 
 ## Delivery Requirements
 
@@ -68,18 +67,18 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 6. Staff UI MUST show at least:
    - `Country pin pending · <country>` before handoff; or
    - `Heritage pin · <country>` after handoff.
-7. Pricing eligibility MUST remain inactive while the pin is pending.
+7. Pending or delivered pin state MUST NOT affect pricing or package eligibility.
 
-## Benefit and Pricing Requirements
+## Pricing and Package Requirements
 
-1. A student qualifies for the pin price only when a delivered entitlement is found for the identified user.
-2. An eligible class occurrence MUST fall within the configured benefit window and occur on Sunday or Monday in `America/New_York`.
-3. The eligible class price MUST be exactly US$15 for one drop-in participant.
-4. The pin price MUST NOT stack with coupons, packages, new-student pricing, or another promotion.
-5. When more than one price rule could apply, the checkout MUST present and charge one server-authorized price; it MUST NOT combine reductions.
-6. The server MUST derive entitlement and final amount from persisted user/purchase data. Client flags, query parameters, notes, or displayed totals MUST NOT authorize the price.
-7. Direct checkout requests with a forged pin claim or amount MUST fail validation or be normalized to the server-authorized amount.
-8. Extending the configured benefit end date MUST automatically extend Sunday/Monday eligibility only within that bounded interval.
+1. A verified customer with no successful purchase and no package history qualifies for the existing US$15 new-student price.
+2. An existing customer without an applicable package receives the current server-authoritative regular price, presently US$20 for the applicable drop-in.
+3. An existing customer with an active, unexpired package applicable to the selected course MUST be offered package booking instead of being forced through regular checkout.
+4. Public package booking MUST create a scheduled booking against the selected package without treating the physical Heritage pin as authority.
+5. Package capacity MUST be reserved so one credit cannot back multiple future bookings, while definitive credit consumption and usage reporting occur only when attendance transitions from scheduled to attended.
+6. Canceling a scheduled package booking before attendance MUST release its reservation without consuming a credit.
+7. Package, regular, and new-student decisions MUST be recalculated server-side from the authenticated user, selected class, purchase history, and package state.
+8. Client flags, query parameters, pin status, notes, or displayed totals MUST NOT authorize a price or package credit.
 
 ## Payment-Channel Requirements
 
@@ -99,7 +98,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 5. The timed promotion MUST use a concise flag collage instead of the supplied real-pin photograph and MUST keep explanatory copy short enough to scan immediately.
 6. The timed promotion MUST not open over the country-selection dialog or interrupt a booking already in progress.
 7. Campaign-only treatment MUST disappear automatically outside the configured acquisition window.
-8. Campaign copy MUST concisely communicate that online booking earns a selected-country pin and that the delivered-pin benefit is US$15 on eligible Sunday/Monday classes.
+8. Campaign copy MUST concisely communicate that online booking earns a selected-country pin and MUST NOT claim a pin-controlled class price.
 9. Selecting `BOOK` MUST preserve the selected course, date, time, and country through the existing registration/checkout flow.
 10. Navigation MUST immediately show a branded PLI transition instead of the general course/home page or its loading skeleton.
 11. The compact form MUST retain the PLI logo, Heritage heading, and a concise summary of the selected class and campaign. The global announcement, catalog navigation, footer, home control, and assistant chrome MUST remain hidden for the entire public booking process.
@@ -136,9 +135,9 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - [ ] Non-card or unsuccessful payments create no entitlement.
 - [ ] Staff can see the pending country and mark the pin delivered exactly once.
 - [ ] Delivered status is visible as a distinct Heritage pin badge in the staff student panel.
-- [ ] A delivered holder is charged US$15 for eligible Sunday/Monday classes inside the benefit window.
-- [ ] Pending/non-holder users and ineligible dates receive normal authoritative pricing.
-- [ ] Discounts do not stack.
+- [ ] New verified customers receive the existing US$15 new-student price, existing customers receive the regular price, and applicable package holders can reserve with their package.
+- [ ] Pin pending/delivered state produces no pricing or package-routing difference.
+- [ ] Package reservations cannot oversubscribe credits; attendance completion consumes the credit and pre-attendance cancellation releases the reservation.
 - [ ] Remote public booking is card/wallet only, while trusted kiosk cash remains available.
 - [ ] Changing the bounded campaign end configuration extends eligibility without logic changes.
 - [ ] The booking transition never flashes the general course/home experience and retains PLI/class context.

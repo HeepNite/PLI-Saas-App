@@ -25,10 +25,7 @@ import {
 import {
   HERITAGE_PIN_CAMPAIGN_KEY,
   normalizeHeritagePinCountryCode,
-  resolveHeritagePinPrice,
 } from "@/lib/campaigns/heritage-pin"
-import { findHeritagePinEntitlementForIdentity } from "@/lib/campaigns/heritage-pin-entitlement"
-import { prisma } from "@/lib/prisma"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -344,32 +341,6 @@ export async function POST(req: Request) {
     return toErrorResponse(newStudentError)
   }
 
-  const heritagePinEntitlement = await findHeritagePinEntitlementForIdentity(prisma, {
-    clerkId: resolvedUserId,
-    email: identity.resolvedEmail,
-    phone: identity.phoneNormalized,
-  })
-  const heritagePinPricing = resolveHeritagePinPrice({
-    entitlement: heritagePinEntitlement,
-    classDate: effectiveSession.date || validation.date,
-    participants: validation.safeParticipants,
-    serviceId: validation.serviceId,
-    packageId: validation.packageId,
-    coupon: validation.coupon,
-    addonCount: validation.addons.length,
-    consecutivePriceCents: validation.consecutivePriceCents,
-    consecutiveAddOnOnly: validation.consecutiveAddOnOnly,
-  })
-  const effectiveAmountCents = heritagePinPricing.applied
-    ? heritagePinPricing.amountCents
-    : validation.amountInt
-  const heritagePinPricingMetadata: Record<string, string> = heritagePinPricing.applied
-    ? {
-        heritagePinPriceApplied: "true",
-        heritagePinPriceCents: String(heritagePinPricing.amountCents),
-        heritagePinEntitlementPurchaseId: heritagePinPricing.entitlementPurchaseId,
-      }
-    : {}
 
   const expiresAt =
     photoContext === FLOW_CONTEXT.KIOSK_TERMINAL ? Math.floor(Date.now() / 1000) + 30 * 60 : undefined
@@ -384,7 +355,7 @@ export async function POST(req: Request) {
           quantity: 1,
           price_data: {
             currency: validation.currency,
-            unit_amount: effectiveAmountCents,
+            unit_amount: validation.amountInt,
             product_data: {
               name: validation.courseTitle,
               description: [validation.courseSlug, effectiveSession.date, effectiveSession.time].filter(Boolean).join(" • "),
@@ -428,7 +399,6 @@ export async function POST(req: Request) {
         consecutiveAddOnOnly: String(validation.consecutiveAddOnOnly),
         linkedFromCourseSlug: validation.linkedFromCourseSlug || "",
         ...heritagePinMetadata,
-        ...heritagePinPricingMetadata,
       },
     })
 

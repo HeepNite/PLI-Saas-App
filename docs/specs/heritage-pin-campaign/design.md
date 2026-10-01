@@ -2,7 +2,7 @@
 
 ## Design Principles
 
-- Server authority for payment channel, entitlement, dates, and price.
+- Server authority for payment channel, entitlement, customer pricing, and package routing.
 - One bounded campaign module rather than scattered October checks.
 - Purchase metadata as the no-migration entitlement record.
 - Existing phone/account identity as the user key.
@@ -15,13 +15,10 @@ Create a focused module under `lib/campaigns/heritage-pin.ts` that owns:
 
 - campaign key;
 - New York timezone;
-- bounded acquisition and benefit start/end dates;
+- bounded acquisition start/end dates;
 - normalized country-code validation/display;
-- purchase-window and class-window decisions;
-- Sunday/Monday eligibility;
-- fixed price (`1500` cents);
-- metadata parsing and status resolution;
-- non-stacking decision helpers.
+- purchase-window decisions;
+- metadata parsing and status resolution.
 
 Configuration reads documented environment overrides with safe ISO-date validation and bounded defaults. Domain functions accept `Date`/date-key parameters for deterministic tests.
 
@@ -83,21 +80,15 @@ Extend the staff student search aggregate with a separate `heritagePin` object. 
 
 The student card renders a dedicated badge and a `Mark delivered` control only for pending state.
 
-## 7. Pricing Decision
+## 7. Pricing And Package Decision
 
-Campaign pricing runs after server identity resolution and before Stripe/cash persistence.
+Campaign entitlement is excluded from pricing. After server identity resolution, the booking flow selects exactly one existing authority:
 
-Eligibility requires:
+- verified identity with no successful purchase or package history: existing US$15 new-student service;
+- existing customer with an applicable active package: create a scheduled package booking and hold one unit of package capacity;
+- existing customer without an applicable package: regular server-authoritative drop-in price.
 
-- a delivered entitlement for the resolved user;
-- class date inside the configured benefit window;
-- Sunday or Monday in New York calendar semantics;
-- one drop-in participant;
-- no package, coupon, new-student service, consecutive add-on, or other promotional price.
-
-If eligible, server checkout uses exactly 1500 cents and records campaign pricing metadata. The UI may pre-display eligibility after identity resolution, but the checkout route independently recalculates it.
-
-If another promotion is selected, the campaign price is not combined. The flow presents one authorized rule and prevents misleading stacked totals.
+A package hold is tied to the scheduled attendance and prevents the same available credit from backing another reservation. The package's consumed-credit count changes only when attendance transitions to an attended state; cancellation before attendance releases the hold. The server derives every branch from authenticated identity and persisted data.
 
 ## 8. Payment-Channel Gate
 
@@ -118,13 +109,12 @@ This gate is localized to personal remote booking and does not remove staff cash
 
 ### Domain
 
-- inclusive acquisition/benefit boundaries in New York;
-- DST-independent weekday calculations;
-- configured extension through November;
+- inclusive acquisition boundaries in New York;
+- configured acquisition extension;
 - country normalization;
 - metadata parsing and one-entitlement selection;
-- pending versus delivered pricing;
-- non-stacking decisions.
+- package hold, completion consumption, cancellation release, and oversubscription prevention;
+- new-customer, existing-customer, and applicable-package routing.
 
 ### API
 
@@ -132,8 +122,10 @@ This gate is localized to personal remote booking and does not remove staff cash
 - replay remains idempotent;
 - cash/failed/out-of-window events do not award;
 - delivery mutation authorization, audit, idempotency, and ownership checks;
-- checkout accepts US$15 only for an eligible delivered holder/date;
-- forged amount/entitlement rejected;
+- physical pin state never changes the charged amount;
+- verified first-purchase US$15 remains server-authoritative;
+- applicable package booking bypasses paid checkout and creates one scheduled hold;
+- forged package/amount claims are rejected;
 - remote cash rejected and trusted kiosk cash accepted.
 
 ### UI
@@ -151,4 +143,4 @@ This gate is localized to personal remote booking and does not remove staff cash
 
 ## Rollback Boundary
 
-All campaign decisions are centralized. Disabling the campaign configuration stops new awards and promotional pricing without deleting historical entitlement metadata. UI surfaces tolerate historical records after expiry.
+All campaign decisions are centralized. Disabling the campaign configuration stops new awards without deleting historical entitlement metadata. Pricing and package routing remain governed by their existing domains, and UI surfaces tolerate historical pin records after expiry.

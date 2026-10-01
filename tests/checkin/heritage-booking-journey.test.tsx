@@ -81,7 +81,7 @@ describe("Heritage campaign booking presentation", () => {
     const html = renderToStaticMarkup(<HeritageCampaignPromoDialog onClose={() => undefined} />)
     expect(html).toContain("Hispanic American and Spanish flags")
     expect(html).toContain("Book online. Choose your country. Pick up your pin.")
-    expect(html).toContain("$15 Sunday &amp; Monday classes after pickup.")
+    expect(html).not.toContain("$15 Sunday &amp; Monday classes after pickup.")
     expect(html).not.toContain("heritage-country-pins")
     expect(html).not.toContain("photograph")
   })
