@@ -46,34 +46,6 @@ function EnamelFlagPin({ code, className = "" }: { code: string; className?: str
   )
 }
 
-export function HeritageFlagRails() {
-  const leftFlags = HERITAGE_PIN_DECORATIVE_FLAG_CODES.slice(0, 4)
-  const rightFlags = HERITAGE_PIN_DECORATIVE_FLAG_CODES.slice(4)
-
-  return (
-    <div className="pointer-events-none fixed inset-0 z-0 hidden 2xl:block" aria-hidden="true" data-heritage-flag-rails="true">
-      <div className="absolute left-10 top-1/2 flex -translate-y-1/2 flex-col items-center gap-9 opacity-75">
-        {leftFlags.map((code, index) => (
-          <EnamelFlagPin
-            key={code}
-            code={code}
-            className={`h-12 w-12 text-[27px] ${index % 2 === 0 ? "-translate-x-1 -rotate-6" : "translate-x-3 rotate-6"}`}
-          />
-        ))}
-      </div>
-      <div className="absolute right-10 top-1/2 flex -translate-y-1/2 flex-col items-center gap-9 opacity-75">
-        {rightFlags.map((code, index) => (
-          <EnamelFlagPin
-            key={code}
-            code={code}
-            className={`h-12 w-12 text-[27px] ${index % 2 === 0 ? "translate-x-1 rotate-6" : "-translate-x-3 -rotate-6"}`}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export const isHeritageCampaignAcquiringNow = () => isHeritagePinAcquisitionDate(new Date())
 
 export function HeritageCampaignBanner() {

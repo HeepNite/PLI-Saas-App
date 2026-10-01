@@ -9,7 +9,6 @@ import {
   HeritageCampaignBanner,
   HeritageCampaignPromoDialog,
   HeritageCountryDialog,
-  HeritageFlagRails,
   countryCodeToFlag,
   getDecorativeBookingFlag,
   isHeritageCampaignAcquiringNow,
@@ -55,15 +54,6 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).toContain("rotateY(180deg)")
     expect(html).toContain("Book Salsa Timba")
     expect(html).toContain("radial-gradient")
-  })
-
-  it("keeps wide-screen flag rails decorative, varied, and outside the accessibility tree", () => {
-    const html = renderToStaticMarkup(<HeritageFlagRails />)
-    expect(html).toContain('data-heritage-flag-rails="true"')
-    expect(html).toContain('aria-hidden="true"')
-    expect(html).toContain("2xl:block")
-    expect(html).toContain("🇦🇷")
-    expect(html).toContain("🇨🇺")
   })
 
   it("keeps the booking header compact with real pin cutouts and an accessible light sweep", () => {
