@@ -4,22 +4,21 @@ import android.app.Activity
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.text.InputType
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import java.util.concurrent.Executors
 
 data class ReaderProvisioningConfiguration(
     val approvedOrigin: String,
     val enabled: Boolean,
     val collectionEnabled: Boolean,
+    val oneTimeConnectionToken: String,
 ) {
     init {
         require(!enabled || !collectionEnabled) { "Provisioning and collection are mutually exclusive" }
         if (enabled || approvedOrigin.isNotBlank()) ApprovedOrigin(approvedOrigin)
+        require(!enabled || oneTimeConnectionToken.startsWith("pst_")) { "A one-time Stripe connection token is required" }
     }
 
     companion object {
@@ -27,25 +26,31 @@ data class ReaderProvisioningConfiguration(
             BuildConfig.APPROVED_HTTPS_ORIGIN,
             BuildConfig.READER_PROVISIONING_ENABLED,
             BuildConfig.NATIVE_COLLECTION_ENABLED,
+            BuildConfig.PROVISIONING_CONNECTION_TOKEN,
         )
     }
+}
+
+class OneTimeConnectionToken(token: String) {
+    private var value: String? = token
+    @Synchronized fun consume(): String = requireNotNull(value) { "Provisioning connection token was already consumed" }
+        .also { value = null }
 }
 
 enum class ReaderProvisioningState { READY, DISCOVERING, READER_FOUND, CONNECTING, CONNECTED, BLOCKED }
 data class ReaderProvisioningSnapshot(val state: ReaderProvisioningState, val readerId: String? = null)
 
 class ReaderProvisioningController(
-    private val session: StaffSession,
     private val terminal: NativeTerminalAdapter,
     private val permissions: BluetoothPermissions,
-    private val tokens: ConnectionTokenSource,
+    private val token: OneTimeConnectionToken,
     private val notify: (ReaderProvisioningSnapshot) -> Unit = {},
 ) {
     private var selected: ConnectedReader? = null
     private var discovery: NativeCancelable? = null
     var snapshot = ReaderProvisioningSnapshot(ReaderProvisioningState.READY); private set
 
-    @Synchronized fun initialize() = terminal.initialize { tokens.connectionToken(session) }
+    @Synchronized fun initialize() = terminal.initialize(token::consume)
 
     @Synchronized fun discover() {
         if (!permissions.hasBluetoothPermissions()) {
@@ -90,13 +95,9 @@ class ReaderProvisioningController(
     }
 }
 
-/** One-time LIVE reader bootstrap. This activity has no payment, attempt, or student surface. */
+/** One-time LIVE reader bootstrap. It has no web login, payment, attempt, or student surface. */
 class ReaderProvisioningActivity : Activity() {
-    private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    private lateinit var slug: EditText
-    private lateinit var pin: EditText
-    private lateinit var authenticate: Button
     private lateinit var discover: Button
     private lateinit var connect: Button
     private lateinit var status: TextView
@@ -106,37 +107,21 @@ class ReaderProvisioningActivity : Activity() {
         super.onCreate(savedInstanceState)
         val config = runCatching(ReaderProvisioningConfiguration::fromBuildConfig).getOrNull()
         if (config?.enabled != true) { finish(); return }
-        val origin = ApprovedOrigin(config.approvedOrigin)
-        val transport = StaffSessionTransport(origin, System::currentTimeMillis)
+        val permissions = AndroidBluetoothPermissions(this).also { it.attach(this) }
+        controller = ReaderProvisioningController(
+            StripeTerminalSdkAdapter(this), permissions, OneTimeConnectionToken(config.oneTimeConnectionToken),
+        ) { value -> main.post { render(value) } }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             val padding = (16 * resources.displayMetrics.density).toInt(); setPadding(padding, padding, padding, padding)
-            slug = EditText(context).apply { hint = "Terminal slug" }
-            pin = EditText(context).apply { hint = "Terminal PIN"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD }
-            status = TextView(context).apply { text = "Payments are disabled. Authenticate to provision the LIVE M2." }
-            addView(slug); addView(pin)
-            authenticate = Button(context).apply { text = "Authenticate provisioning"; setOnClickListener {
-                isEnabled = false
-                val suppliedSlug = slug.text.toString()
-                val suppliedPin = pin.text.toString().toCharArray(); pin.text.clear()
-                worker.execute {
-                    val session = runCatching { transport.login(suppliedSlug, suppliedPin) }
-                    main.post {
-                        session.onSuccess {
-                            val permissions = AndroidBluetoothPermissions(this@ReaderProvisioningActivity).also { it.attach(this@ReaderProvisioningActivity) }
-                            controller = ReaderProvisioningController(it, StripeTerminalSdkAdapter(this@ReaderProvisioningActivity), permissions,
-                                StaffSessionConnectionTokenSource(transport)) { value -> main.post { render(value) } }
-                            runCatching { controller!!.initialize() }.onSuccess { discover.isEnabled = true; status.text = "Authenticated. Discover the physical M2." }
-                                .onFailure { authenticate.isEnabled = true; status.text = "Provisioning initialization failed." }
-                        }.onFailure { authenticate.isEnabled = true; status.text = "Provisioning authentication failed." }
-                    }
-                }
-            } }
-            addView(authenticate)
+            status = TextView(context).apply { text = "Payments are disabled. Initializing one-time LIVE provisioning." }
             discover = Button(context).apply { text = "Discover LIVE M2"; isEnabled = false; setOnClickListener { controller?.discover() } }
             connect = Button(context).apply { text = "Connect to PLI — Escuela"; isEnabled = false; setOnClickListener { controller?.connect() } }
             addView(discover); addView(connect); addView(status, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         })
+        runCatching { controller!!.initialize() }
+            .onSuccess { discover.isEnabled = true; status.text = "Ready. Discover the physical M2; no web login is involved." }
+            .onFailure { status.text = "Provisioning initialization failed closed." }
     }
 
     private fun render(value: ReaderProvisioningSnapshot) {
