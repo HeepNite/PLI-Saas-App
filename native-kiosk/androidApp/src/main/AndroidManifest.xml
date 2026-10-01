@@ -12,7 +12,7 @@
         android:usesCleartextTraffic="false"
         android:label="PLI LIVE Foundation">
         <activity
-            android:name=".OperatorActivity"
+            android:name="${launcherActivity}"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
