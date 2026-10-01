@@ -28,15 +28,24 @@
 - [x] Preserve registration, verification, Stripe, sign-in, cancel, and profile redirect behavior.
 - [x] Add component and browser coverage.
 
-## Work Unit 4 — Payment and price enforcement
+## Work Unit 4 — Payment and price enforcement (superseded in part)
 
-- [x] Add server-authoritative delivered-entitlement lookup for checkout.
-- [x] Apply fixed US$15 pricing only to eligible Sunday/Monday drop-ins in the benefit window.
-- [x] Reject stacking with coupons/packages/new-student/consecutive offers.
+The delivered-pin pricing items below describe the original implementation history and are superseded by Work Unit 6. Physical pin state no longer has pricing authority.
+
+- [x] Original implementation added delivered-entitlement pricing lookup and non-stacking checks.
 - [x] Hide onsite payment in remote public booking.
 - [x] Reject remote cash server-side.
 - [x] Preserve cash for validated in-studio kiosk terminal/session flows.
 - [x] Add focused pricing and payment-channel tests.
+
+## Work Unit 6 — Corrected pricing and package routing
+
+- [x] Remove delivered-pin pricing from Stripe and kiosk cash checkout.
+- [x] Preserve the existing verified first-purchase US$15 rule and regular-price fallback.
+- [x] Add server-authoritative public package resolution and scheduled zero-delta holds.
+- [x] Convert held credits on attended completion and release unconsumed holds on cancellation/removal.
+- [x] Route signed-in existing public customers through package reservation before paid checkout.
+- [ ] Complete focused/static/browser validation and delivery evidence.
 
 ## Work Unit 5 — Validation
 

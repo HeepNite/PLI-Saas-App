@@ -1,5 +1,7 @@
 # Heritage Pin Campaign
 
+> **Contract correction (2026-10-01):** Historical entries below that connect delivered Heritage pins to US$15 pricing are superseded. Physical pin state has no pricing authority. The active correction is tracked in `odd/tasks/public-booking-package-routing.md`.
+
 ## Status
 
 IN PROGRESS
