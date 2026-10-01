@@ -105,7 +105,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 12. Campaign styling MUST remain within the PLI near-black, institutional red, and white palette. Additional color comes only from the flags; campaign chrome MUST NOT introduce gold and MUST NOT reduce toolbar or class-list usability.
 13. During the active campaign, eligible circular `BOOK` actions MUST resemble enamel pins through a dark graphite/silver rim, a full enamel-style flag face, depth, and a rotating set of different national flags.
 14. Flag assignment to class buttons MUST be deterministic, decorative, and drawn only from a centralized Hispanic America and Spain display subset of the campaign country allowlist. Visible rows MUST cycle across the set instead of repeating one country because of hash collisions. Decorative flags MUST NOT preselect or claim the visitor's country.
-15. Wide desktop layouts SHOULD use otherwise empty side space for restrained, non-interactive rails of varied flag pins. These rails MUST be hidden when they could overlap the booking content and MUST remain absent from the accessibility tree.
+15. Public booking layouts MUST NOT render standalone decorative flag rails or floating flag bubbles. Flags remain available only in campaign content, country selection, and eligible class booking actions.
 16. On hover or keyboard focus, a flag-pin action SHOULD perform a short 3D turn from the flag face to a PLI-red `BOOK` face. Pointer activation MUST still book with one click.
 17. Because touch devices have no hover, mobile flag pins MUST retain a visible `BOOK` badge and book on the first tap. With reduced-motion preferences, the control MUST use a non-rotating transition while keeping `BOOK` visible.
 18. Every flag-pin action MUST retain its complete accessible booking name on desktop and phone.
@@ -142,7 +142,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - [ ] Changing the bounded campaign end configuration extends eligibility without logic changes.
 - [ ] The booking transition never flashes the general course/home experience and retains PLI/class context.
 - [ ] Signed-in public campaign visitors still review the information/contact step before packages or payment.
-- [ ] Booking-row flags are visibly varied, retain the enamel-pin treatment, and wide-screen side rails remain decorative and non-overlapping.
+- [ ] Booking-row flags are visibly varied and retain the enamel-pin treatment, while standalone decorative side rails and floating flag bubbles remain absent.
 - [ ] Existing registration, sign-in, checkout, profile redirect, kiosk, and staff flows remain functional.
 
 ## Definition of Done
