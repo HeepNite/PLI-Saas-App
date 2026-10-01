@@ -20,6 +20,7 @@ Keep the active public booking form visible behind Phone Access until SMS verifi
   - Typecheck and `git diff --check` passed.
   - Scoped ESLint: 0 errors, 6 pre-existing warnings in `EnrollModal.tsx`.
   - Native review `review-35fabfdbeac67bd2` approved and acknowledged after staging the tracker resolved the stale intended-untracked selection.
+  - Work-unit commit: `9a377906` (`fix(booking): preserve form behind phone verification`).
 
 ## Delivery constraints
 
