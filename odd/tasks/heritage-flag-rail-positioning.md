@@ -16,7 +16,8 @@ Remove standalone decorative country-flag bubbles from public booking while pres
 - [x] 2. Remove the rail component and its public booking render path.
 - [x] 3. Remove obsolete focused rail coverage while retaining booking-pin coverage.
 - [x] 4. Run focused tests, typecheck, scoped lint, diff check, and native review.
-- [ ] 5. Commit and publish after explicit authorization.
+- [x] 5. Commit after explicit authorization.
+- [ ] 6. Push, merge, deploy, and verify the public preview.
 
 ## Delivery constraints
 
@@ -27,3 +28,4 @@ Push, PR, merge, and deployment require explicit user authorization.
 - 2 focused files, 16 tests passed.
 - Typecheck, scoped ESLint, and `git diff --check` passed.
 - Native review `review-006c3deb9eab69b1` approved and acknowledged.
+- Work-unit commit: `e2451ac7` (`fix(booking): remove decorative flag rails`).
