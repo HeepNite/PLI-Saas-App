@@ -10,7 +10,6 @@ import {
   HeritageCampaignBanner,
   HeritageCampaignPromoDialog,
   HeritageCountryDialog,
-  HeritageFlagRails,
   isHeritageCampaignAcquiringNow,
 } from "@/components/front/booking/HeritageCampaignBooking"
 import {
@@ -405,7 +404,6 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
   return (
     <main className="min-h-screen bg-[#09070d] px-4 py-8 font-bricolage sm:px-6 sm:py-12 lg:py-16">
       <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.16),transparent_58%)]" />
-      {isHeritageCampaignAcquiringNow() ? <HeritageFlagRails /> : null}
       <section className="relative z-10 mx-auto w-full max-w-3xl">
         <BookingBrandHeader focused={Boolean(focus)} />
         <BookingPageContent
