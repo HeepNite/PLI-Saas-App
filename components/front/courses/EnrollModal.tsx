@@ -804,6 +804,7 @@ export default function EnrollModal({
     consecutiveAddedCents,
     effectiveConsecutiveOffer,
     isCheckInFlow,
+    isCheckInExistingFlow,
     isKioskTerminalFlow,
     isProfileBookingFlow,
     isSignedIn,
