@@ -21,12 +21,16 @@ const mockPrisma = {
   },
   packagePurchase: {
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     findUnique: vi.fn(),
     update: vi.fn(),
+    updateMany: vi.fn(),
   },
   packageUsageLedger: {
     findFirst: vi.fn(),
+    findUnique: vi.fn(),
     create: vi.fn(),
+    update: vi.fn(),
     delete: vi.fn(),
     count: vi.fn(),
   },
@@ -174,11 +178,12 @@ describe("Integration: Full override flow", () => {
   it("attendance remove: deletes record, restores credit, writes audit in same transaction", async () => {
     mockPrisma.classSession.findUnique.mockResolvedValue({ id: SESSION_ID })
     mockPrisma.attendance.findUnique.mockResolvedValue({ id: ATTENDANCE_ID, status: "checked_in" })
-    mockPrisma.packageUsageLedger.findFirst.mockResolvedValue({
+    mockPrisma.packageUsageLedger.findUnique.mockResolvedValue({
       id: "ledger_1",
       packagePurchaseId: PACKAGE_ID,
       attendanceId: ATTENDANCE_ID,
-      packagePurchase: { id: PACKAGE_ID, status: "active" },
+      delta: -1,
+      packagePurchase: { id: PACKAGE_ID, status: "active", isUnlimited: false },
     })
     mockPrisma.packagePurchase.update.mockResolvedValue({ id: PACKAGE_ID, remainingCredits: 6 })
 
@@ -215,6 +220,37 @@ describe("Integration: Full override flow", () => {
       }),
       expect.anything()
     )
+  })
+
+  it("attendance update does not consume a credit reserved by another scheduled hold", async () => {
+    mockPrisma.attendance.findUnique.mockResolvedValue({ id: ATTENDANCE_ID, status: "scheduled" })
+    mockPrisma.attendance.update.mockResolvedValue({ id: ATTENDANCE_ID, status: "checked_in" })
+    mockPrisma.packageUsageLedger.findUnique.mockResolvedValue(null)
+    mockPrisma.packagePurchase.findMany.mockResolvedValue([{
+      id: PACKAGE_ID,
+      remainingCredits: 1,
+      isUnlimited: false,
+    }])
+    mockPrisma.packageUsageLedger.count.mockResolvedValue(1)
+
+    const { PATCH } = await import("@/app/api/staff/students/[userId]/attendance/route")
+    const res = await PATCH(
+      new Request(`http://localhost/api/staff/students/${USER_ID}/attendance`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update",
+          status: "checked_in",
+          sessionId: SESSION_ID,
+          reason: "Recorded attendance",
+        }),
+      }),
+      { params: Promise.resolve({ userId: USER_ID }) }
+    )
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.packagePurchase.update).not.toHaveBeenCalled()
+    expect(mockPrisma.packageUsageLedger.create).not.toHaveBeenCalled()
   })
 
   it("payment override: updates purchase, writes multiple audit entries in same transaction", async () => {
