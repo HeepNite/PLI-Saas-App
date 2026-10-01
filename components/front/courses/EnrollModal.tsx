@@ -18,7 +18,6 @@ import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { useNewStudentVerification } from "./hooks/useNewStudentVerification"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
-import { HeritageVerificationBackdrop } from "./enroll/HeritageVerificationBackdrop"
 import {
   getPhotoPolicy,
   isPhotoRequiredForAccount,
@@ -1626,9 +1625,6 @@ export default function EnrollModal({
       )}
       {(verificationState === "sms_pending" || verificationState === "sms_verifying") && (isKioskTerminalFlow || isQrMobileCompactFlow) && (
         <div className="fixed inset-0 z-[10020] flex items-center justify-center p-4">
-          {isPublicHeritageBooking && heritagePinCountryCode && !isKioskTerminalFlow ? (
-            <HeritageVerificationBackdrop courseTitle={course.title} countryCode={heritagePinCountryCode} />
-          ) : null}
           <button
             type="button"
             aria-label={t("aria_close")}
