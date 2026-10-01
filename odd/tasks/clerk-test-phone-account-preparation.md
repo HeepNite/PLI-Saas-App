@@ -21,3 +21,4 @@ Restore Clerk fictional phone support in the guarded `codex/develop` preview acc
 - Focused regression suite: 3 files, 52 tests passed.
 - `npm run typecheck`, scoped ESLint, and `git diff --check` passed.
 - Native reliability review `review-a333b8b0cc3cf747` approved and acknowledged.
+- Work-unit commit: `d0f5a795` (`fix(booking): persist guarded Clerk test phones`).
