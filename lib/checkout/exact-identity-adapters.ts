@@ -1,7 +1,7 @@
 import type { ClerkClient } from "@clerk/backend"
 import { updateClerkUserIfMissing, type ClerkUser } from "@/lib/clerk-users"
 import { createSafeClerkMutation, type ExactAccountDependencies } from "@/lib/checkout/identity-safety"
-import { buildExactPhoneLookup, parseCanonicalPhone, parseServerPhoneInput } from "@/lib/phone"
+import { buildExactPhoneLookup, parseServerPhoneInput } from "@/lib/phone"
 import { prisma } from "@/lib/prisma"
 type LocalIdentity = { id: string; clerkId: string | null }
 type ClerkUsers = ClerkClient["users"]
@@ -46,8 +46,8 @@ export const createCheckoutExactAccountDependencies = (
     },
   }, (user, input) => updateClerkUserIfMissing(user, input)),
   upsertLocalIdentity: async (input) => {
-    const parsed = parseCanonicalPhone(input.phone)
-    if (!parsed.ok) throw new Error("Canonical phone became invalid")
+    const parsed = parseServerPhoneInput(input.phone)
+    if (!parsed.ok) throw new Error("Server-validated phone became invalid")
     const existing = await prisma.user.findUnique({ where: { clerkId: input.clerkId } })
     if (existing && (existing.email.toLowerCase() !== input.email ||
       !buildExactPhoneLookup(parsed.phone).digitCandidates.includes(existing.phone || ""))) {
