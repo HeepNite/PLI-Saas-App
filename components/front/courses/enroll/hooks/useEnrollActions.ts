@@ -39,6 +39,7 @@ export type UseEnrollActionsInput = {
   consecutiveAddedCents: number
   effectiveConsecutiveOffer: ConsecutiveOfferData | null | undefined
   isCheckInFlow: boolean
+  isCheckInExistingFlow: boolean
   isKioskTerminalFlow: boolean
   isQrMobileCompactFlow: boolean
   isProfileBookingFlow: boolean
@@ -122,7 +123,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     course, availableServices, service, pkg, addons, participants, date, time, contact,
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken, checkInContextDate,
     checkInContextTime, checkInContextDuration, consecutiveAccepted, consecutiveAddedCents,
-    effectiveConsecutiveOffer, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
+    effectiveConsecutiveOffer, isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isQrMobileCompactFlow,
     isProfileBookingFlow, isSignedIn, processing, step, steps,
     photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, infoStepIndex,
     skipContactStep, regularServiceId, regularServicePrice, usesPhasedInfoForm, activeStepKey,
@@ -165,7 +166,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
-    isCheckInFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
+    isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
     paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
     pendingAutoPay: pendingAutoPay,
     getToken,

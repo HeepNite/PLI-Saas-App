@@ -64,6 +64,17 @@ export const requestCheckoutCashApi = async ({ token, payload, fetchImpl }: Requ
   return { res, data }
 }
 
+export const requestPublicPackageReservationApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
+  const res = await resolveFetch(fetchImpl)("/api/profile/bookings/reserve-package", {
+    method: "POST",
+    headers: createJsonHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => null)
+  return { res, data }
+}
+
 export const requestDropInCheckInApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
   const res = await resolveFetch(fetchImpl)("/api/checkin/qr/dropin", {
     method: "POST",
