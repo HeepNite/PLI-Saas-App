@@ -6,6 +6,8 @@ plugins {
 }
 val approvedHttpsOrigin = providers.gradleProperty("PLI_APPROVED_HTTPS_ORIGIN").orElse("").get()
 val nativeCollectionEnabled = providers.gradleProperty("PLI_NATIVE_COLLECTION_ENABLED").map { it == "true" }.orElse(false).get()
+val readerProvisioningEnabled = providers.gradleProperty("PLI_READER_PROVISIONING_ENABLED").map { it == "true" }.orElse(false).get()
+require(!(nativeCollectionEnabled && readerProvisioningEnabled)) { "Provisioning and collection build modes are mutually exclusive" }
 
 android {
     namespace = "com.pli.kiosk.android"
@@ -20,6 +22,12 @@ android {
         // Deliberately blank/OFF until an approved build supplies both non-secret values.
         buildConfigField("String", "APPROVED_HTTPS_ORIGIN", "\"$approvedHttpsOrigin\"")
         buildConfigField("boolean", "NATIVE_COLLECTION_ENABLED", nativeCollectionEnabled.toString())
+        buildConfigField("boolean", "READER_PROVISIONING_ENABLED", readerProvisioningEnabled.toString())
+        manifestPlaceholders["launcherActivity"] = if (readerProvisioningEnabled) {
+            "com.pli.kiosk.android.ReaderProvisioningActivity"
+        } else {
+            "com.pli.kiosk.android.OperatorActivity"
+        }
     }
     buildFeatures {
         buildConfig = true

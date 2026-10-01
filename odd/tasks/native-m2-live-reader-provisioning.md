@@ -16,9 +16,9 @@ Provision physical Stripe Reader M2 `STRM2D533025669` into the approved LIVE loc
 
 ## Tasks
 
-- [x] P1 — Record the one-time provisioning contract in the active requirements and resolution artifacts. Evidence: `docs(native-kiosk): define LIVE reader provisioning` (commit recorded after creation).
-- [ ] P2 — Implement a build-gated Android provisioning path that authenticates the existing staff terminal, fetches only a LIVE connection token, discovers the exact M2 serial, connects it to the approved location, and displays the resulting `tmr_*` ID. Evidence: commit pending.
-- [ ] P3 — Add focused fail-closed tests and verify the bounded slice, Android unit tests, debug APK assembly, and diff budget. Evidence: commit pending.
+- [x] P1 — Record the one-time provisioning contract in the active requirements and resolution artifacts. Evidence: `a2f9e985 docs(native-kiosk): define LIVE reader provisioning`.
+- [x] P2 — Implement a build-gated Android provisioning path that authenticates the existing staff terminal, fetches only a LIVE connection token, discovers the exact M2 serial, connects it to the approved location, and displays the resulting `tmr_*` ID. Evidence: `e7a8f8a3 feat(native-kiosk): add LIVE reader provisioning`.
+- [x] P3 — Add focused fail-closed tests and verify the bounded slice, Android unit tests, debug APK assembly, and diff budget. Evidence: 85/85 unit tests, ordinary debug and androidTest APK assemblies, provisioning-mode debug APK assembly, merged-manifest launcher readback, `git diff --check`, and 254 changed lines; ledger commit recorded after creation.
 - [ ] P4 — Configure a provisioning-only deployment with payment creation OFF, install the provisioning APK, connect the physical M2, record the LIVE `tmr_*` ID, then disable provisioning before enabling the separately gated USD 1 flow. Evidence: pending.
 
 ## Rollback
