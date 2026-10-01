@@ -7,6 +7,7 @@ import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText } from "@/lib/shared"
 import { ATTENDANCE_STATUS, ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
+import { consumeHeldPackageCreditForAttendanceTx, releasePackageCreditUsageTx } from "@/lib/packages"
 
 export const runtime = "nodejs"
 
@@ -134,12 +135,7 @@ async function applyRemove(
 
   const valueBefore = { status: attendance.status, sessionId }
 
-  // Collect related records BEFORE deleting attendance (cascade sets attendanceId to null)
-  const usageEntry = await tx.packageUsageLedger.findFirst({
-    where: { attendanceId: attendance.id },
-    include: { packagePurchase: true },
-  })
-
+  // Collect related records BEFORE deleting attendance.
   const linkedPurchases = await tx.purchase.findMany({
     where: {
       userId,
@@ -147,25 +143,12 @@ async function applyRemove(
     },
   })
 
-  // Now delete the attendance
+  // Release a scheduled hold, or restore a credit only when it had already been consumed.
+  await releasePackageCreditUsageTx(tx, { attendanceId: attendance.id })
+
   await tx.attendance.delete({
     where: { userId_sessionId: { userId, sessionId } },
   })
-
-  // Restore package credit if it was consumed
-  if (usageEntry) {
-    await tx.packagePurchase.update({
-      where: { id: usageEntry.packagePurchaseId },
-      data: {
-        remainingCredits: { increment: 1 },
-        ...(usageEntry.packagePurchase.status === "exhausted" ? { status: "active" } : {}),
-      },
-    })
-
-    await tx.packageUsageLedger.delete({
-      where: { id: usageEntry.id },
-    })
-  }
 
   // Remove the $0 package_credit purchase linked to this attendance
   for (const purchase of linkedPurchases) {
@@ -239,51 +222,58 @@ async function applyUpdate(
   const isAttended = ATTENDED_CHECKIN_STATUSES.includes(status)
 
   if (wasAttended && !isAttended) {
-    // Restoring credit: status changed from attended to non-attended
-    const usageEntry = await tx.packageUsageLedger.findFirst({
-      where: { attendanceId: attendance.id },
-      include: { packagePurchase: true },
-    })
-
-    if (usageEntry) {
-      await tx.packagePurchase.update({
-        where: { id: usageEntry.packagePurchaseId },
-        data: { remainingCredits: { increment: 1 } },
-      })
-
-      await tx.packageUsageLedger.delete({
-        where: { id: usageEntry.id },
-      })
-    }
+    await releasePackageCreditUsageTx(tx, { attendanceId: attendance.id })
   } else if (!wasAttended && isAttended) {
-    // Consuming credit: status changed from non-attended to attended
-    const activePackage = await tx.packagePurchase.findFirst({
-      where: {
-        userId,
-        status: "active",
-        isUnlimited: false,
-        remainingCredits: { gt: 0 },
-        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
-      },
-      orderBy: { purchasedAt: "desc" },
+    // A public/profile reservation owns a zero-delta hold. Complete that exact hold
+    // before falling back to the legacy staff-selected active package behavior.
+    const heldResult = await consumeHeldPackageCreditForAttendanceTx(tx, {
+      attendanceId: attendance.id,
+      userId,
+      reason: "ATTENDANCE_COMPLETED",
     })
-
-    if (activePackage && activePackage.remainingCredits! > 0) {
-      await tx.packagePurchase.update({
-        where: { id: activePackage.id },
-        data: { remainingCredits: { decrement: 1 }, lastUsedAt: new Date() },
-      })
-
-      await tx.packageUsageLedger.create({
-        data: {
-          packagePurchaseId: activePackage.id,
+    if (!heldResult.usage) {
+      const activePackages = await tx.packagePurchase.findMany({
+        where: {
           userId,
-          attendanceId: attendance.id,
-          delta: -1,
-          reason: "staff_override_update_attendance",
-          meta: { sessionId, overriddenBy: authResult.userId },
+          status: "active",
+          isUnlimited: false,
+          remainingCredits: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
         },
+        orderBy: { purchasedAt: "desc" },
       })
+      let activePackage: (typeof activePackages)[number] | null = null
+      for (const candidate of activePackages) {
+        const scheduledHolds = await tx.packageUsageLedger.count({
+          where: {
+            packagePurchaseId: candidate.id,
+            delta: 0,
+            attendance: { is: { status: ATTENDANCE_STATUS.SCHEDULED } },
+          },
+        })
+        if ((candidate.remainingCredits ?? 0) > scheduledHolds) {
+          activePackage = candidate
+          break
+        }
+      }
+
+      if (activePackage && activePackage.remainingCredits! > 0) {
+        await tx.packagePurchase.update({
+          where: { id: activePackage.id },
+          data: { remainingCredits: { decrement: 1 }, lastUsedAt: new Date() },
+        })
+
+        await tx.packageUsageLedger.create({
+          data: {
+            packagePurchaseId: activePackage.id,
+            userId,
+            attendanceId: attendance.id,
+            delta: -1,
+            reason: "staff_override_update_attendance",
+            meta: { sessionId, overriddenBy: authResult.userId },
+          },
+        })
+      }
     }
   }
 
