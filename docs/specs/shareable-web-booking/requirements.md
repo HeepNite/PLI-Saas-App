@@ -51,6 +51,12 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 20. The focused promotional route MUST omit broad catalog discovery controls and fail safely when the course is inactive, missing, malformed, or has no future Monday occurrence.
 21. Selecting a promoted occurrence MUST preserve course, date, time, duration, `bookingSource`, and the explicitly selected Heritage country through the canonical QR booking URL.
 22. After country selection, the existing course enrollment flow MUST load the selected class context and personal-data form before checkout; the promotional route MUST NOT introduce a parallel identity or payment flow.
+23. After identity resolution, a verified customer with no successful purchase or package history MUST retain the existing US$15 new-student price.
+24. An existing customer without an applicable package MUST receive the regular server-authoritative price.
+25. An existing customer with an active, unexpired package applicable to the selected course MUST be able to reserve that occurrence against the package instead of entering paid checkout.
+26. Package booking MUST create one scheduled attendance and hold package capacity without final credit consumption. Attendance completion consumes the credit; cancellation before attendance releases the hold.
+27. The server MUST prevent package holds from exceeding available credits and MUST reject forged package ownership, stale package state, duplicate booking, full class, invalid schedule, or mismatched course claims.
+28. Physical Heritage pin state MUST NOT affect new-student, regular, or package routing.
 
 ## Constraints
 
@@ -80,6 +86,9 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 - [ ] No migration, new dependency, staff-only API exposure, or parallel booking/auth implementation is introduced.
 - [ ] `/monday-salsa-beginner` shows only future Monday occurrences of `salsa-night-beginner` and omits broad discovery controls.
 - [ ] Country selection from the promotional route loads the existing personal-data form with complete class/date/time/duration/source/country context for checkout.
+- [ ] New verified customers receive US$15, existing customers receive the regular price, and applicable package holders reserve without paid checkout.
+- [ ] A package reservation holds capacity, cannot oversubscribe credits, consumes on attended completion, and releases on pre-attendance cancellation.
+- [ ] Heritage pin state does not affect pricing or package routing.
 - [ ] Missing or inactive promotional course data fails safely without exposing another class.
 
 ## Definition Of Done

@@ -210,7 +210,7 @@ describe("checkout session route", () => {
     }))
   })
 
-  it("charges the server-authorized Heritage price for an eligible delivered holder", async () => {
+  it("keeps regular pricing independent from delivered Heritage pin state", async () => {
     mockValidate.mockResolvedValueOnce({
       courseSlug: "salsa-femenina-matutina",
       courseTitle: "Course booking",
@@ -256,14 +256,10 @@ describe("checkout session route", () => {
     }))
 
     expect(response.status).toBe(200)
-    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
-      line_items: [expect.objectContaining({ price_data: expect.objectContaining({ unit_amount: 1500 }) })],
-      metadata: expect.objectContaining({
-        heritagePinPriceApplied: "true",
-        heritagePinPriceCents: "1500",
-        heritagePinEntitlementPurchaseId: "pin_purchase_1",
-      }),
-    }))
+    const checkout = mockCreateCheckoutSession.mock.calls.at(-1)?.[0]
+    expect(checkout?.line_items?.[0]?.price_data?.unit_amount).toBe(2000)
+    expect(checkout?.metadata).not.toHaveProperty("heritagePinPriceApplied")
+    expect(checkout?.metadata).not.toHaveProperty("heritagePinEntitlementPurchaseId")
   })
 
   it("uses shared account preparation and kiosk checkout metadata", async () => {
