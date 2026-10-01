@@ -19,6 +19,7 @@ import {
   requestCheckoutSessionApi,
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
+  requestPublicPackageReservationApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>
@@ -46,6 +47,7 @@ export type UseEnrollPaymentActionsInput = {
   consecutiveAddedCents: number
   effectiveConsecutiveOffer: ConsecutiveOfferData | null | undefined
   isCheckInFlow: boolean
+  isCheckInExistingFlow: boolean
   isKioskTerminalFlow: boolean
   isProfileBookingFlow: boolean
   isSignedIn: boolean | undefined
@@ -88,7 +90,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     bookingSource, heritagePinCountryCode, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
-    isCheckInFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
+    isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
     paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
     getToken,
     setService, setStep, setSuccess, setSuccessMessage, setProcessing, setFormError,
@@ -330,6 +332,45 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         setProcessing(false)
       }
       return
+    }
+
+    if (
+      bookingSource === "public_booking" &&
+      isCheckInExistingFlow &&
+      isSignedIn &&
+      !pkg &&
+      participants === 1 &&
+      addons.length === 0 &&
+      !appliedCoupon &&
+      !consecutiveAccepted
+    ) {
+      try {
+        const token = await getToken({ skipCache: true })
+        const { res, data } = await requestPublicPackageReservationApi({
+          token,
+          payload: { courseSlug: course.slug, date, time },
+        })
+        if (res.ok && data?.ok === true) {
+          setSuccessMessage("Class reserved with your package. Your credit will be used after attendance is completed.")
+          setSuccess(true)
+          setProcessing(false)
+          return
+        }
+        if (!res.ok) {
+          setFormError(
+            typeof data?.error === "string"
+              ? data.error
+              : "We couldn't verify your package. Please try again."
+          )
+          setProcessing(false)
+          return
+        }
+      } catch (error) {
+        console.error("Unable to reserve public booking with package", error)
+        setFormError("We couldn't verify your package. Please try again.")
+        setProcessing(false)
+        return
+      }
     }
 
     // Mobile-QR check-in (new student OR existing customer, NOT the staff kiosk
