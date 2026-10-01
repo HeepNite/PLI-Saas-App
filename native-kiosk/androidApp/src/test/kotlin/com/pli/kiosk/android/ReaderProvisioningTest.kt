@@ -8,19 +8,21 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ReaderProvisioningTest {
-    @Test fun `provisioning connects only the exact physical M2 without payment operations`() {
+    private fun tokens() = BoundedConnectionTokens(listOf("pst_one", "pst_two", "pst_three"))
+
+    @Test fun `provisioning connects the exact unregistered M2 and captures its assigned ID`() {
         val terminal = FakeTerminal()
-        val controller = ReaderProvisioningController(terminal, GrantedPermissions, OneTimeConnectionToken("pst_live"))
+        val controller = ReaderProvisioningController(terminal, GrantedPermissions, tokens())
 
         controller.initialize()
         controller.discover()
         terminal.publish(listOf(
             ConnectedReader("tmr_wrong", "OTHER", "stripe_m2", ""),
-            ConnectedReader("tmr_live", Approved.M2_SERIAL, "stripe_m2", ""),
+            ConnectedReader("unregistered:${Approved.M2_SERIAL}:stripe_m2", Approved.M2_SERIAL, "stripe_m2", ""),
         ))
-        assertEquals("tmr_live", controller.snapshot.readerId)
+        assertTrue(controller.snapshot.readerId!!.startsWith("unregistered:"))
         assertTrue(controller.connect())
-        terminal.succeedConnection()
+        terminal.succeedConnection("tmr_live")
 
         assertEquals(ReaderProvisioningState.CONNECTED, controller.snapshot.state)
         assertEquals("tmr_live", controller.snapshot.readerId)
@@ -28,24 +30,41 @@ class ReaderProvisioningTest {
         assertTrue(terminal.paymentOperations.isEmpty())
     }
 
+    @Test fun `unregistered discovery key accepts only a newly assigned reader ID`() {
+        val key = discoveredReaderKey(null, Approved.M2_SERIAL, "stripe_m2")
+        assertTrue(key.startsWith("unregistered:"))
+        assertTrue(acceptsConnectedReader(key, "tmr_live"))
+        assertFalse(acceptsConnectedReader(key, null))
+        assertTrue(acceptsConnectedReader("tmr_existing", "tmr_existing"))
+        assertFalse(acceptsConnectedReader("tmr_existing", "tmr_other"))
+    }
+
     @Test fun `provisioning and collection build modes cannot coexist`() {
         assertThrows(IllegalArgumentException::class.java) {
-            ReaderProvisioningConfiguration("https://pli.example", enabled = true, collectionEnabled = true, "pst_live")
+            ReaderProvisioningConfiguration(
+                "https://pli.example", enabled = true, collectionEnabled = true,
+                listOf("pst_one", "pst_two", "pst_three"),
+            )
         }
     }
 
-    @Test fun `one-time connection token cannot be reused`() {
-        val token = OneTimeConnectionToken("pst_live")
-        assertEquals("pst_live", token.consume())
-        assertThrows(IllegalArgumentException::class.java) { token.consume() }
+    @Test fun `bounded connection token bundle supports refresh and then exhausts`() {
+        val tokens = tokens()
+        assertEquals("pst_one", tokens.consume())
+        assertEquals("pst_two", tokens.consume())
+        assertEquals("pst_three", tokens.consume())
+        assertThrows(IllegalArgumentException::class.java) { tokens.consume() }
     }
 
-    @Test fun `wrong ambiguous or malformed readers fail closed`() {
+    @Test fun `ambiguous exact readers fail closed`() {
         val terminal = FakeTerminal()
-        val controller = ReaderProvisioningController(terminal, GrantedPermissions, OneTimeConnectionToken("pst_live"))
+        val controller = ReaderProvisioningController(terminal, GrantedPermissions, tokens())
         controller.initialize()
         controller.discover()
-        terminal.publish(listOf(ConnectedReader("bad", Approved.M2_SERIAL, "stripe_m2", "")))
+        terminal.publish(listOf(
+            ConnectedReader("unregistered:one", Approved.M2_SERIAL, "stripe_m2", ""),
+            ConnectedReader("unregistered:two", Approved.M2_SERIAL, "stripe_m2", ""),
+        ))
 
         assertEquals(ReaderProvisioningState.BLOCKED, controller.snapshot.state)
         assertNull(controller.snapshot.readerId)
@@ -64,17 +83,19 @@ class ReaderProvisioningTest {
         private var update: ((List<ConnectedReader>) -> Unit)? = null
         private var connected: (() -> Unit)? = null
         private var observed: String? = null
-        private var selected: ConnectedReader? = null
 
-        override fun initialize(connectionTokenProvider: () -> String) { assertEquals("pst_live", connectionTokenProvider()) }
+        override fun initialize(connectionTokenProvider: () -> String) {
+            assertEquals("pst_one", connectionTokenProvider())
+            assertEquals("pst_two", connectionTokenProvider())
+        }
         override fun discover(request: BluetoothDiscoveryRequest, onUpdate: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit): NativeCancelable {
             assertFalse(request.simulated); update = onUpdate; return NativeCancelable {}
         }
         fun publish(readers: List<ConnectedReader>) = requireNotNull(update).invoke(readers)
         override fun connect(reader: ConnectedReader, request: BluetoothConnectionRequest, onDisconnect: () -> Unit, onSuccess: () -> Unit, onFailure: () -> Unit): NativeCancelable {
-            selected = reader; connectionRequest = request; connected = onSuccess; return NonCancellableTerminalOperation
+            connectionRequest = request; connected = onSuccess; return NonCancellableTerminalOperation
         }
-        fun succeedConnection() { observed = selected?.id; requireNotNull(connected).invoke() }
+        fun succeedConnection(readerId: String) { observed = readerId; requireNotNull(connected).invoke() }
         override fun observedReaderId() = observed
         override fun retrieve(clientSecret: String, onSuccess: (String) -> Unit, onFailure: () -> Unit) = payment("retrieve")
         override fun collect(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit) = payment("collect")

@@ -13,12 +13,14 @@ data class ReaderProvisioningConfiguration(
     val approvedOrigin: String,
     val enabled: Boolean,
     val collectionEnabled: Boolean,
-    val oneTimeConnectionToken: String,
+    val connectionTokens: List<String>,
 ) {
     init {
         require(!enabled || !collectionEnabled) { "Provisioning and collection are mutually exclusive" }
         if (enabled || approvedOrigin.isNotBlank()) ApprovedOrigin(approvedOrigin)
-        require(!enabled || oneTimeConnectionToken.startsWith("pst_")) { "A one-time Stripe connection token is required" }
+        require(!enabled || (connectionTokens.size in 3..12 && connectionTokens.distinct().size == connectionTokens.size && connectionTokens.all { it.startsWith("pst_") })) {
+            "A bounded bundle of unique Stripe connection tokens is required"
+        }
     }
 
     companion object {
@@ -26,15 +28,15 @@ data class ReaderProvisioningConfiguration(
             BuildConfig.APPROVED_HTTPS_ORIGIN,
             BuildConfig.READER_PROVISIONING_ENABLED,
             BuildConfig.NATIVE_COLLECTION_ENABLED,
-            BuildConfig.PROVISIONING_CONNECTION_TOKEN,
+            BuildConfig.PROVISIONING_CONNECTION_TOKENS.lines().filter(String::isNotBlank),
         )
     }
 }
 
-class OneTimeConnectionToken(token: String) {
-    private var value: String? = token
-    @Synchronized fun consume(): String = requireNotNull(value) { "Provisioning connection token was already consumed" }
-        .also { value = null }
+class BoundedConnectionTokens(tokens: List<String>) {
+    private val values = ArrayDeque(tokens)
+    @Synchronized fun consume(): String = require(values.isNotEmpty()) { "Provisioning connection token bundle was exhausted" }
+        .let { values.removeFirst() }
 }
 
 enum class ReaderProvisioningState { READY, DISCOVERING, READER_FOUND, CONNECTING, CONNECTED, BLOCKED }
@@ -43,14 +45,14 @@ data class ReaderProvisioningSnapshot(val state: ReaderProvisioningState, val re
 class ReaderProvisioningController(
     private val terminal: NativeTerminalAdapter,
     private val permissions: BluetoothPermissions,
-    private val token: OneTimeConnectionToken,
+    private val tokens: BoundedConnectionTokens,
     private val notify: (ReaderProvisioningSnapshot) -> Unit = {},
 ) {
     private var selected: ConnectedReader? = null
     private var discovery: NativeCancelable? = null
     var snapshot = ReaderProvisioningSnapshot(ReaderProvisioningState.READY); private set
 
-    @Synchronized fun initialize() = terminal.initialize(token::consume)
+    @Synchronized fun initialize() = terminal.initialize(tokens::consume)
 
     @Synchronized fun discover() {
         if (!permissions.hasBluetoothPermissions()) {
@@ -63,7 +65,7 @@ class ReaderProvisioningController(
         publish(ReaderProvisioningState.DISCOVERING)
         discovery = terminal.discover(BluetoothDiscoveryRequest(10_000, false), { readers -> synchronized(this) {
             val matches = readers.filter {
-                it.serial == Approved.M2_SERIAL && it.type == "stripe_m2" && it.id.matches(Regex("tmr_[A-Za-z0-9]+"))
+                it.serial == Approved.M2_SERIAL && it.type == "stripe_m2"
             }
             selected = matches.singleOrNull()
             publish(if (selected == null) ReaderProvisioningState.BLOCKED else ReaderProvisioningState.READER_FOUND, selected?.id)
@@ -79,7 +81,9 @@ class ReaderProvisioningController(
             onDisconnect = { synchronized(this) { selected = null; publish(ReaderProvisioningState.BLOCKED) } },
             onSuccess = { synchronized(this) {
                 val observed = terminal.observedReaderId()
-                if (observed == reader.id) publish(ReaderProvisioningState.CONNECTED, observed)
+                val validObserved = observed?.matches(Regex("tmr_[A-Za-z0-9]+")) == true
+                val preservesExistingId = !reader.id.startsWith("unregistered:") && observed != reader.id
+                if (validObserved && !preservesExistingId) publish(ReaderProvisioningState.CONNECTED, observed)
                 else { terminal.disconnect(); selected = null; publish(ReaderProvisioningState.BLOCKED) }
             } },
             onFailure = { synchronized(this) { selected = null; publish(ReaderProvisioningState.BLOCKED) } },
@@ -109,7 +113,7 @@ class ReaderProvisioningActivity : Activity() {
         if (config?.enabled != true) { finish(); return }
         val permissions = AndroidBluetoothPermissions(this).also { it.attach(this) }
         controller = ReaderProvisioningController(
-            StripeTerminalSdkAdapter(this), permissions, OneTimeConnectionToken(config.oneTimeConnectionToken),
+            StripeTerminalSdkAdapter(this), permissions, BoundedConnectionTokens(config.connectionTokens),
         ) { value -> main.post { render(value) } }
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

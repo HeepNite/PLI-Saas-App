@@ -21,6 +21,12 @@ import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
 import java.util.concurrent.Executors
 
+internal fun discoveredReaderKey(id: String?, serial: String, type: String): String =
+    id ?: "unregistered:$serial:$type"
+
+internal fun acceptsConnectedReader(expectedId: String, connectedId: String?): Boolean =
+    connectedId != null && (expectedId.startsWith("unregistered:") || connectedId == expectedId)
+
 internal class RotatingConnectionTokenProvider {
     @Volatile private var source: (() -> String)? = null
     fun update(source: () -> String) { this.source = source }
@@ -96,7 +102,7 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
                     val snapshot = synchronized(this@StripeTerminalSdkAdapter.readers) {
                         if (generation != discoveryGeneration) return
                         this@StripeTerminalSdkAdapter.readers.clear()
-                        readers.forEach { reader -> this@StripeTerminalSdkAdapter.readers[requireNotNull(reader.id)] = reader }
+                        readers.forEach { reader -> this@StripeTerminalSdkAdapter.readers[readerKey(reader)] = reader }
                         readers.map(::connectedReader)
                     }
                     onUpdate(snapshot)
@@ -147,8 +153,9 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
             ),
             object : ReaderCallback {
                 override fun onSuccess(reader: Reader) {
-                    if (reader.id == expectedReaderId) {
-                        observedConnectedReaderId = expectedReaderId
+                    val connectedId = reader.id
+                    if (acceptsConnectedReader(expectedReaderId, connectedId)) {
+                        observedConnectedReaderId = connectedId
                         onSuccess()
                     } else onFailure()
                 }
@@ -215,8 +222,12 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
         })
     }
 
+    private fun readerKey(reader: Reader): String = discoveredReaderKey(
+        reader.id, reader.serialNumber.orEmpty(), reader.deviceType.toString().lowercase(),
+    )
+
     private fun connectedReader(reader: Reader) = ConnectedReader(
-        requireNotNull(reader.id),
+        readerKey(reader),
         reader.serialNumber.orEmpty(),
         reader.deviceType.toString().lowercase(),
         reader.location?.id.orEmpty(),

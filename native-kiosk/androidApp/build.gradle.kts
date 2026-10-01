@@ -8,12 +8,13 @@ val approvedHttpsOrigin = providers.gradleProperty("PLI_APPROVED_HTTPS_ORIGIN").
 val nativeCollectionEnabled = providers.gradleProperty("PLI_NATIVE_COLLECTION_ENABLED").map { it == "true" }.orElse(false).get()
 val readerProvisioningEnabled = providers.gradleProperty("PLI_READER_PROVISIONING_ENABLED").map { it == "true" }.orElse(false).get()
 require(!(nativeCollectionEnabled && readerProvisioningEnabled)) { "Provisioning and collection build modes are mutually exclusive" }
-val provisioningConnectionToken = if (readerProvisioningEnabled) {
+val provisioningConnectionTokens = if (readerProvisioningEnabled) {
     val tokenPath = providers.gradleProperty("PLI_PROVISIONING_CONNECTION_TOKEN_FILE").orNull
         ?: error("Provisioning requires a private connection-token file")
-    file(tokenPath).readText().trim().also {
-        require(it.matches(Regex("pst_[A-Za-z0-9_]+"))) { "Invalid provisioning connection token" }
-    }
+    file(tokenPath).readLines().map(String::trim).filter(String::isNotEmpty).also { tokens ->
+        require(tokens.size in 3..12 && tokens.distinct().size == tokens.size) { "Provisioning requires 3-12 unique connection tokens" }
+        require(tokens.all { it.matches(Regex("pst_[A-Za-z0-9_]+")) }) { "Invalid provisioning connection token" }
+    }.joinToString("\\n")
 } else ""
 
 android {
@@ -30,7 +31,7 @@ android {
         buildConfigField("String", "APPROVED_HTTPS_ORIGIN", "\"$approvedHttpsOrigin\"")
         buildConfigField("boolean", "NATIVE_COLLECTION_ENABLED", nativeCollectionEnabled.toString())
         buildConfigField("boolean", "READER_PROVISIONING_ENABLED", readerProvisioningEnabled.toString())
-        buildConfigField("String", "PROVISIONING_CONNECTION_TOKEN", "\"$provisioningConnectionToken\"")
+        buildConfigField("String", "PROVISIONING_CONNECTION_TOKENS", "\"$provisioningConnectionTokens\"")
         manifestPlaceholders["launcherActivity"] = if (readerProvisioningEnabled) {
             "com.pli.kiosk.android.ReaderProvisioningActivity"
         } else {
