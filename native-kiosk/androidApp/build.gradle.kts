@@ -8,6 +8,13 @@ val approvedHttpsOrigin = providers.gradleProperty("PLI_APPROVED_HTTPS_ORIGIN").
 val nativeCollectionEnabled = providers.gradleProperty("PLI_NATIVE_COLLECTION_ENABLED").map { it == "true" }.orElse(false).get()
 val readerProvisioningEnabled = providers.gradleProperty("PLI_READER_PROVISIONING_ENABLED").map { it == "true" }.orElse(false).get()
 require(!(nativeCollectionEnabled && readerProvisioningEnabled)) { "Provisioning and collection build modes are mutually exclusive" }
+val provisioningConnectionToken = if (readerProvisioningEnabled) {
+    val tokenPath = providers.gradleProperty("PLI_PROVISIONING_CONNECTION_TOKEN_FILE").orNull
+        ?: error("Provisioning requires a private connection-token file")
+    file(tokenPath).readText().trim().also {
+        require(it.matches(Regex("pst_[A-Za-z0-9_]+"))) { "Invalid provisioning connection token" }
+    }
+} else ""
 
 android {
     namespace = "com.pli.kiosk.android"
@@ -23,6 +30,7 @@ android {
         buildConfigField("String", "APPROVED_HTTPS_ORIGIN", "\"$approvedHttpsOrigin\"")
         buildConfigField("boolean", "NATIVE_COLLECTION_ENABLED", nativeCollectionEnabled.toString())
         buildConfigField("boolean", "READER_PROVISIONING_ENABLED", readerProvisioningEnabled.toString())
+        buildConfigField("String", "PROVISIONING_CONNECTION_TOKEN", "\"$provisioningConnectionToken\"")
         manifestPlaceholders["launcherActivity"] = if (readerProvisioningEnabled) {
             "com.pli.kiosk.android.ReaderProvisioningActivity"
         } else {

@@ -8,11 +8,9 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ReaderProvisioningTest {
-    private val session = StaffSession("https://pli.example", "association", "cookie", Long.MAX_VALUE)
-
     @Test fun `provisioning connects only the exact physical M2 without payment operations`() {
         val terminal = FakeTerminal()
-        val controller = ReaderProvisioningController(session, terminal, GrantedPermissions, TokenSource)
+        val controller = ReaderProvisioningController(terminal, GrantedPermissions, OneTimeConnectionToken("pst_live"))
 
         controller.initialize()
         controller.discover()
@@ -32,13 +30,19 @@ class ReaderProvisioningTest {
 
     @Test fun `provisioning and collection build modes cannot coexist`() {
         assertThrows(IllegalArgumentException::class.java) {
-            ReaderProvisioningConfiguration("https://pli.example", enabled = true, collectionEnabled = true)
+            ReaderProvisioningConfiguration("https://pli.example", enabled = true, collectionEnabled = true, "pst_live")
         }
+    }
+
+    @Test fun `one-time connection token cannot be reused`() {
+        val token = OneTimeConnectionToken("pst_live")
+        assertEquals("pst_live", token.consume())
+        assertThrows(IllegalArgumentException::class.java) { token.consume() }
     }
 
     @Test fun `wrong ambiguous or malformed readers fail closed`() {
         val terminal = FakeTerminal()
-        val controller = ReaderProvisioningController(session, terminal, GrantedPermissions, TokenSource)
+        val controller = ReaderProvisioningController(terminal, GrantedPermissions, OneTimeConnectionToken("pst_live"))
         controller.initialize()
         controller.discover()
         terminal.publish(listOf(ConnectedReader("bad", Approved.M2_SERIAL, "stripe_m2", "")))
@@ -47,10 +51,6 @@ class ReaderProvisioningTest {
         assertNull(controller.snapshot.readerId)
         assertFalse(controller.connect())
         assertNull(terminal.connectionRequest)
-    }
-
-    private object TokenSource : ConnectionTokenSource {
-        override fun connectionToken(session: StaffSession) = "pst_live"
     }
 
     private object GrantedPermissions : BluetoothPermissions {
