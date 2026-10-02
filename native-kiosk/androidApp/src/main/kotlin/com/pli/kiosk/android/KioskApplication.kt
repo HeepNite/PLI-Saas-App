@@ -79,8 +79,7 @@ class ProductionOperatorRuntime(
     override val recoveryEnabled: Boolean
         get() = !networkOperationInFlight && (native?.hasActiveAttempt == true || (selection as? PurchaseCoordinator)?.hasKnownPaymentIntent() == true)
     override val studentLookupEnabled: Boolean
-        get() = !networkOperationInFlight && ((selection as? PurchaseCoordinator)?.let { runCatching(it::studentLookupEnabled).getOrDefault(false) }
-            ?: (loginSource == null))
+        get() = !networkOperationInFlight && underlyingStudentLookupEnabled()
     override val discoveredReaders: List<ConnectedReader>
         get() = native?.discoveredReaders.orEmpty()
 
@@ -101,7 +100,7 @@ class ProductionOperatorRuntime(
     override fun beginAttemptAsync(complete: (Boolean) -> Unit) = network(complete, ::beginAttempt)
 
     override fun lookupStudent(phone: String): StudentLookupResult {
-        require(studentLookupEnabled) { "Staff login is required before student lookup" }
+        require(underlyingStudentLookupEnabled()) { "Staff login is required before student lookup" }
         return selection.lookupStudent(phone)
     }
     override fun confirmSelectedStudent(): MinimumStudentIdentity = selection.confirmSelectedStudent()
@@ -137,6 +136,10 @@ class ProductionOperatorRuntime(
             ?: listener(emptyList())
     }
     override fun setStateListener(listener: () -> Unit) { stateListener = listener; listener() }
+
+    private fun underlyingStudentLookupEnabled(): Boolean =
+        (selection as? PurchaseCoordinator)?.let { runCatching(it::studentLookupEnabled).getOrDefault(false) }
+            ?: (loginSource == null)
 
     private fun network(complete: (Boolean) -> Unit, action: () -> Unit) {
         check(!networkOperationInFlight) { "A network action is already in progress" }

@@ -29,6 +29,25 @@ class N6ExplicitSequenceTest {
     }
 
     @Test
+    fun admittedAsyncStudentLookupDoesNotRejectItsOwnInFlightOperation() {
+        val store = MemoryStore(DurableState(session))
+        val api = Api()
+        val coordinator = PurchaseCoordinator(origin, store, api) { now }
+        val runtime = ProductionOperatorRuntime(
+            native = null,
+            selection = coordinator,
+            startSource = null,
+        )
+        var result: StudentLookupResult? = null
+
+        assertTrue(runtime.studentLookupEnabled)
+        runtime.lookupStudentAsync("+15550000000") { result = it }
+
+        assertEquals(1, api.lookups)
+        assertTrue(result is StudentLookupResult.Unique)
+    }
+
+    @Test
     fun configuredRuntimeRequiresTicketThenRunsOneSameIdSdkSequenceAndServerRecovery() {
         val store = MemoryStore(DurableState(session))
         val api = Api().apply {
@@ -160,13 +179,17 @@ class N6ExplicitSequenceTest {
     }
 
     private class Api : PurchaseApi {
+        var lookups = 0
         var preflights = 0
         var issued = 0
         var prepares = 0
         var recoveries = 0
         var prepared = PaymentResult("pi_fixture", "requires_payment_method", false, "secret")
         var refreshed = PaymentResult("pi_fixture", "requires_payment_method", false, "secret_refresh")
-        override fun lookup(session: StaffSession, phone: String) = StudentLookupResult.Unique(MinimumStudentIdentity("Fixture"))
+        override fun lookup(session: StaffSession, phone: String): StudentLookupResult {
+            lookups++
+            return StudentLookupResult.Unique(MinimumStudentIdentity("Fixture"))
+        }
         override fun preflight(session: StaffSession) { preflights++ }
         override fun issue(session: StaffSession, phone: String): AttemptTicket {
             issued++
