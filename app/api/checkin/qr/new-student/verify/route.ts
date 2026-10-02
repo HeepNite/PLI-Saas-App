@@ -78,6 +78,7 @@ export async function POST(req: Request) {
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
     const phoneInput = asText(payload?.phone)
     const emailInput = asText(payload?.email)
+    const requireSmsVerification = payload?.requireSmsVerification === true
 
     const phoneResult = phoneInput ? parseServerPhoneInput(phoneInput) : null
     if (phoneResult && !phoneResult.ok) {
@@ -152,33 +153,55 @@ export async function POST(req: Request) {
       hasCompletedPurchase = Boolean(completedPurchase)
     }
 
+    // A public booking may accept the active Clerk session as ownership proof
+    // only when that same session owns the submitted verified phone. Otherwise
+    // returning-customer pricing must not bypass the SMS gate.
+    const sessionOwnsPhone =
+      Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
+      await sessionOwnsVerifiedPhone(sessionUserId as string, phoneLookup?.e164 || "")
+
     if (hasCompletedPurchase) {
-      // Returning customer — fallback to regular price (even if session matches)
-      const response: VerifyResponse = {
-        outcome: "fallback_regular",
-        reason: "existing_customer",
-        message: "This phone number is associated with an existing customer. Regular pricing will be applied.",
-        eligibleForNewStudent: false,
-        requiresSmsVerification: false,
-        shouldFallbackToRegular: true,
-        requiresLogin: true,
-        exists: true,
-        hasCompletedPurchase: true,
-        existingIdentifier,
-        sources: {
-          clerk: Boolean(existingClerkUser),
-          databaseUser: Boolean(existingDbUser),
-          completedPurchase: true,
-        },
-      }
+      const response: VerifyResponse = requireSmsVerification && !sessionOwnsPhone
+        ? {
+            outcome: "requires_sms_verification",
+            reason: "existing_customer_verification_required",
+            message: "Verify this phone number to continue with regular pricing.",
+            eligibleForNewStudent: false,
+            requiresSmsVerification: true,
+            shouldFallbackToRegular: true,
+            requiresLogin: false,
+            exists: true,
+            hasCompletedPurchase: true,
+            existingIdentifier,
+            sources: {
+              clerk: Boolean(existingClerkUser),
+              databaseUser: Boolean(existingDbUser),
+              completedPurchase: true,
+            },
+          }
+        : {
+            outcome: "fallback_regular",
+            reason: "existing_customer",
+            message: "This phone number is associated with an existing customer. Regular pricing will be applied.",
+            eligibleForNewStudent: false,
+            requiresSmsVerification: false,
+            shouldFallbackToRegular: true,
+            requiresLogin: true,
+            sessionOwnsPhone,
+            exists: true,
+            hasCompletedPurchase: true,
+            existingIdentifier,
+            sources: {
+              clerk: Boolean(existingClerkUser),
+              databaseUser: Boolean(existingDbUser),
+              completedPurchase: true,
+            },
+          }
       return NextResponse.json(response)
     }
 
     // Case 1: No completed purchase and the matched Clerk identity is the active
     // session with a verified copy of the submitted phone → eligible (skip SMS).
-    const sessionOwnsPhone =
-      Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
-      await sessionOwnsVerifiedPhone(sessionUserId as string, phoneLookup?.e164 || "")
     if (sessionOwnsPhone) {
       const response: VerifyResponse = {
         outcome: "eligible",

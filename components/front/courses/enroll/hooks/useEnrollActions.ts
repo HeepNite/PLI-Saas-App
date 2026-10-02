@@ -78,7 +78,13 @@ export type UseEnrollActionsInput = {
   kioskFastPathAdvanceTriggeredRef: React.MutableRefObject<boolean>
   kioskFastPathSubmitTriggeredRef: React.MutableRefObject<boolean>
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>
-  verifyNewStudent: (phone: string, email: string) => Promise<string>
+  verifyNewStudent: (
+    phone: string,
+    email: string,
+    options?: { requireSmsVerification?: boolean }
+  ) => Promise<string>
+  verifiedPhoneKey?: string | null
+  setVerifiedPhoneKey?: SetState<string | null>
   markSmsVerified: () => void
   resetVerification: () => void
   verification: { onSmsSent: () => void }
@@ -131,7 +137,8 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     onExistingUserDetected, kioskQrCheckout,
     kioskPaymentTransitionTimeoutRef, kioskPaymentTransitionStartedAtRef, stationCompletionTimeoutRef,
     kioskFastPathAdvanceTriggeredRef, kioskFastPathSubmitTriggeredRef,
-    getToken, verifyNewStudent, markSmsVerified, resetVerification, verification,
+    getToken, verifyNewStudent, verifiedPhoneKey = null,
+    setVerifiedPhoneKey = () => undefined, markSmsVerified, resetVerification, verification,
     setService, setAddons, setParticipants, setDate, setTime, setContact, setStep,
     setSuccess, setSuccessMessage, setProcessing, setFormError, setRequiresSignIn,
     setExistingAccountDetected, setResumeAfterSignInStep, setResumeContactFlowAfterSignIn,
@@ -197,7 +204,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
     step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
-    onExistingUserDetected, verifyNewStudent, resetVerification,
+    onExistingUserDetected, verifyNewStudent, verifiedPhoneKey, setVerifiedPhoneKey, resetVerification,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setSignInPurpose,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase, setAddons,

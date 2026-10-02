@@ -167,6 +167,7 @@ export default function EnrollModal({
   const verificationState = verification.state
   const verifyNewStudent = verification.verify
   const resetVerification = verification.reset
+  const [verifiedPhoneKey, setVerifiedPhoneKey] = React.useState<string | null>(null)
   const markSmsVerified = verification.onSmsVerified
   const [recoveryEligible, setRecoveryEligible] = React.useState(false)
   const [recoveryCode, setRecoveryCode] = React.useState<string | null>(null)
@@ -940,6 +941,8 @@ export default function EnrollModal({
     preparedAccount,
     onExistingUserDetected,
     verifyNewStudent,
+    verifiedPhoneKey,
+    setVerifiedPhoneKey,
     resetVerification,
     setContact,
     setStep,
@@ -1040,11 +1043,20 @@ export default function EnrollModal({
     setStep((prev) => Math.max(0, Math.min(prev, steps.length - 1)))
   }, [open, steps.length, setStep])
 
-  // Kiosk & QR mobile new-student: after SMS verification succeeds, continue to account prep
+  // Kiosk & QR mobile: after SMS verification succeeds, bind the proof to the
+  // submitted phone before any package, promotion, reservation, or payment step.
   React.useEffect(() => {
     if (verificationState !== "verified" || !(isKioskTerminalFlow || isQrMobileCompactFlow)) return
     let cancelled = false
     void (async () => {
+      if (isQrMobileCompactFlow) {
+        setVerifiedPhoneKey(toE164Phone(contact.phone) || null)
+        if (verification.shouldFallbackToRegular) {
+          showRegularFallbackPopup(verification.fallbackMessage || undefined)
+          resetVerification()
+          return
+        }
+      }
       const account = preparedAccount || (await requestAccountPreparation())
       if (cancelled || !account) return
       const needsPhoto = isPhotoRequiredForAccount(photoPolicy, Boolean(account.hasAvatar || photoSaved))
@@ -1062,7 +1074,13 @@ export default function EnrollModal({
       resetVerification()
     })()
     return () => { cancelled = true }
-  }, [verificationState, isKioskTerminalFlow, isQrMobileCompactFlow, preparedAccount, requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex, resetVerification, setStep])
+  }, [
+    verificationState, verification.shouldFallbackToRegular, verification.fallbackMessage,
+    isKioskTerminalFlow, isQrMobileCompactFlow, contact.phone, preparedAccount,
+    requestAccountPreparation, photoPolicy, photoSaved, photoStepIndex, promoStepIndex,
+    packagesStepIndex, paymentsStepIndex, resetVerification, setStep,
+    showRegularFallbackPopup,
+  ])
 
   const kioskInfoFastPathEligible = isKioskInfoFastPathEligible({
     isKioskTerminalFlow,
@@ -1650,7 +1668,7 @@ export default function EnrollModal({
               redirectUrl={signInReturnTo}
               phoneNumber={toE164Phone(contact.phone)}
               useNumericKeypad={isKioskTerminalFlow}
-              activateSessionOnSuccess={false}
+              activateSessionOnSuccess={isQrMobileCompactFlow}
               bare
               onCodeSent={() => {
                 verification.onSmsSent()
