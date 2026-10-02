@@ -31,7 +31,7 @@ class StaffSessionTransportTest {
 
         val session = transport.login("front-desk", pin)
 
-        assertEquals("https://approved.invalid/api/staff/terminal/login", client.endpoint.toString())
+        assertEquals("https://approved.invalid/api/staff/terminal/session", client.endpoint.toString())
         assertNull(client.cookie)
         assertEquals("front-desk", JSONObject(client.body.decodeToString()).getString("slug"))
         assertEquals("session-value", session.cookie)
