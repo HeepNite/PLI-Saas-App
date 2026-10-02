@@ -5,6 +5,13 @@ export type QrBookingLinkParams = {
   durationMinutes?: number
 }
 
+type QrBookingAuthReadyInput = {
+  hasQrBookingContext: boolean
+  isLoaded: boolean
+  existingCustomerResolved: boolean
+  hasCapturedFlowVariant: boolean
+}
+
 type QrBookingContactStepInput = {
   hasQrBookingContext: boolean
   isLoaded: boolean
@@ -13,6 +20,15 @@ type QrBookingContactStepInput = {
 }
 
 const FALLBACK_COURSE_CATALOG_URL = "/courses-library"
+
+export function isQrBookingAuthReady({
+  hasQrBookingContext,
+  isLoaded,
+  existingCustomerResolved,
+  hasCapturedFlowVariant,
+}: QrBookingAuthReadyInput) {
+  return !hasQrBookingContext || (isLoaded && (existingCustomerResolved || hasCapturedFlowVariant))
+}
 
 export function shouldSkipQrBookingContactStep({
   hasQrBookingContext,

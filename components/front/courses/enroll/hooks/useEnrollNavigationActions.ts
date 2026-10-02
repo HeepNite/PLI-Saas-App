@@ -36,11 +36,7 @@ export type UseEnrollNavigationActionsInput = {
   activeNumericField: "phone" | null
   preparedAccount: PreparedAccountState | null
   onExistingUserDetected?: () => void
-  verifyNewStudent: (
-    phone: string,
-    email: string,
-    options?: { requireSmsVerification?: boolean }
-  ) => Promise<string>
+  verifyNewStudent: (phone: string, email: string) => Promise<string>
   verifiedPhoneKey: string | null
   setVerifiedPhoneKey: SetState<string | null>
   resetVerification: () => void
@@ -130,11 +126,23 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) ||
         requiresPublicPhoneVerification
       ) {
-        const result = isQrMobileCompactFlow
-          ? await verifyNewStudent(contact.phone, contact.email, { requireSmsVerification: true })
-          : await verifyNewStudent(contact.phone, contact.email)
+        const result = await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({ isKioskTerminalFlow, service, verifyResult: result, onExistingUserDetected })) {
           return
+        }
+        if (isQrMobileCompactFlow && result === "existing_detected") {
+          setSignInPurpose("existing")
+          setExistingAccountDetected(true)
+          setResumeContactFlowAfterSignIn(true)
+          setRequiresSignIn(true)
+          return
+        }
+        if (isQrMobileCompactFlow && result === "regular_fallback") {
+          setVerifiedPhoneKey(submittedPhoneKey)
+          if (service === "new-student") {
+            showRegularFallbackPopup()
+            return
+          }
         }
         if (result === "sms_pending") {
           const account = await requestAccountPreparation()
@@ -151,12 +159,8 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
           }
           return
         }
-        if (requiresPublicPhoneVerification && (result === "verified" || result === "existing_detected")) {
+        if (requiresPublicPhoneVerification && result === "verified") {
           setVerifiedPhoneKey(submittedPhoneKey)
-          if (service === "new-student" && result === "existing_detected") {
-            showRegularFallbackPopup()
-            return
-          }
         }
         if (result === "error") return
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {

@@ -1242,7 +1242,9 @@ export default function EnrollModal({
       : signInPurpose === "account_preparation"
         ? "Sign in to continue"
         : showAccountExistsSignInCopy
-          ? t("account_exists_title")
+          ? verification.existingIdentifier === "email"
+            ? "An account with this email already exists"
+            : "This phone number already exists"
           : t("sign_in_modal_title")
   const signInModalSubtitle =
     signInPurpose === "sms_verification"
@@ -1250,7 +1252,7 @@ export default function EnrollModal({
       : signInPurpose === "account_preparation"
         ? "Sign in with your phone to upload your profile photo before payment."
         : showAccountExistsSignInCopy
-          ? t("existing_customer_signin_required")
+          ? "Sign in to access the account linked to this phone number."
           : t("sign_in_modal_subtitle")
 
   if (!open && !isInline) return null
@@ -1668,7 +1670,7 @@ export default function EnrollModal({
               redirectUrl={signInReturnTo}
               phoneNumber={toE164Phone(contact.phone)}
               useNumericKeypad={isKioskTerminalFlow}
-              activateSessionOnSuccess={isQrMobileCompactFlow}
+              activateSessionOnSuccess={false}
               bare
               onCodeSent={() => {
                 verification.onSmsSent()
