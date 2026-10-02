@@ -2,6 +2,7 @@ package com.pli.kiosk.android
 
 import android.app.Application
 import android.os.Handler
+import com.stripe.stripeterminal.TerminalApplicationDelegate
 import java.util.concurrent.Executors
 
 /** Server calls are serialized off the UI thread; tests inject the direct executor explicitly. */
@@ -12,6 +13,11 @@ class AndroidOperatorBackgroundExecutor : OperatorBackgroundExecutor {
     override fun execute(task: () -> Unit) = delegate.execute(task)
 }
 fun interface OperatorUiDispatcher { fun execute(task: () -> Unit) }
+
+internal fun initializeKioskApplicationLifecycle(terminal: () -> Unit, runtime: () -> Unit) {
+    terminal()
+    runtime()
+}
 
 /** Transient server-authorized material is passed directly to Terminal and is never retained. */
 data class TransientCollectionStart(val attempt: DurableAttempt, val clientSecret: String)
@@ -210,6 +216,13 @@ class KioskApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        initializeKioskApplicationLifecycle(
+            terminal = { TerminalApplicationDelegate.onCreate(this) },
+            runtime = ::initializeRuntime,
+        )
+    }
+
+    private fun initializeRuntime() {
         val configuration = runCatching(NativeCollectionConfiguration::fromBuildConfig).getOrElse { return }
         if (!configuration.collectionEnabled) return
         val handler = Handler(mainLooper)
