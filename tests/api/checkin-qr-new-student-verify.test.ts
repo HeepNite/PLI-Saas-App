@@ -79,7 +79,7 @@ describe("qr new-student verify route", () => {
     })
   })
 
-  it("returns requires_sms_verification when the phone exists in Clerk but there is no completed purchase", async () => {
+  it("returns existing_user before SMS when the phone exists in Clerk", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue(null)
@@ -96,14 +96,13 @@ describe("qr new-student verify route", () => {
 
     expect(res.status).toBe(200)
     expect(data).toMatchObject({
-      outcome: "requires_sms_verification",
-      reason: "phone_verification_required",
+      outcome: "existing_user",
+      reason: "existing_identity",
       exists: true,
-      hasCompletedPurchase: false,
       eligibleForNewStudent: false,
-      requiresSmsVerification: true,
+      requiresSmsVerification: false,
       shouldFallbackToRegular: false,
-      requiresLogin: false,
+      requiresLogin: true,
     })
     expect(data.sources.clerk).toBe(true)
   })
@@ -124,19 +123,17 @@ describe("qr new-student verify route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    // This is a "known identity, no purchases" case — distinct from truly new.
-    // The outcome still requires SMS verification to confirm phone ownership.
     expect(data).toMatchObject({
-      outcome: "requires_sms_verification",
-      reason: "phone_verification_required",
+      outcome: "existing_user",
+      reason: "existing_identity",
       eligibleForNewStudent: false,
-      requiresSmsVerification: true,
+      requiresSmsVerification: false,
       shouldFallbackToRegular: false,
-      requiresLogin: false,
+      requiresLogin: true,
     })
   })
 
-  it("returns fallback_regular when existing user has a completed purchase", async () => {
+  it("requires account access when purchase history exists without an owning session", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue(null)
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue({ id: "pur_123" })
@@ -153,19 +150,19 @@ describe("qr new-student verify route", () => {
 
     expect(res.status).toBe(200)
     expect(data).toMatchObject({
-      outcome: "fallback_regular",
-      reason: "existing_customer",
+      outcome: "existing_user",
+      reason: "existing_identity",
       exists: true,
       hasCompletedPurchase: true,
       eligibleForNewStudent: false,
       requiresSmsVerification: false,
-      shouldFallbackToRegular: true,
+      shouldFallbackToRegular: false,
       requiresLogin: true,
     })
     expect(data.sources.completedPurchase).toBe(true)
   })
 
-  it("requires SMS before exposing regular-price routing when public booking has no owning session", async () => {
+  it("returns existing_user before pricing when a returning phone has no owning session", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_returning" })
     mockPurchaseFindFirst.mockResolvedValue({ id: "pur_returning" })
 
@@ -176,7 +173,6 @@ describe("qr new-student verify route", () => {
       body: JSON.stringify({
         phone: "+1 202-555-0124",
         email: "returning@example.com",
-        requireSmsVerification: true,
       }),
     })
 
@@ -185,13 +181,12 @@ describe("qr new-student verify route", () => {
 
     expect(res.status).toBe(200)
     expect(data).toMatchObject({
-      outcome: "requires_sms_verification",
-      reason: "existing_customer_verification_required",
+      outcome: "existing_user",
+      reason: "existing_identity",
       eligibleForNewStudent: false,
-      requiresSmsVerification: true,
-      shouldFallbackToRegular: true,
-      requiresLogin: false,
-      hasCompletedPurchase: true,
+      requiresSmsVerification: false,
+      shouldFallbackToRegular: false,
+      requiresLogin: true,
     })
   })
 
@@ -207,7 +202,7 @@ describe("qr new-student verify route", () => {
     const res = await POST(new Request("http://localhost/api/checkin/qr/new-student/verify", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "+1 202-555-0124", requireSmsVerification: true }),
+      body: JSON.stringify({ phone: "+1 202-555-0124" }),
     }))
     const data = await res.json()
 
@@ -221,7 +216,7 @@ describe("qr new-student verify route", () => {
     })
   })
 
-  it("returns fallback_regular when existing user has a purchase with status 'completed'", async () => {
+  it("returns existing_user before pricing when the account has a completed purchase", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_789" })
     mockUserFindFirst.mockResolvedValue(null)
     mockPurchaseFindFirst.mockResolvedValue({ id: "pur_456" })
@@ -238,13 +233,12 @@ describe("qr new-student verify route", () => {
 
     expect(res.status).toBe(200)
     expect(data).toMatchObject({
-      outcome: "fallback_regular",
-      reason: "existing_customer",
+      outcome: "existing_user",
+      reason: "existing_identity",
       exists: true,
-      hasCompletedPurchase: true,
       eligibleForNewStudent: false,
       requiresSmsVerification: false,
-      shouldFallbackToRegular: true,
+      shouldFallbackToRegular: false,
       requiresLogin: true,
     })
     expect(data.sources.clerk).toBe(true)
@@ -292,7 +286,7 @@ describe("qr new-student verify route", () => {
     )
   })
 
-  it("requires SMS when an active session matches the email but does not own the submitted phone", async () => {
+  it("requires account access when the active session does not own the submitted phone", async () => {
     mockAuth.mockResolvedValue({ userId: "clerk_123" })
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
     mockClerkGetUser.mockResolvedValue({
@@ -317,10 +311,11 @@ describe("qr new-student verify route", () => {
 
     expect(res.status).toBe(200)
     expect(data).toMatchObject({
-      outcome: "requires_sms_verification",
-      reason: "phone_verification_required",
+      outcome: "existing_user",
+      reason: "existing_identity",
       eligibleForNewStudent: false,
-      requiresSmsVerification: true,
+      requiresSmsVerification: false,
+      requiresLogin: true,
     })
     expect(mockClerkGetUser).toHaveBeenCalledWith("clerk_123")
   })

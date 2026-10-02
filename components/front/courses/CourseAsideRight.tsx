@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import EnrollModal from "./EnrollModal"
 import type { CourseEnrollmentData } from "./types"
 import GlassyCard from "./GlassyCard"
-import { shouldSkipQrBookingContactStep } from "@/lib/checkin/qr-booking-links"
+import { isQrBookingAuthReady, shouldSkipQrBookingContactStep } from "@/lib/checkin/qr-booking-links"
 
 // Right sticky aside: inline booking form.
 export default function CourseAsideRight({ course }: { course: CourseEnrollmentData }) {
@@ -67,9 +67,9 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
     return () => { active = false }
   }, [needsExistingCustomerCheck])
 
-  // Ready once Clerk loaded AND (if signed in) the existing-customer check resolved.
+  // Resolve the initial variant once, then keep the booking mounted if Clerk
+  // changes during account access. Remounting would lose entered contact data.
   const existingCustomerResolved = !needsExistingCustomerCheck || existingCustomer !== null
-  const qrAuthReady = !shouldUseQrCompactBooking || (isLoaded && existingCustomerResolved)
   const shouldSkipQrContactStep = shouldSkipQrBookingContactStep({
     hasQrBookingContext: shouldUseQrCompactBooking,
     isLoaded,
@@ -81,6 +81,12 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
     const treatAsExisting = Boolean(isSignedIn) && !forceNewStudentVariant && existingCustomer === true
     capturedQrFlowVariantRef.current = treatAsExisting ? "checkin-existing" : "checkin-new"
   }
+  const qrAuthReady = isQrBookingAuthReady({
+    hasQrBookingContext: shouldUseQrCompactBooking,
+    isLoaded,
+    existingCustomerResolved,
+    hasCapturedFlowVariant: capturedQrFlowVariantRef.current !== null,
+  })
   const qrCompactFlowVariant = shouldUseQrCompactBooking
     ? capturedQrFlowVariantRef.current ?? "checkin-new"
     : undefined

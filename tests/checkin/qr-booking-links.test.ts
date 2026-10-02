@@ -3,6 +3,7 @@ import {
   buildQrBookingUrl,
   buildQrSignInUrl,
   buildQrWelcomeUrl,
+  isQrBookingAuthReady,
   shouldSkipQrBookingContactStep,
 } from "@/lib/checkin/qr-booking-links"
 
@@ -73,6 +74,24 @@ describe("QR booking links", () => {
         isSignedIn: true,
       })
     ).toBe(false)
+  })
+
+  it("keeps the mounted QR booking ready after its flow variant was captured", () => {
+    expect(isQrBookingAuthReady({
+      hasQrBookingContext: true,
+      isLoaded: true,
+      existingCustomerResolved: false,
+      hasCapturedFlowVariant: true,
+    })).toBe(true)
+  })
+
+  it("waits for the initial signed-in customer check before the flow is captured", () => {
+    expect(isQrBookingAuthReady({
+      hasQrBookingContext: true,
+      isLoaded: true,
+      existingCustomerResolved: false,
+      hasCapturedFlowVariant: false,
+    })).toBe(false)
   })
 
   it("keeps sign-in redirects scoped to check-in", () => {
