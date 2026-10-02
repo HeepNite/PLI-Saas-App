@@ -106,8 +106,8 @@ class StripeTerminalSdkAdapter(
                     val snapshot = synchronized(this@StripeTerminalSdkAdapter.readers) {
                         if (generation != discoveryGeneration) return
                         this@StripeTerminalSdkAdapter.readers.clear()
-                        readers.forEach { reader -> this@StripeTerminalSdkAdapter.readers[readerKey(reader)] = reader }
-                        readers.map(::connectedReader)
+                        readers.forEach { reader -> this@StripeTerminalSdkAdapter.readers[discoveryReaderKey(reader)] = reader }
+                        readers.map(::discoveredReader)
                     }
                     onUpdate(snapshot)
                 }
@@ -230,12 +230,12 @@ class StripeTerminalSdkAdapter(
         })
     }
 
-    private fun readerKey(reader: Reader): String = discoveredReaderKey(
+    private fun discoveryReaderKey(reader: Reader): String = discoveredReaderKey(
         reader.id, reader.serialNumber.orEmpty(), reader.deviceType.toString().lowercase(), expectedReaderId,
     )
 
-    private fun connectedReader(reader: Reader) = ConnectedReader(
-        readerKey(reader),
+    private fun discoveredReader(reader: Reader) = ConnectedReader(
+        discoveryReaderKey(reader),
         reader.serialNumber.orEmpty(),
         reader.deviceType.toString().lowercase(),
         reader.location?.id.orEmpty(),

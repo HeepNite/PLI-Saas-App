@@ -47,6 +47,7 @@ class ReaderProvisioningTest {
         assertTrue(discoveredReaderKey(null, Approved.M2_SERIAL, "other", expected).startsWith("unregistered:"))
         assertTrue(acceptsConnectedReader(expected, expected))
         assertFalse(acceptsConnectedReader(expected, "tmr_other"))
+        assertFalse(acceptsConnectedReader(expected, null))
     }
 
     @Test fun `provisioning and collection build modes cannot coexist`() {
