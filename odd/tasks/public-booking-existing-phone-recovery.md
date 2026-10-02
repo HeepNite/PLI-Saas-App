@@ -23,4 +23,5 @@ Existing identities must show the account-exists popup before any new-account SM
 - New-phone OTP does not activate Clerk mid-flow, and profile hydration fills only blank contact fields.
 - Verification: 117 focused tests, typecheck, and `git diff --check` passed; scoped ESLint reported 0 errors and pre-existing warnings.
 - Delegated verification could not attach to the sibling worktree, so the same commands ran directly.
-- Native review did not start: the controller repeatedly returned `consent-binding-stale` plus an inconsistent untracked-selection requirement; no lineage was created.
+- Work-unit commit: `203ea827` (`fix(booking): route existing phones to account access`).
+- Pre-commit native review did not start because the controller returned stale consent while the task artifact was untracked; retry against the committed range.
