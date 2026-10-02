@@ -71,6 +71,8 @@ const defaultInput = (override: Partial<UseEnrollNavigationActionsInput> = {}): 
   preparedAccount: null,
   onExistingUserDetected: undefined,
   verifyNewStudent: vi.fn(async () => "eligible"),
+  verifiedPhoneKey: null,
+  setVerifiedPhoneKey: vi.fn(),
   resetVerification: vi.fn(),
   setContact: vi.fn(),
   setStep: vi.fn(),
@@ -203,6 +205,114 @@ describe("useEnrollNavigationActions", () => {
   })
 
   describe("advanceFromContactStep — kiosk/QR new-student SMS verification", () => {
+    it("public QR returning customer requires SMS before regular-price routing", async () => {
+      const verifyNewStudent = vi.fn(async () => "sms_pending")
+      const requestAccountPreparation = vi.fn(async () => preparedAccount())
+      const setStep = vi.fn()
+      const setVerifiedPhoneKey = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isQrMobileCompactFlow: true,
+          service: "regular",
+          contact: { ...defaultContact(), phone: "+1 5555550124", email: "returning@example.com" },
+          verifyNewStudent,
+          requestAccountPreparation,
+          setStep,
+          setVerifiedPhoneKey,
+        })
+      )
+
+      await act(async () => {
+        await getResult().advanceFromContactStep()
+      })
+
+      expect(verifyNewStudent).toHaveBeenCalledWith(
+        "+1 5555550124",
+        "returning@example.com",
+        { requireSmsVerification: true }
+      )
+      expect(requestAccountPreparation).toHaveBeenCalledTimes(1)
+      expect(setVerifiedPhoneKey).not.toHaveBeenCalled()
+      expect(setStep).not.toHaveBeenCalled()
+    })
+
+    it("public QR continues without a second SMS only for the same verified phone", async () => {
+      const verifyNewStudent = vi.fn(async () => "sms_pending")
+      const setStep = vi.fn()
+      const phone = "+1 5555550124"
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isQrMobileCompactFlow: true,
+          service: "regular",
+          contact: { ...defaultContact(), phone, email: "returning@example.com" },
+          verifiedPhoneKey: "+15555550124",
+          verifyNewStudent,
+          packagesStepIndex: 1,
+          setStep,
+        })
+      )
+
+      await act(async () => {
+        await getResult().advanceFromContactStep()
+      })
+
+      expect(verifyNewStudent).not.toHaveBeenCalled()
+      expect(setStep).toHaveBeenCalledWith(1)
+    })
+
+    it("public QR fails closed when the submitted phone is incomplete", async () => {
+      const verifyNewStudent = vi.fn(async () => "sms_pending")
+      const requestAccountPreparation = vi.fn(async () => preparedAccount())
+      const setStep = vi.fn()
+      const setFormError = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isQrMobileCompactFlow: true,
+          service: "regular",
+          contact: { ...defaultContact(), phone: "+1 555", email: "invalid@example.com" },
+          verifyNewStudent,
+          requestAccountPreparation,
+          setStep,
+          setFormError,
+        })
+      )
+
+      await act(async () => {
+        await getResult().advanceFromContactStep()
+      })
+
+      expect(setFormError).toHaveBeenCalledWith("Please enter a valid phone number before continuing.")
+      expect(verifyNewStudent).not.toHaveBeenCalled()
+      expect(requestAccountPreparation).not.toHaveBeenCalled()
+      expect(setStep).not.toHaveBeenCalled()
+    })
+
+    it("public QR invalidates the gate when the submitted phone changes", async () => {
+      const verifyNewStudent = vi.fn(async () => "sms_pending")
+      const setStep = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isQrMobileCompactFlow: true,
+          service: "regular",
+          contact: { ...defaultContact(), phone: "+1 5555550136", email: "changed@example.com" },
+          verifiedPhoneKey: "+15555550124",
+          verifyNewStudent,
+          setStep,
+        })
+      )
+
+      await act(async () => {
+        await getResult().advanceFromContactStep()
+      })
+
+      expect(verifyNewStudent).toHaveBeenCalled()
+      expect(setStep).not.toHaveBeenCalled()
+    })
+
     it("kiosk: continues to package or payment selection when verification is already complete", async () => {
       const verifyNewStudent = vi.fn(async () => "verified")
       const requestAccountPreparation = vi.fn(async () => preparedAccount())
@@ -490,6 +600,8 @@ describe("useEnrollNavigationActions", () => {
           isCheckInFlow: true,
           isSignedIn: false,
           isQrMobileCompactFlow: true,
+          contact: { ...defaultContact(), phone: "+1 5555550124" },
+          verifiedPhoneKey: "+15555550124",
           photoPolicy: requiredSelfPhotoPolicy(),
           photoStepIndex: 1,
           requestAccountPreparation,

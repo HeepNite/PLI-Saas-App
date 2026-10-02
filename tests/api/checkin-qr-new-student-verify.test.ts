@@ -263,6 +263,62 @@ describe("qr new-student verify route", () => {
     expect(data.sources.completedPurchase).toBe(true)
   })
 
+  it("requires SMS before exposing regular-price routing when public booking has no owning session", async () => {
+    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_returning" })
+    mockPurchaseFindFirst.mockResolvedValue({ id: "pur_returning" })
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const req = new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        phone: "+1 202-555-0124",
+        email: "returning@example.com",
+        requireSmsVerification: true,
+      }),
+    })
+
+    const res = await POST(req)
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "requires_sms_verification",
+      reason: "existing_customer_verification_required",
+      eligibleForNewStudent: false,
+      requiresSmsVerification: true,
+      shouldFallbackToRegular: true,
+      requiresLogin: false,
+      hasCompletedPurchase: true,
+    })
+  })
+
+  it("accepts an active session only when it owns the exact verified submitted phone", async () => {
+    mockAuth.mockResolvedValue({ userId: "clerk_returning" })
+    mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_returning" })
+    mockClerkGetUser.mockResolvedValue({
+      phoneNumbers: [{ phoneNumber: "+12025550124", verification: { status: "verified" } }],
+    })
+    mockPurchaseFindFirst.mockResolvedValue({ id: "pur_returning" })
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const res = await POST(new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+1 202-555-0124", requireSmsVerification: true }),
+    }))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "fallback_regular",
+      reason: "existing_customer",
+      requiresSmsVerification: false,
+      shouldFallbackToRegular: true,
+      sessionOwnsPhone: true,
+    })
+  })
+
   it("returns fallback_regular when existing user has a purchase with status 'completed'", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_789" })
     mockPurchaseFindFirst.mockResolvedValue({ id: "pur_456" })
