@@ -202,6 +202,17 @@ class N6BlockersTest {
         assertEquals(listOf("pi_same"), recovery.ids)
     }
 
+    @Test fun terminalApplicationLifecyclePrecedesRuntimeComposition() {
+        val order = mutableListOf<String>()
+
+        initializeKioskApplicationLifecycle(
+            terminal = { order += "terminal" },
+            runtime = { order += "runtime" },
+        )
+
+        assertEquals(listOf("terminal", "runtime"), order)
+    }
+
     @Test fun productionExecutorRunsNetworkWorkOffTheUiThread() {
         val done = CountDownLatch(1)
         var invokedOnUiThread = true
