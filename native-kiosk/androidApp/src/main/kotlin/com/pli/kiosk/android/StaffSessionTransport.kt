@@ -82,7 +82,7 @@ class StaffSessionTransport private constructor(
     private data class ParsedCookie(val value: String, val maxAge: Long)
 
     private companion object {
-        const val LOGIN_PATH = "/api/staff/terminal/login"
+        const val LOGIN_PATH = "/api/staff/terminal/session"
         const val INTERNAL_PURCHASE_PATH = "/api/kiosk/terminal/internal-purchase"
         const val SESSION_COOKIE = "pli_terminal_session"
         const val MAX_SESSION_SECONDS = 30L * 24 * 60 * 60
