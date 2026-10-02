@@ -90,6 +90,10 @@ describe("Heritage campaign booking presentation", () => {
     expect(enrollModalSource).not.toContain('data-heritage-verification-context="true"')
   })
 
+  it("uses explicit existing-phone copy before account access", () => {
+    expect(enrollModalSource).toContain('"This phone number already exists"')
+  })
+
   it("lets the visitor search and explicitly select a country before continuing", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)

@@ -6,6 +6,7 @@ export type VerificationState =
   | "idle"
   | "verifying"
   | "existing_detected"
+  | "regular_fallback"
   | "sms_pending"
   | "sms_verifying"
   | "verified"
@@ -16,6 +17,7 @@ type ExistingIdentifier = "phone" | "email" | "both"
 type VerifyAction =
   | { type: "VERIFY_START" }
   | { type: "VERIFY_EXISTING"; existingIdentifier?: ExistingIdentifier }
+  | { type: "VERIFY_REGULAR" }
   | { type: "VERIFY_NEW"; shouldFallbackToRegular: boolean; message: string | null }
   | { type: "VERIFY_ELIGIBLE" }
   | { type: "SMS_SENT" }
@@ -59,6 +61,9 @@ export function verificationReducer(state: State, action: VerifyAction): State {
         status: "existing_detected",
         ctx: { ...state.ctx, existingIdentifier: action.existingIdentifier ?? null },
       }
+
+    case "VERIFY_REGULAR":
+      return { status: "regular_fallback", ctx: { ...state.ctx, error: null } }
 
     case "VERIFY_NEW":
       return {
@@ -104,17 +109,14 @@ type VerificationResponse = {
   message?: string
 }
 
-export type PhoneVerificationOptions = {
-  requireSmsVerification?: boolean
-}
-
-export function resolveNewStudentVerificationOutcome(response: unknown): "existing_detected" | "sms_pending" | "verified" {
+export function resolveNewStudentVerificationOutcome(response: unknown): "existing_detected" | "regular_fallback" | "sms_pending" | "verified" {
   if (!response || typeof response !== "object") {
     throw new Error("Unexpected verification response")
   }
 
   const { outcome, requiresSmsVerification } = response as VerificationResponse
-  if (outcome === "existing_user" || outcome === "fallback_regular") return "existing_detected"
+  if (outcome === "existing_user") return "existing_detected"
+  if (outcome === "fallback_regular") return "regular_fallback"
   if (outcome === "requires_sms_verification" || requiresSmsVerification === true) return "sms_pending"
   if (outcome === "eligible") return "verified"
 
@@ -140,8 +142,7 @@ export function useNewStudentVerification() {
   const verify = useCallback(
     async (
       phone: string,
-      email: string,
-      options: PhoneVerificationOptions = {}
+      email: string
     ): Promise<VerificationState> => {
       dispatch({ type: "VERIFY_START" })
 
@@ -149,11 +150,7 @@ export function useNewStudentVerification() {
         const res = await fetch("/api/checkin/qr/new-student/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            phone,
-            email,
-            requireSmsVerification: options.requireSmsVerification === true,
-          }),
+          body: JSON.stringify({ phone, email }),
         })
 
         if (!res.ok) {
@@ -170,6 +167,11 @@ export function useNewStudentVerification() {
             existingIdentifier: getExistingIdentifier(data),
           })
           return "existing_detected"
+        }
+
+        if (outcome === "regular_fallback") {
+          dispatch({ type: "VERIFY_REGULAR" })
+          return "regular_fallback"
         }
 
         if (outcome === "sms_pending") {

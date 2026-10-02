@@ -78,7 +78,6 @@ export async function POST(req: Request) {
     const payload = body && typeof body === "object" ? (body as Record<string, unknown>) : null
     const phoneInput = asText(payload?.phone)
     const emailInput = asText(payload?.email)
-    const requireSmsVerification = payload?.requireSmsVerification === true
 
     const phoneResult = phoneInput ? parseServerPhoneInput(phoneInput) : null
     if (phoneResult && !phoneResult.ok) {
@@ -154,49 +153,54 @@ export async function POST(req: Request) {
     }
 
     // A public booking may accept the active Clerk session as ownership proof
-    // only when that same session owns the submitted verified phone. Otherwise
-    // returning-customer pricing must not bypass the SMS gate.
+    // only when that same session owns the submitted verified phone.
     const sessionOwnsPhone =
       Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
       await sessionOwnsVerifiedPhone(sessionUserId as string, phoneLookup?.e164 || "")
 
+    // Never start account-creation SMS for a known identity. The visitor must
+    // access the existing account first; after sign-in, the same request can
+    // safely resolve new-student eligibility or regular pricing.
+    if ((exists || hasCompletedPurchase) && !sessionOwnsPhone) {
+      const response: VerifyResponse = {
+        outcome: "existing_user",
+        reason: "existing_identity",
+        message: "This phone number already exists. Sign in to access your account.",
+        eligibleForNewStudent: false,
+        requiresSmsVerification: false,
+        shouldFallbackToRegular: false,
+        requiresLogin: true,
+        exists: true,
+        hasCompletedPurchase,
+        existingIdentifier,
+        sources: {
+          clerk: Boolean(existingClerkUser),
+          databaseUser: Boolean(existingDbUser),
+          completedPurchase: hasCompletedPurchase,
+        },
+      }
+      return NextResponse.json(response)
+    }
+
     if (hasCompletedPurchase) {
-      const response: VerifyResponse = requireSmsVerification && !sessionOwnsPhone
-        ? {
-            outcome: "requires_sms_verification",
-            reason: "existing_customer_verification_required",
-            message: "Verify this phone number to continue with regular pricing.",
-            eligibleForNewStudent: false,
-            requiresSmsVerification: true,
-            shouldFallbackToRegular: true,
-            requiresLogin: false,
-            exists: true,
-            hasCompletedPurchase: true,
-            existingIdentifier,
-            sources: {
-              clerk: Boolean(existingClerkUser),
-              databaseUser: Boolean(existingDbUser),
-              completedPurchase: true,
-            },
-          }
-        : {
-            outcome: "fallback_regular",
-            reason: "existing_customer",
-            message: "This phone number is associated with an existing customer. Regular pricing will be applied.",
-            eligibleForNewStudent: false,
-            requiresSmsVerification: false,
-            shouldFallbackToRegular: true,
-            requiresLogin: true,
-            sessionOwnsPhone,
-            exists: true,
-            hasCompletedPurchase: true,
-            existingIdentifier,
-            sources: {
-              clerk: Boolean(existingClerkUser),
-              databaseUser: Boolean(existingDbUser),
-              completedPurchase: true,
-            },
-          }
+      const response: VerifyResponse = {
+        outcome: "fallback_regular",
+        reason: "existing_customer",
+        message: "This phone number is associated with an existing customer. Regular pricing will be applied.",
+        eligibleForNewStudent: false,
+        requiresSmsVerification: false,
+        shouldFallbackToRegular: true,
+        requiresLogin: true,
+        sessionOwnsPhone,
+        exists: true,
+        hasCompletedPurchase: true,
+        existingIdentifier,
+        sources: {
+          clerk: Boolean(existingClerkUser),
+          databaseUser: Boolean(existingDbUser),
+          completedPurchase: true,
+        },
+      }
       return NextResponse.json(response)
     }
 
@@ -217,8 +221,7 @@ export async function POST(req: Request) {
       return NextResponse.json(response)
     }
 
-    // Case 3: No completed purchases — requires SMS verification.
-    // Covers both truly new (no identity) and existing-but-no-purchases.
+    // No existing identity or completed purchase: verify the new phone once.
     const response: VerifyResponse = {
       outcome: "requires_sms_verification",
       reason: "phone_verification_required",
