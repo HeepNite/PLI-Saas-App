@@ -1670,7 +1670,7 @@ export default function EnrollModal({
               redirectUrl={signInReturnTo}
               phoneNumber={toE164Phone(contact.phone)}
               useNumericKeypad={isKioskTerminalFlow}
-              activateSessionOnSuccess={false}
+              activateSessionOnSuccess={isQrMobileCompactFlow}
               bare
               onCodeSent={() => {
                 verification.onSmsSent()

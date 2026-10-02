@@ -84,7 +84,7 @@ describe("Heritage campaign booking presentation", () => {
 
   it("keeps the active booking form visible behind a translucent phone verification overlay", () => {
     expect(enrollModalSource).toContain('verificationState === "sms_pending"')
-    expect(enrollModalSource).toContain('activateSessionOnSuccess={false}')
+    expect(enrollModalSource).toContain('activateSessionOnSuccess={isQrMobileCompactFlow}')
     expect(enrollModalSource).toContain('bg-[#09070d]/55 backdrop-blur-[2px]')
     expect(enrollModalSource).not.toContain("<HeritageVerificationBackdrop")
     expect(enrollModalSource).not.toContain('data-heritage-verification-context="true"')
