@@ -39,6 +39,16 @@ class ReaderProvisioningTest {
         assertFalse(acceptsConnectedReader("tmr_existing", "tmr_other"))
     }
 
+    @Test fun `collection maps only the exact physical M2 to its signed expected reader ID`() {
+        val expected = "tmr_expected"
+
+        assertEquals(expected, discoveredReaderKey(null, Approved.M2_SERIAL, "stripe_m2", expected))
+        assertTrue(discoveredReaderKey(null, "wrong-serial", "stripe_m2", expected).startsWith("unregistered:"))
+        assertTrue(discoveredReaderKey(null, Approved.M2_SERIAL, "other", expected).startsWith("unregistered:"))
+        assertTrue(acceptsConnectedReader(expected, expected))
+        assertFalse(acceptsConnectedReader(expected, "tmr_other"))
+    }
+
     @Test fun `provisioning and collection build modes cannot coexist`() {
         assertThrows(IllegalArgumentException::class.java) {
             ReaderProvisioningConfiguration(

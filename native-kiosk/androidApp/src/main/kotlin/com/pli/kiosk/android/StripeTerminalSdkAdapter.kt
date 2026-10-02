@@ -21,8 +21,9 @@ import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
 import java.util.concurrent.Executors
 
-internal fun discoveredReaderKey(id: String?, serial: String, type: String): String =
-    id ?: "unregistered:$serial:$type"
+internal fun discoveredReaderKey(id: String?, serial: String, type: String, expectedReaderId: String? = null): String =
+    id ?: expectedReaderId?.takeIf { serial == Approved.M2_SERIAL && type == "stripe_m2" }
+    ?: "unregistered:$serial:$type"
 
 internal fun acceptsConnectedReader(expectedId: String, connectedId: String?): Boolean =
     connectedId != null && (expectedId.startsWith("unregistered:") || connectedId == expectedId)
@@ -37,7 +38,10 @@ internal class RotatingConnectionTokenProvider {
  * The sole production mapping to the locally verified Terminal 5.6.0 APIs. It makes no reader
  * selection, payment decision, or server-authority decision; NativeCollectionRuntime owns those.
  */
-class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAdapter {
+class StripeTerminalSdkAdapter(
+    private val context: Context,
+    private val expectedReaderId: String? = null,
+) : NativeTerminalAdapter {
     /** Terminal may ask for a token on an arbitrary callback thread; never run HTTPS on the UI. */
     private val tokenExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "stripe-connection-token").apply { isDaemon = true }
@@ -227,7 +231,7 @@ class StripeTerminalSdkAdapter(private val context: Context) : NativeTerminalAda
     }
 
     private fun readerKey(reader: Reader): String = discoveredReaderKey(
-        reader.id, reader.serialNumber.orEmpty(), reader.deviceType.toString().lowercase(),
+        reader.id, reader.serialNumber.orEmpty(), reader.deviceType.toString().lowercase(), expectedReaderId,
     )
 
     private fun connectedReader(reader: Reader) = ConnectedReader(
