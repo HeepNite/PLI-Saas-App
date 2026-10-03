@@ -274,6 +274,31 @@ class N6BlockersTest {
         assertTrue(completed)
     }
 
+    @Test fun admittedCollectionDoesNotRejectItsOwnNetworkOperation() {
+        val queued = QueueExecutor()
+        val terminal = DeferredTerminal(reader)
+        val native = runtime(terminal)
+        connect(native, terminal)
+        val production = ProductionOperatorRuntime(
+            native = native,
+            selection = object : StudentSelectionActions {
+                override fun lookupStudent(phone: String) = StudentLookupResult.Invalid
+                override fun confirmSelectedStudent() = MinimumStudentIdentity(null)
+            },
+            startSource = { TransientCollectionStart(DurableAttempt(ticket, "pi_same"), "secret") },
+            backgroundExecutor = queued,
+        )
+        var accepted = false
+        assertTrue(production.collectionControlsEnabled)
+
+        production.startCollectionAsync { accepted = it }
+        assertFalse(production.collectionControlsEnabled)
+        queued.runNext()
+
+        assertTrue(accepted)
+        assertEquals(listOf("retrieve"), terminal.operations)
+    }
+
     @Test fun loginButtonIsRetainedDisabledUntilQueuedHttpsLoginCompletesWithoutDuplicateError() {
         val queued = QueueExecutor()
         var logins = 0
