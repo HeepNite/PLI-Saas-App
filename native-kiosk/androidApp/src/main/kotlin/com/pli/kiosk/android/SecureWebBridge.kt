@@ -11,6 +11,7 @@ enum class SecureBridgeError {
     UNKNOWN_OPERATION,
     INVALID_PAYLOAD,
     REQUEST_ID_CONFLICT,
+    RESPONSE_CACHE_EXHAUSTED,
     INTERNAL_ERROR,
     STALE_CONTEXT,
 }
@@ -59,6 +60,7 @@ class SecureWebBridge(
             return if (cached.bytes.contentEquals(bytes)) cached.response
             else failure(envelope.requestId, SecureBridgeError.REQUEST_ID_CONFLICT)
         }
+        if (responses.size >= 256) return failure(envelope.requestId, SecureBridgeError.RESPONSE_CACHE_EXHAUSTED)
         val response = when {
             envelope.version != VERSION.toString() -> failure(envelope.requestId, SecureBridgeError.UNSUPPORTED_VERSION)
             else -> dispatch(envelope)
@@ -128,7 +130,7 @@ class SecureWebBridge(
                     "operation" -> operation = string()
                     "requestId" -> requestId = string()
                     "payload" -> payload = payload()
-                    else -> if (!value()) return null
+                    else -> return null
                 }
                 if ((key == "version" && version == null) || (key == "operation" && operation == null) ||
                     (key == "requestId" && requestId == null) || (key == "payload" && payload == null)) return null
@@ -150,8 +152,7 @@ class SecureWebBridge(
             while (!consume('}')) {
                 val key = string() ?: return null
                 if (fields.containsKey(key) || !consumeAfterKey()) return null
-                val value = if (source.getOrNull(index) == '"') string() else if (value()) null else return null
-                fields[key] = value
+                fields[key] = string() ?: return null
                 whitespace()
                 if (consume('}')) break
                 if (!consume(',')) return null
@@ -165,45 +166,6 @@ class SecureWebBridge(
             whitespace()
             if (!consume(':')) return false
             whitespace()
-            return true
-        }
-
-        private fun value(): Boolean = when (source.getOrNull(index)) {
-            '"' -> string() != null
-            '{' -> objectValue()
-            '[' -> array()
-            't' -> literal("true")
-            'f' -> literal("false")
-            'n' -> literal("null")
-            '-', in '0'..'9' -> number() != null
-            else -> false
-        }
-
-        private fun objectValue(): Boolean {
-            if (!consume('{')) return false
-            whitespace()
-            while (!consume('}')) {
-                if (string() == null || !consumeAfterKey() || !value()) return false
-                whitespace()
-                if (consume('}')) break
-                if (!consume(',')) return false
-                whitespace()
-                if (source.getOrNull(index) == '}') return false
-            }
-            return true
-        }
-
-        private fun array(): Boolean {
-            if (!consume('[')) return false
-            whitespace()
-            while (!consume(']')) {
-                if (!value()) return false
-                whitespace()
-                if (consume(']')) break
-                if (!consume(',')) return false
-                whitespace()
-                if (source.getOrNull(index) == ']') return false
-            }
             return true
         }
 

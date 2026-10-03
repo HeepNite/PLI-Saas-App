@@ -46,7 +46,7 @@ class SecureWebBridgeTest {
             request("trailing-envelope", "collect", "{\"token\":\"ok\"}", ","),
             request("trailing-payload", "collect", "{\"token\":\"ok\",}"),
             request("trailing-object", "collect", "{\"token\":\"ok\"}", ",\"extra\":{\"nested\":true,}"),
-            request("trailing-array", "collect", "{\"token\":\"ok\"}", ",\"extra\":[true,]"),
+            request("unknown-deep", "collect", "{\"token\":\"ok\"}", ",\"extra\":" + "[".repeat(4_000) + "]".repeat(4_000)),
         )
 
         cases.forEach { assertEquals(SecureBridgeError.MALFORMED_REQUEST, bridge.dispatch(it).error) }
@@ -69,12 +69,22 @@ class SecureWebBridgeTest {
     fun rejectsClosedPayloadSchemaTypesAndLengthsBeforeHandling() {
         var calls = 0
         val bridge = bridge(mapOf("collect" to SecureBridgeOperation(mapOf("token" to 3)) { calls++; SecureBridgeState.ACCEPTED }))
+        val deep = "[".repeat(4_000) + "]".repeat(4_000); assertEquals(SecureBridgeError.MALFORMED_REQUEST, bridge.dispatch(request("deep", "collect", "{\"token\":$deep}")).error)
         val payloads = listOf("{}", "{\"token\":\"ok\",\"extra\":\"x\"}", "{\"token\":1}", "{\"token\":\"long\"}")
 
         payloads.forEachIndexed { index, payload ->
-            assertEquals(SecureBridgeError.INVALID_PAYLOAD, bridge.dispatch(request("payload-$index", "collect", payload)).error)
+            assertEquals(if (payload == "{\"token\":1}") SecureBridgeError.MALFORMED_REQUEST else SecureBridgeError.INVALID_PAYLOAD, bridge.dispatch(request("payload-$index", "collect", payload)).error)
         }
         assertEquals(0, calls)
+    }
+
+    @Test fun closesResponseCacheAfterCapacityWhileServingDuplicates() {
+        var calls = 0
+        val bridge = bridge(mapOf("collect" to SecureBridgeOperation(emptyMap()) { calls++; SecureBridgeState.ACCEPTED }))
+        repeat(256) { bridge.dispatch(request("id-$it", "collect", "{}")) }
+        assertEquals(SecureBridgeState.ACCEPTED, bridge.dispatch(request("id-0", "collect", "{}")).state)
+        listOf("overflow", "later").forEach { assertEquals(SecureBridgeError.RESPONSE_CACHE_EXHAUSTED, bridge.dispatch(request(it, "collect", "{}")).error) }
+        assertEquals(256, calls)
     }
 
     @Test
