@@ -10,7 +10,7 @@ Restore the five-second campaign promotion on every `/booking` visit, keep new p
 - [x] Prevent ambient Clerk contact prefill in the public booking flow.
 - [x] Prefer the submitted booking name over Stripe cardholder data.
 - [x] Surface Heritage pin status and delivery on payment-backed staff cards.
-- [ ] Update the active requirements and focused regressions.
+- [x] Update the active requirements and focused regressions.
 - [ ] Run focused verification, native review, and delivery.
 
 ## Evidence
@@ -24,3 +24,4 @@ Restore the five-second campaign promotion on every `/booking` visit, keep new p
 - Public-contact regression: 9 focused tests, typecheck, and `git diff --check` passed.
 - Booking-name regression: 27 webhook tests and `git diff --check` passed.
 - Staff-pin regression: 20 focused tests, typecheck, and `git diff --check` passed.
+- Requirements now define the five-second per-visit popup, blank public contact form, submitted-name priority, and staff-card-independent pin fulfillment.
