@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "KioskNativeBridge",
+    platforms: [.iOS(.v15), .macOS(.v13)],
     products: [
         .library(name: "KioskNativeBridge", targets: ["KioskNativeBridge"]),
     ],
