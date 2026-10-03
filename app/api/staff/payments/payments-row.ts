@@ -11,6 +11,7 @@ import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failur
 import type { PaymentsMode } from "@/app/api/staff/payments/payments-request"
 import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { parseHeritagePinEntitlement } from "@/lib/campaigns/heritage-pin"
 
 type CheckInStatus = "checked_in" | "checked_in_no_package" | "checked_out" | "scheduled" | "none"
 
@@ -247,6 +248,7 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     location: context.courseLocationBySlug.get(courseSlug) || null,
     pointsBalance: context.pointsByUser.get(item.userId) || 0,
     pointsHistory: context.pointsHistoryByUser.get(item.userId) || [],
+    heritagePin: parseHeritagePinEntitlement(purchase),
     classPaid: isPaid,
     // Effective price to collect for zero-amount unpaid bookings (the bulk
     // settlement route charges the course drop-in price for these).
