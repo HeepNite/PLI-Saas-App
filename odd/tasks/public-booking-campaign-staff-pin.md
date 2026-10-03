@@ -25,3 +25,4 @@ Restore the five-second campaign promotion on every `/booking` visit, keep new p
 - Booking-name regression: 27 webhook tests and `git diff --check` passed.
 - Staff-pin regression: 20 focused tests, typecheck, and `git diff --check` passed.
 - Requirements now define the five-second per-visit popup, blank public contact form, submitted-name priority, and staff-card-independent pin fulfillment.
+- Final local verification: 60 focused tests and typecheck passed; scoped ESLint reported 0 errors and 6 pre-existing `EnrollModal` warnings; `git diff --check` passed; candidate size is 277 changed lines.
