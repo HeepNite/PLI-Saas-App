@@ -9,7 +9,7 @@ Replace the oversized Heritage pin status and delivery rows with a compact medal
 - [x] Define the avatar-medallion interaction and accessibility contract.
 - [x] Replace payment-card pin rows with the avatar medallion.
 - [x] Apply the same medallion to profile-backed cards and remove duplicate pin rows.
-- [ ] Run focused verification, native review, and delivery.
+- [x] Run focused verification, native review, and delivery.
 
 ## Evidence
 
@@ -18,4 +18,9 @@ Replace the oversized Heritage pin status and delivery rows with a compact medal
 - Pending pins now render as gray flag medallions; authorized staff receive a hover/focus delivery action, unauthorized staff receive status only, and delivered pins remain full-color over the avatar.
 - Both card variants reuse the same medallion and no longer render duplicate full-width campaign rows.
 - Focused medallion, profile presentation, staff card, payment projection, and delivery API tests: 105 passed.
-- Typecheck, scoped ESLint, and `git diff --check` passed; candidate size before task evidence is 246 changed lines.
+- Typecheck, scoped ESLint, and `git diff --check` passed; reviewed candidate size was 267 changed lines.
+- Work-unit commit: `817c5038`.
+- Native review `review-fb87c347060a396c` approved and was acknowledged; its card-integration-test warning was informational.
+- PR #600 passed CI and merged into `codex/develop` as `f2fdf15a5ec85294953037050cb7add847f2af8a`.
+- Vercel deployment `dpl_13D1XxVNWEwW2gvQNdUtvWN7Uu7w` is ready and aliases `dev.palladiumlatin.art`.
+- Authenticated live staff rendering remains for user visual confirmation because no staff browser session was used.
