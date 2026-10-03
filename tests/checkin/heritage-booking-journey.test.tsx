@@ -104,6 +104,11 @@ describe("Heritage campaign booking presentation", () => {
     expect(enrollModalSource).toContain('"This phone number already exists"')
   })
 
+  it("does not prefill a new public booking from an ambient Clerk session", () => {
+    expect(enrollModalSource).toContain('isKioskTerminalFlow || bookingSource === "public_booking"')
+    expect(enrollModalSource).toContain("public bookings collect the")
+  })
+
   it("lets the visitor search and explicitly select a country before continuing", async () => {
     const container = document.createElement("div")
     document.body.appendChild(container)
