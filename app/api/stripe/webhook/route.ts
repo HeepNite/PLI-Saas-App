@@ -509,7 +509,7 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   const meta = resolveTrustedSpecialMetadata(rawMeta, amount, currency, specialPurchase)
   const clerkId = meta.userId && meta.userId !== "guest" ? meta.userId : undefined
   const email = meta.email || session.customer_details?.email || session.customer_email || undefined
-  const purchaseName = session.customer_details?.name || meta.name || undefined
+  const purchaseName = meta.name || session.customer_details?.name || undefined
   const phone =
     normalizePhone(meta.phone) ||
     normalizePhone(meta.phoneRaw) ||

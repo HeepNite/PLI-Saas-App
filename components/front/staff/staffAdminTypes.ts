@@ -110,6 +110,14 @@ export type PaymentRow = {
     courseSlug: string | null
     milestone: number | null
   }>
+  heritagePin?: {
+    status: "pending" | "delivered"
+    countryCode: string
+    countryName: string
+    sourcePurchaseId: string
+    earnedAt: string
+    deliveredAt: string | null
+  } | null
   classPaid: boolean
   dueAmountCents?: number | null
   attendanceId: string | null

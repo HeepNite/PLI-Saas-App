@@ -135,6 +135,28 @@ describe("buildStaffPaymentResponseRow", () => {
     })
   })
 
+  it("projects a pending Heritage pin from the source purchase", () => {
+    const metadata = {
+      heritagePinCampaign: "latin-heritage-2026",
+      heritagePinCountryCode: "AR",
+      heritagePinStatus: "pending",
+      heritagePinEarnedAt: "2026-10-03T12:34:26.000Z",
+      heritagePinSource: "public_booking",
+    }
+    const row = buildStaffPaymentResponseRow({
+      ...baseItem,
+      metadata,
+      purchase: { ...baseItem.purchase, metadata },
+    }, emptyContext)
+
+    expect(row.heritagePin).toMatchObject({
+      status: "pending",
+      countryCode: "AR",
+      countryName: "Argentina",
+      sourcePurchaseId: "purchase_123",
+    })
+  })
+
   it("exposes the course drop-in price as dueAmountCents for unpaid zero-amount rows", () => {
     const row = buildStaffPaymentResponseRow(
       {
