@@ -3,6 +3,7 @@ import React from "react"
 import type { StepEnabledContext } from "@/components/front/staff/school"
 import StaffCourseMainInfoStep from "./StaffCourseMainInfoStep"
 import StaffCoursePricingStep from "./StaffCoursePricingStep"
+import StaffCoursePromotionsStep from "./StaffCoursePromotionsStep"
 import StaffCourseMediaStep from "./StaffCourseMediaStep"
 import StaffCourseScheduleStep from "./StaffCourseScheduleStep"
 import StaffCourseLinksStep from "./StaffCourseLinksStep"
@@ -33,6 +34,7 @@ type StaffCourseStudioPanelProps = {
   usesConcreteSchedule: boolean
   mainInfo: Omit<React.ComponentProps<typeof StaffCourseMainInfoStep>, "visible">
   pricing: Omit<React.ComponentProps<typeof StaffCoursePricingStep>, "visible">
+  promotions: Omit<React.ComponentProps<typeof StaffCoursePromotionsStep>, "visible">
   media: Omit<React.ComponentProps<typeof StaffCourseMediaStep>, "visible" | "onUploadVideo" | "onUploadImage">
   schedule: Omit<React.ComponentProps<typeof StaffCourseScheduleStep>, "visible" | "usesConcreteSchedule">
   links: Omit<React.ComponentProps<typeof StaffCourseLinksStep>, "visible">
@@ -46,6 +48,7 @@ export default function StaffCourseStudioPanel({
   usesConcreteSchedule,
   mainInfo,
   pricing,
+  promotions,
   media,
   schedule,
   links,
@@ -69,26 +72,27 @@ export default function StaffCourseStudioPanel({
           <div ref={form.courseFormFieldsRef} className="mt-4 space-y-4">
             <StaffCourseMainInfoStep visible={wizard.step === 0} {...mainInfo} />
             <StaffCoursePricingStep visible={wizard.step === 1} {...pricing} />
+            <StaffCoursePromotionsStep visible={wizard.step === 2} {...promotions} />
             <StaffCourseMediaStep
-              visible={wizard.step === 2}
+              visible={wizard.step === 3}
               {...media}
               onUploadVideo={() => form.courseVideoInputRef.current?.click()}
               onUploadImage={() => form.courseImageInputRef.current?.click()}
             />
 
-            <div style={{ display: wizard.step >= 3 && wizard.step <= 5 ? undefined : "none" }} className="space-y-2">
-              <p style={{ display: wizard.step === 3 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
+            <div style={{ display: wizard.step >= 4 && wizard.step <= 6 ? undefined : "none" }} className="space-y-2">
+              <p style={{ display: wizard.step === 4 ? undefined : "none" }} className="mb-2 text-xs uppercase tracking-[0.2em] text-black/60 dark:text-white/60">
                 {usesConcreteSchedule ? "Concrete dates (calendar builder)" : "Schedules (guided builder)"}
               </p>
               <div className="space-y-5">
-                <StaffCourseScheduleStep visible={wizard.step === 3} usesConcreteSchedule={usesConcreteSchedule} {...schedule} />
-                <StaffCourseLinksStep visible={wizard.step === 4} {...links} />
-                <StaffCoursePreviewStep visible={wizard.step === 5} {...preview} />
+                <StaffCourseScheduleStep visible={wizard.step === 4} usesConcreteSchedule={usesConcreteSchedule} {...schedule} />
+                <StaffCourseLinksStep visible={wizard.step === 5} {...links} />
+                <StaffCoursePreviewStep visible={wizard.step === 6} {...preview} />
               </div>
             </div>
           </div>
 
-          <StaffCoursePublishStep visible={wizard.step === 6} {...publish} />
+          <StaffCoursePublishStep visible={wizard.step === 7} {...publish} />
         </form>
 
         <div className="mt-6 flex items-center justify-between border-t border-black/10 pt-4 dark:border-white/10">
@@ -119,20 +123,22 @@ export default function StaffCourseStudioPanel({
 
 function resolveCourseStepTitle(step: number) {
   return step === 0 ? "Course main information"
-    : step === 1 ? "Prices and discounts"
-    : step === 2 ? "Media assets"
-    : step === 3 ? "Schedule builder"
-    : step === 4 ? "Consecutive class links"
-    : step === 5 ? "Preview and calendar"
+    : step === 1 ? "Base prices"
+    : step === 2 ? "Promotions"
+    : step === 3 ? "Media assets"
+    : step === 4 ? "Schedule builder"
+    : step === 5 ? "Consecutive class links"
+    : step === 6 ? "Preview and calendar"
     : "Publish course"
 }
 
 function resolveCourseStepDescription(step: number) {
   return step === 0 ? "Set the basic details: title, type, category, location, and default room."
-    : step === 1 ? "Configure drop-in price, first class price, and special discounts."
-    : step === 2 ? "Upload a cover image and add a video preview for the course."
-    : step === 3 ? "Select days, time slots, repetition rules, and publication status."
-    : step === 4 ? "Link this course to a consecutive class with special pricing."
-    : step === 5 ? "Review how the course looks and check the monthly calendar."
+    : step === 1 ? "Configure authoritative drop-in and first-class prices."
+    : step === 2 ? "Configure bounded prices, audiences, dates, and trusted channels."
+    : step === 3 ? "Upload a cover image and add a video preview for the course."
+    : step === 4 ? "Select days, time slots, repetition rules, and publication status."
+    : step === 5 ? "Link this course to a consecutive class with special pricing."
+    : step === 6 ? "Review how the course looks and check the monthly calendar."
     : "Share on social media and save the course."
 }

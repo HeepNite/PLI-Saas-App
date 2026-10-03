@@ -307,6 +307,7 @@ export function buildStaffSchoolWorkspaceProps({
       usesConcreteSchedule,
       mainInfo: { courseForm, setCourseForm, courseSlugConflict, courseRoomOptions, roomById, onUseSlugSuggestion: handleUseSlugSuggestion, onEditExistingCourse: handleEditExistingCourse },
       pricing: { courseEditingSlug, courseForm, setCourseForm },
+      promotions: { courseForm, setCourseForm },
       media: { courseEditingSlug, courseForm, setCourseForm, courseMediaUploading, courseLocalVideoName, courseLocalImageName },
       schedule: {
         schoolLoading,
