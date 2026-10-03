@@ -8,7 +8,7 @@ Restore the five-second campaign promotion on every `/booking` visit, keep new p
 
 - [x] Show the campaign promotion after five seconds on every booking-page visit.
 - [x] Prevent ambient Clerk contact prefill in the public booking flow.
-- [ ] Prefer the submitted booking name over Stripe cardholder data.
+- [x] Prefer the submitted booking name over Stripe cardholder data.
 - [ ] Surface Heritage pin status and delivery on payment-backed staff cards.
 - [ ] Update the active requirements and focused regressions.
 - [ ] Run focused verification, native review, and delivery.
@@ -22,3 +22,4 @@ Restore the five-second campaign promotion on every `/booking` visit, keep new p
 - Public QR booking currently hydrates blank contact fields from the ambient Clerk user.
 - Popup timer regression: 8 focused tests passed; `git diff --check` passed.
 - Public-contact regression: 9 focused tests, typecheck, and `git diff --check` passed.
+- Booking-name regression: 27 webhook tests and `git diff --check` passed.
