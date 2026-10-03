@@ -28,6 +28,22 @@ internal fun discoveredReaderKey(id: String?, serial: String, type: String, expe
 internal fun acceptsConnectedReader(expectedId: String, connectedId: String?): Boolean =
     connectedId != null && (expectedId.startsWith("unregistered:") || connectedId == expectedId)
 
+internal fun discoveredReaderLocation(
+    actualLocationId: String?,
+    discoveryReaderId: String,
+    expectedReaderId: String?,
+    expectedLocationId: String?,
+): String = actualLocationId?.takeIf(String::isNotBlank)
+    ?: expectedLocationId?.takeIf { discoveryReaderId == expectedReaderId }
+    ?: ""
+
+internal fun acceptsConnectedReaderContext(
+    expectedReaderId: String,
+    expectedLocationId: String,
+    connectedReaderId: String?,
+    connectedLocationId: String?,
+): Boolean = acceptsConnectedReader(expectedReaderId, connectedReaderId) && connectedLocationId == expectedLocationId
+
 internal class RotatingConnectionTokenProvider {
     @Volatile private var source: (() -> String)? = null
     fun update(source: () -> String) { this.source = source }
@@ -41,6 +57,7 @@ internal class RotatingConnectionTokenProvider {
 class StripeTerminalSdkAdapter(
     private val context: Context,
     private val expectedReaderId: String? = null,
+    private val expectedLocationId: String? = null,
 ) : NativeTerminalAdapter {
     /** Terminal may ask for a token on an arbitrary callback thread; never run HTTPS on the UI. */
     private val tokenExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -161,7 +178,7 @@ class StripeTerminalSdkAdapter(
             object : ReaderCallback {
                 override fun onSuccess(reader: Reader) {
                     val connectedId = reader.id
-                    if (acceptsConnectedReader(expectedReaderId, connectedId)) {
+                    if (acceptsConnectedReaderContext(expectedReaderId, request.locationId, connectedId, reader.location?.id)) {
                         observedConnectedReaderId = connectedId
                         onSuccess()
                     } else onFailure()
@@ -234,12 +251,15 @@ class StripeTerminalSdkAdapter(
         reader.id, reader.serialNumber.orEmpty(), reader.deviceType.toString().lowercase(), expectedReaderId,
     )
 
-    private fun discoveredReader(reader: Reader) = ConnectedReader(
-        discoveryReaderKey(reader),
-        reader.serialNumber.orEmpty(),
-        reader.deviceType.toString().lowercase(),
-        reader.location?.id.orEmpty(),
-    )
+    private fun discoveredReader(reader: Reader): ConnectedReader {
+        val discoveryId = discoveryReaderKey(reader)
+        return ConnectedReader(
+            discoveryId,
+            reader.serialNumber.orEmpty(),
+            reader.deviceType.toString().lowercase(),
+            discoveredReaderLocation(reader.location?.id, discoveryId, expectedReaderId, expectedLocationId),
+        )
+    }
 
     private var lastPaymentIntent: com.stripe.stripeterminal.external.models.PaymentIntent? = null
 

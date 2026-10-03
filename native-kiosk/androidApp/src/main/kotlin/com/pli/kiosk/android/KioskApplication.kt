@@ -246,7 +246,7 @@ class KioskApplication : Application() {
             val boundSession = requireNotNull(latest.session) { "Original staff session is unavailable" }
             val boundAttempt = requireNotNull(latest.attempt) { "Signed ticket binding is unavailable" }
             require(boundAttempt.ticket == boundTicket && !boundAttempt.resolved) { "Signed ticket binding changed" }
-            val terminal = StripeTerminalSdkAdapter(this, boundTicket.readerId)
+            val terminal = StripeTerminalSdkAdapter(this, boundTicket.readerId, boundTicket.locationId)
             NativeCollectionRuntime(
                 configuration,
                 boundSession,
