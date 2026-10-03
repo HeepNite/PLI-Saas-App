@@ -649,7 +649,7 @@ describe("stripe webhook checkout session persistence", () => {
     )
   })
 
-  it("does not trust Stripe cardholder name for canonical user upsert", async () => {
+  it("keeps the submitted booking name ahead of the Stripe cardholder name", async () => {
     const getUser = vi.fn().mockResolvedValue({
       firstName: "Danna",
       lastName: "Jhon",
@@ -677,6 +677,7 @@ describe("stripe webhook checkout session persistence", () => {
           },
           metadata: {
             userId: "clerk_user_1",
+            name: "Ga Barri",
             email: "danna@example.com",
             phone: "9293876584",
             courseSlug: "salsa-femenina-matutina",
@@ -705,8 +706,8 @@ describe("stripe webhook checkout session persistence", () => {
 
     expect(mockPurchaseUpsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        create: expect.objectContaining({ name: "Mariano Barrionuevo" }),
-        update: expect.objectContaining({ name: "Mariano Barrionuevo" }),
+        create: expect.objectContaining({ name: "Ga Barri" }),
+        update: expect.objectContaining({ name: "Ga Barri" }),
       })
     )
   })
