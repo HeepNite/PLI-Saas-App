@@ -7,6 +7,7 @@ import { expandCourseScheduleSlots } from "@/lib/course-schedule-blocks"
 import { doUtcIntervalsOverlapWithBuffer } from "@/lib/class-schedule"
 import { findAvailableRoomsForSlot } from "@/lib/room-availability"
 import { SpecialClassAuthoringError, synchronizeSpecialClassAuthoring } from "@/lib/special-classes/authoring-sync"
+import { normalizeCoursePromotions, type CoursePromotion } from "@/lib/promotions/course-promotions"
 
 export const runtime = "nodejs"
 
@@ -54,6 +55,7 @@ type CourseScheduleRulesPayload = {
   specialEvents: CourseSpecialEventEntry[]
   publication?: CoursePublicationSettings
   specialDiscount?: CourseSpecialDiscountSettings
+  promotions?: CoursePromotion[]
 }
 
 const parseCoursePublication = (value: unknown): CoursePublicationSettings => {
@@ -149,11 +151,12 @@ const toScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
 
   const publication = parseCoursePublication(source.publication)
   const specialDiscount = parseCourseSpecialDiscount(source.specialDiscount)
+  const promotions = normalizeCoursePromotions(source.promotions)
 
   const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
   const hasSpecialDiscount =
     specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
-  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
+  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount && promotions.length === 0) return null
 
   const weeklyDaysTargetRaw = Number(source.weeklyDaysTarget)
   const weeklyDaysTarget = Number.isFinite(weeklyDaysTargetRaw)
@@ -177,6 +180,7 @@ const toScheduleRules = (value: unknown): CourseScheduleRulesPayload | null => {
     specialEvents,
     publication,
     specialDiscount,
+    promotions,
   }
 }
 
