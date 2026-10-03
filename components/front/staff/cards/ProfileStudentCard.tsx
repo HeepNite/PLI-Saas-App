@@ -97,19 +97,27 @@ export function ProfileStudentCard({
         )
       ) : null}
       <header className="flex items-center gap-3">
-        <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
-          {student.avatarUrl ? (
-            <Image
-              src={student.avatarUrl}
-              alt={student.displayName}
-              fill
-              unoptimized
-              sizes="64px"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            initials
-          )}
+        <div className="relative h-16 w-16 shrink-0">
+          <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
+            {student.avatarUrl ? (
+              <Image
+                src={student.avatarUrl}
+                alt={student.displayName}
+                fill
+                unoptimized
+                sizes="64px"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              initials
+            )}
+          </div>
+          <HeritagePinDeliveryControl
+            userId={student.userId}
+            heritagePin={student.heritagePin}
+            canDeliver={canEditStudentInfo}
+            onDelivered={onRefreshPaymentsBoard}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <h4 className="truncate text-lg font-semibold leading-tight">{student.displayName}</h4>
@@ -126,19 +134,12 @@ export function ProfileStudentCard({
           <span
             key={badge.key}
             title={badge.title}
-            className={`${PROFILE_CARD_BADGE_CLASS} ${badge.key === "heritage-pin" ? "col-span-2" : ""} ${badge.tone}`}
+            className={`${PROFILE_CARD_BADGE_CLASS} ${badge.tone}`}
           >
             {badge.label}
           </span>
         ))}
       </div>
-
-      <HeritagePinDeliveryControl
-        userId={student.userId}
-        heritagePin={student.heritagePin}
-        canDeliver={canEditStudentInfo}
-        onDelivered={onRefreshPaymentsBoard}
-      />
 
       <div className="mt-4 space-y-2.5 border-t border-white/10 pt-3.5 text-xs text-white/85">
         {detailRows.map((row) => {

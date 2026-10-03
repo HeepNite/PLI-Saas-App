@@ -10,6 +10,12 @@ type HeritagePinDeliveryControlProps = {
   onDelivered: () => void | Promise<void>
 }
 
+const countryCodeToFlag = (countryCode: string) =>
+  countryCode
+    .trim()
+    .toUpperCase()
+    .replace(/./g, (character) => String.fromCodePoint(127397 + character.charCodeAt(0)))
+
 export function HeritagePinDeliveryControl({
   userId,
   heritagePin,
@@ -19,10 +25,15 @@ export function HeritagePinDeliveryControl({
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
-  if (!canDeliver || heritagePin?.status !== "pending") return null
+  if (!heritagePin) return null
+
+  const isPending = heritagePin.status === "pending"
+  const actionLabel = `Mark ${heritagePin.countryName} pin delivered`
+  const statusLabel = `${heritagePin.countryName} Heritage pin ${isPending ? "pending" : "delivered"}`
+  const flag = countryCodeToFlag(heritagePin.countryCode)
 
   const markDelivered = async () => {
-    if (busy) return
+    if (busy || !isPending || !canDeliver) return
     setBusy(true)
     setError(null)
     try {
@@ -41,17 +52,38 @@ export function HeritagePinDeliveryControl({
     }
   }
 
+  const medallionClasses = `flex h-8 w-8 items-center justify-center rounded-full border-2 text-base shadow-[0_5px_12px_rgba(0,0,0,0.55)] transition ${
+    isPending
+      ? "border-zinc-400/80 bg-zinc-700 text-white grayscale hover:grayscale-0 focus:grayscale-0"
+      : "border-amber-300/90 bg-amber-100 text-white"
+  }`
+
   return (
-    <div className="mt-2.5">
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => void markDelivered()}
-        className="w-full rounded-md border border-[var(--brand,#b61616)]/45 bg-[var(--brand,#b61616)]/12 px-3 py-2 text-xs font-semibold text-white transition hover:bg-[var(--brand,#b61616)]/20 disabled:cursor-wait disabled:opacity-60"
-      >
-        {busy ? "Marking pin delivered…" : `Mark ${heritagePin.countryName} pin delivered`}
-      </button>
-      {error ? <p role="alert" className="mt-1.5 text-xs text-red-300">{error}</p> : null}
+    <div className="group absolute -right-2 -top-2 z-20">
+      {isPending && canDeliver ? (
+        <button
+          type="button"
+          aria-label={busy ? `Marking ${heritagePin.countryName} pin delivered` : actionLabel}
+          disabled={busy}
+          onClick={() => void markDelivered()}
+          className={`${medallionClasses} cursor-pointer disabled:cursor-wait disabled:opacity-60`}
+        >
+          <span aria-hidden="true">{flag}</span>
+        </button>
+      ) : (
+        <span aria-label={statusLabel} role="img" className={medallionClasses}>
+          <span aria-hidden="true">{flag}</span>
+        </span>
+      )}
+
+      <span className="pointer-events-none absolute left-1/2 top-full mt-1 w-max max-w-44 -translate-x-1/2 rounded-md border border-white/15 bg-[#131622]/95 px-2 py-1 text-center text-[10px] font-semibold text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+        {isPending ? (canDeliver ? actionLabel : `${heritagePin.countryName} pin pending`) : `${heritagePin.countryName} pin delivered`}
+      </span>
+      {error ? (
+        <p role="alert" className="absolute left-1/2 top-full mt-8 w-52 -translate-x-1/2 rounded-md bg-red-950/95 px-2 py-1 text-center text-[10px] text-red-200 shadow-lg">
+          {error}
+        </p>
+      ) : null}
     </div>
   )
 }
