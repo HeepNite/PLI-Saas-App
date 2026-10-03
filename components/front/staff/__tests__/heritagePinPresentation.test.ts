@@ -28,34 +28,27 @@ const student = (heritagePin: StudentProfileCard["heritagePin"]): StudentProfile
 })
 
 describe("Heritage pin staff presentation", () => {
-  it("keeps the physical country pin distinct from the authentication PIN", () => {
-    const badges = resolveProfileCardBadges(student({
-      status: "pending",
+  it.each([
+    {
+      status: "pending" as const,
       countryCode: "MX",
       countryName: "Mexico",
-      sourcePurchaseId: "purchase_1",
-      earnedAt: "2026-10-02T15:00:00.000Z",
       deliveredAt: null,
-    }))
-    expect(badges.find((badge) => badge.key === "heritage-pin")).toMatchObject({
-      label: "Country pin pending · Mexico",
-      title: "Physical pin awaiting staff handoff",
-    })
-    expect(badges.filter((badge) => badge.key === "heritage-pin")).toHaveLength(1)
-  })
-
-  it("shows the delivered country and timestamp", () => {
-    const badges = resolveProfileCardBadges(student({
-      status: "delivered",
+    },
+    {
+      status: "delivered" as const,
       countryCode: "AR",
       countryName: "Argentina",
+      deliveredAt: "2026-10-04T21:00:00.000Z",
+    },
+  ])("does not duplicate the $status avatar medallion in profile badge rows", (heritagePin) => {
+    const badges = resolveProfileCardBadges(student({
+      ...heritagePin,
       sourcePurchaseId: "purchase_1",
       earnedAt: "2026-10-02T15:00:00.000Z",
-      deliveredAt: "2026-10-04T21:00:00.000Z",
     }))
-    expect(badges.find((badge) => badge.key === "heritage-pin")).toMatchObject({
-      label: "Heritage pin · Argentina",
-    })
+
+    expect(badges.some((badge) => badge.key === "heritage-pin")).toBe(false)
   })
 
   it("adds no campaign badge when the student has no entitlement", () => {

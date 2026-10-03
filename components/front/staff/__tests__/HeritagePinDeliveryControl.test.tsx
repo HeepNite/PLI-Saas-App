@@ -15,7 +15,7 @@ const pendingPin = {
 }
 
 describe("HeritagePinDeliveryControl", () => {
-  it("offers authorized staff the pending country-pin delivery action", () => {
+  it("renders an authorized pending pin as a gray flag medallion with a focusable delivery action", () => {
     const html = renderToStaticMarkup(
       <HeritagePinDeliveryControl
         userId="user_123"
@@ -25,10 +25,13 @@ describe("HeritagePinDeliveryControl", () => {
       />,
     )
 
-    expect(html).toContain("Mark Argentina pin delivered")
+    expect(html).toContain("aria-label=\"Mark Argentina pin delivered\"")
+    expect(html).toContain("🇦🇷")
+    expect(html).toContain("grayscale")
+    expect(html).toContain("group-focus-within:opacity-100")
   })
 
-  it("stays hidden without delivery authority", () => {
+  it("shows pending status without exposing a delivery button to unauthorized staff", () => {
     const html = renderToStaticMarkup(
       <HeritagePinDeliveryControl
         userId="user_123"
@@ -38,15 +41,33 @@ describe("HeritagePinDeliveryControl", () => {
       />,
     )
 
-    expect(html).toBe("")
+    expect(html).toContain("aria-label=\"Argentina Heritage pin pending\"")
+    expect(html).not.toContain("<button")
   })
 
-  it("is mounted by both profile and payment-backed student cards", () => {
+  it("renders a delivered pin as an active full-color earned medallion", () => {
+    const html = renderToStaticMarkup(
+      <HeritagePinDeliveryControl
+        userId="user_123"
+        heritagePin={{ ...pendingPin, status: "delivered", deliveredAt: "2026-10-04T21:00:00.000Z" }}
+        canDeliver
+        onDelivered={() => undefined}
+      />,
+    )
+
+    expect(html).toContain("aria-label=\"Argentina Heritage pin delivered\"")
+    expect(html).toContain("🇦🇷")
+    expect(html).not.toContain("grayscale")
+    expect(html).not.toContain("<button")
+  })
+
+  it("replaces full-width pin rows on both student-card variants", () => {
     const profileSource = readFileSync(join(process.cwd(), "components/front/staff/cards/ProfileStudentCard.tsx"), "utf8")
     const paymentSource = readFileSync(join(process.cwd(), "components/front/staff/cards/PaymentStudentCard.tsx"), "utf8")
 
     expect(profileSource).toContain("<HeritagePinDeliveryControl")
     expect(paymentSource).toContain("<HeritagePinDeliveryControl")
-    expect(paymentSource).toContain("Country pin pending")
+    expect(paymentSource).not.toContain("Country pin pending")
+    expect(paymentSource).not.toContain("Mark ${heritagePin.countryName} pin delivered")
   })
 })
