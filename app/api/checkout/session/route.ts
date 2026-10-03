@@ -24,8 +24,12 @@ import {
 } from "@/lib/special-salsa-class/config"
 import {
   HERITAGE_PIN_CAMPAIGN_KEY,
+  isHeritagePinAcquisitionDate,
   normalizeHeritagePinCountryCode,
 } from "@/lib/campaigns/heritage-pin"
+import { findHeritagePinEntitlementForIdentity } from "@/lib/campaigns/heritage-pin-entitlement"
+import { getNewYorkDateKey, resolveCoursePromotionPrice, type CoursePromotionChannel } from "@/lib/promotions/course-promotions"
+import { prisma } from "@/lib/prisma"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -214,7 +218,7 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
   })
 }
 
-export async function POST(req: Request) {
+export async function handleCheckoutSession(req: Request, trustedChannel?: "profile") {
   const startedAt = Date.now()
   if (!stripe) {
     return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
@@ -257,7 +261,7 @@ export async function POST(req: Request) {
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
   const bookingSource = typeof body.bookingSource === "string" ? body.bookingSource.trim() : ""
   const heritagePinCountryCode = normalizeHeritagePinCountryCode(body.heritagePinCountryCode)
-  if (bookingSource === "public_booking" && !heritagePinCountryCode) {
+  if (bookingSource === "public_booking" && isHeritagePinAcquisitionDate(new Date()) && !heritagePinCountryCode) {
     return NextResponse.json({ error: "Select a valid country for the Heritage pin." }, { status: 400 })
   }
   const heritagePinMetadata: Record<string, string> = bookingSource === "public_booking" && heritagePinCountryCode
@@ -328,6 +332,52 @@ export async function POST(req: Request) {
 
   const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
   const { clerkUser, resolvedUserId, identity } = preparedAccount
+  const promotionChannel: CoursePromotionChannel | null = photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && terminalAuth
+    ? "trusted_kiosk"
+    : trustedChannel === "profile"
+      ? "profile"
+      : bookingSource === "public_booking"
+        ? "public_booking"
+        : null
+  const promotions = validation.course && typeof validation.course.scheduleRules === "object" && validation.course.scheduleRules
+    ? (validation.course.scheduleRules as Record<string, unknown>).promotions
+    : []
+  const regularDropIn = validation.course?.enrollment?.services?.find((service) => service.id === "dropin")
+  const regularPriceCents = regularDropIn?.price ? Math.round(regularDropIn.price * 100) : 0
+  const promotionShapeEligible = Boolean(
+    promotionChannel &&
+    (validation.serviceId === "dropin" || validation.serviceId === "new-student") &&
+    validation.safeParticipants === 1 &&
+    !validation.packageId && !validation.coupon && validation.addons.length === 0 &&
+    validation.consecutivePriceCents === null && !validation.consecutiveAddOnOnly,
+  )
+  const heritageEntitlement = promotionShapeEligible
+    ? await findHeritagePinEntitlementForIdentity(prisma, {
+        clerkId: resolvedUserId,
+        email: identity.resolvedEmail,
+        phone: identity.phoneNormalized,
+      })
+    : null
+  const promotionPrice = promotionShapeEligible && promotionChannel
+    ? resolveCoursePromotionPrice({
+        promotions,
+        channel: promotionChannel,
+        classDate: effectiveSession.date || validation.date,
+        purchaseDate: getNewYorkDateKey(),
+        regularPriceCents,
+        hasDeliveredHeritagePin: heritageEntitlement?.status === "delivered",
+      })
+    : { applied: false as const, reason: "no_eligible_promotion" as const }
+  const appliedPromotion = promotionPrice.applied && promotionPrice.amountCents < validation.amountInt ? promotionPrice : null
+  const effectiveAmountCents = appliedPromotion?.amountCents ?? validation.amountInt
+  const promotionMetadata: Record<string, string> = appliedPromotion ? {
+    coursePromotionId: appliedPromotion.promotion.id,
+    coursePromotionLabel: appliedPromotion.promotion.label,
+    coursePromotionPriceCents: String(appliedPromotion.amountCents),
+    coursePromotionPricingKind: appliedPromotion.promotion.pricing.kind,
+    coursePromotionAudience: appliedPromotion.promotion.audience,
+    coursePromotionDateBasis: appliedPromotion.promotion.window.basis,
+  } : {}
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
@@ -355,7 +405,7 @@ export async function POST(req: Request) {
           quantity: 1,
           price_data: {
             currency: validation.currency,
-            unit_amount: validation.amountInt,
+            unit_amount: effectiveAmountCents,
             product_data: {
               name: validation.courseTitle,
               description: [validation.courseSlug, effectiveSession.date, effectiveSession.time].filter(Boolean).join(" • "),
@@ -399,6 +449,7 @@ export async function POST(req: Request) {
         consecutiveAddOnOnly: String(validation.consecutiveAddOnOnly),
         linkedFromCourseSlug: validation.linkedFromCourseSlug || "",
         ...heritagePinMetadata,
+        ...promotionMetadata,
       },
     })
 
@@ -426,3 +477,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unable to create checkout session" }, { status: 500 })
   }
 }
+
+export const POST = (req: Request) => handleCheckoutSession(req)

@@ -26,12 +26,12 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Status: done
   - Checks: 23 focused tests, typecheck, `git diff --check`, 330 changed lines
   - Commit: `efa23ee4`
-- [ ] 3. Add the dedicated Promotions wizard step, migrate the dormant special-discount controls, and cover UI behavior.
-  - Status: in progress
-  - Checks: focused component tests, typecheck, lint, diff check
-  - Commit: pending
+- [x] 3. Add the dedicated Promotions wizard step, migrate the dormant special-discount controls, and cover UI behavior.
+  - Status: done
+  - Checks: 53 focused tests across wizard/domain/API, typecheck, `git diff --check`
+  - Commits: `f1ecc21a`, `a54737a2`
 - [ ] 4. Integrate promotion labels and authoritative pricing into public booking, profile, and trusted checkout paths.
-  - Status: pending
+  - Status: in progress
   - Checks: focused checkout/booking/profile tests, typecheck, lint, diff check
   - Commit: pending
 - [ ] 5. Configure the Heritage promotion and prepare a reversible catalog rollout for the two new courses and package applicability.

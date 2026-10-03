@@ -475,14 +475,14 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     if (paymentMethod === "stripe" && isProfileBookingFlow) {
       try {
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload() })
+        let result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload(), endpoint: "/api/profile/checkout/session" })
         const code = typeof result.data?.code === "string" ? result.data.code : undefined
         if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
           await new Promise((resolve) => window.setTimeout(resolve, 350))
           const refreshed = await getToken({ skipCache: true })
           if (refreshed) {
             token = refreshed
-            result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload() })
+            result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload(), endpoint: "/api/profile/checkout/session" })
           }
         }
         if (!result.res.ok) {

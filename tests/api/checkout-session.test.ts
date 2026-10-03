@@ -95,6 +95,12 @@ describe("checkout session route", () => {
       packageCadence: "",
       packageMakeUps: 0,
       packageValidDays: 180,
+      consecutivePriceCents: null,
+      consecutiveAddOnOnly: false,
+      course: {
+        scheduleRules: { promotions: [] },
+        enrollment: { services: [{ id: "dropin", price: 20 }] },
+      },
     })
     mockResolveCheckoutPreparation.mockResolvedValue({
       source: "prepared",
@@ -181,6 +187,8 @@ describe("checkout session route", () => {
   })
 
   it("rejects a public campaign checkout without a valid country", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
     const { POST } = await import("@/app/api/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/checkout/session", {
       method: "POST",
@@ -193,6 +201,8 @@ describe("checkout session route", () => {
   })
 
   it("adds normalized Heritage pin intent to public booking Stripe metadata", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
     const { POST } = await import("@/app/api/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/checkout/session", {
       method: "POST",
@@ -210,7 +220,19 @@ describe("checkout session route", () => {
     }))
   })
 
-  it("keeps regular pricing independent from delivered Heritage pin state", async () => {
+  it("allows public booking without a Heritage country outside acquisition", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-11-05T16:00:00.000Z"))
+    const { POST } = await import("@/app/api/checkout/session/route")
+    const response = await POST(new Request("http://localhost/api/checkout/session", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingSource: "public_booking" }),
+    }))
+
+    expect(response.status).toBe(200)
+  })
+
+  it("keeps regular pricing when no bounded promotion is configured", async () => {
     mockValidate.mockResolvedValueOnce({
       courseSlug: "salsa-femenina-matutina",
       courseTitle: "Course booking",
@@ -260,6 +282,44 @@ describe("checkout session route", () => {
     expect(checkout?.line_items?.[0]?.price_data?.unit_amount).toBe(2000)
     expect(checkout?.metadata).not.toHaveProperty("heritagePinPriceApplied")
     expect(checkout?.metadata).not.toHaveProperty("heritagePinEntitlementPurchaseId")
+  })
+
+  it.each(["public_booking", "profile"] as const)("applies a configured delivered-Heritage promotion to %s", async (channel) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
+    mockValidate.mockResolvedValueOnce({
+      courseSlug: "bachata-beginners", courseTitle: "Bachata Beginners", amountInt: 2000, currency: "usd",
+      date: "2026-10-08", time: "21:10", packageId: "", serviceId: "dropin", addons: [], safeParticipants: 1,
+      coupon: "", pkg: null, packageTotalCredits: null, packageIsUnlimited: false, packageCadence: "",
+      packageMakeUps: 0, packageValidDays: 180, consecutivePriceCents: null, consecutiveAddOnOnly: false,
+      course: {
+        enrollment: { services: [{ id: "dropin", price: 20 }] },
+        scheduleRules: { promotions: [{
+          id: "heritage-october", label: "Heritage pin benefit", active: true,
+          pricing: { kind: "fixed", amountCents: 1500 },
+          window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+          audience: "heritage_pin_delivered", channels: ["public_booking", "profile"],
+        }] },
+      },
+    })
+    mockFindHeritagePinEntitlement.mockResolvedValueOnce({ status: "delivered", sourcePurchaseId: "pin_purchase_1" })
+
+    const { POST, handleCheckoutSession } = await import("@/app/api/checkout/session/route")
+    const request = new Request("http://localhost/api/checkout/session", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(channel === "public_booking" ? { bookingSource: channel, heritagePinCountryCode: "MX" } : {}),
+    })
+    const response = channel === "profile" ? await handleCheckoutSession(request, "profile") : await POST(request)
+
+    expect(response.status).toBe(200)
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
+      line_items: [expect.objectContaining({ price_data: expect.objectContaining({ unit_amount: 1500 }) })],
+      metadata: expect.objectContaining({
+        coursePromotionId: "heritage-october",
+        coursePromotionPriceCents: "1500",
+        coursePromotionAudience: "heritage_pin_delivered",
+      }),
+    }))
   })
 
   it("uses shared account preparation and kiosk checkout metadata", async () => {
