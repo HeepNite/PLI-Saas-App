@@ -15,7 +15,7 @@ const pendingPin = {
 }
 
 describe("HeritagePinDeliveryControl", () => {
-  it("renders an authorized pending pin as a gray flag medallion with a focusable delivery action", () => {
+  it("renders an authorized pending pin as the complete gray flag with a focusable delivery action", () => {
     const html = renderToStaticMarkup(
       <HeritagePinDeliveryControl
         userId="user_123"
@@ -27,7 +27,9 @@ describe("HeritagePinDeliveryControl", () => {
 
     expect(html).toContain("aria-label=\"Mark Argentina pin delivered\"")
     expect(html).toContain("🇦🇷")
+    expect(html).toContain("data-pin-shape=\"flag\"")
     expect(html).toContain("grayscale")
+    expect(html).not.toContain("rounded-full")
     expect(html).toContain("group-focus-within:opacity-100")
   })
 
@@ -45,7 +47,7 @@ describe("HeritagePinDeliveryControl", () => {
     expect(html).not.toContain("<button")
   })
 
-  it("renders a delivered pin as an active full-color earned medallion", () => {
+  it("renders a delivered pin as the complete full-color earned flag", () => {
     const html = renderToStaticMarkup(
       <HeritagePinDeliveryControl
         userId="user_123"
@@ -57,7 +59,9 @@ describe("HeritagePinDeliveryControl", () => {
 
     expect(html).toContain("aria-label=\"Argentina Heritage pin delivered\"")
     expect(html).toContain("🇦🇷")
+    expect(html).toContain("data-pin-shape=\"flag\"")
     expect(html).not.toContain("grayscale")
+    expect(html).not.toContain("rounded-full")
     expect(html).not.toContain("<button")
   })
 

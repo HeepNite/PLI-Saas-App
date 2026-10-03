@@ -52,10 +52,10 @@ export function HeritagePinDeliveryControl({
     }
   }
 
-  const medallionClasses = `flex h-8 w-8 items-center justify-center rounded-full border-2 text-base shadow-[0_5px_12px_rgba(0,0,0,0.55)] transition ${
+  const flagPinClasses = `flex h-7 w-9 items-center justify-center bg-transparent text-3xl leading-none drop-shadow-[0_5px_5px_rgba(0,0,0,0.65)] transition-transform ${
     isPending
-      ? "border-zinc-400/80 bg-zinc-700 text-white grayscale hover:grayscale-0 focus:grayscale-0"
-      : "border-amber-300/90 bg-amber-100 text-white"
+      ? "grayscale opacity-[0.65] hover:scale-110 focus:scale-110"
+      : "hover:scale-110"
   }`
 
   return (
@@ -63,15 +63,16 @@ export function HeritagePinDeliveryControl({
       {isPending && canDeliver ? (
         <button
           type="button"
+          data-pin-shape="flag"
           aria-label={busy ? `Marking ${heritagePin.countryName} pin delivered` : actionLabel}
           disabled={busy}
           onClick={() => void markDelivered()}
-          className={`${medallionClasses} cursor-pointer disabled:cursor-wait disabled:opacity-60`}
+          className={`${flagPinClasses} cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:cursor-wait disabled:opacity-60`}
         >
           <span aria-hidden="true">{flag}</span>
         </button>
       ) : (
-        <span aria-label={statusLabel} role="img" className={medallionClasses}>
+        <span data-pin-shape="flag" aria-label={statusLabel} role="img" className={flagPinClasses}>
           <span aria-hidden="true">{flag}</span>
         </span>
       )}
