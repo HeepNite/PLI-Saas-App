@@ -50,6 +50,18 @@ class ReaderProvisioningTest {
         assertFalse(acceptsConnectedReader(expected, null))
     }
 
+    @Test fun `collection projects signed location only for its exact discovery identity and revalidates callback`() {
+        val expectedReader = "tmr_expected"
+        val expectedLocation = Approved.LOCATION
+
+        assertEquals(expectedLocation, discoveredReaderLocation(null, expectedReader, expectedReader, expectedLocation))
+        assertEquals("", discoveredReaderLocation(null, "unregistered:other:stripe_m2", expectedReader, expectedLocation))
+        assertTrue(acceptsConnectedReaderContext(expectedReader, expectedLocation, expectedReader, expectedLocation))
+        assertFalse(acceptsConnectedReaderContext(expectedReader, expectedLocation, null, expectedLocation))
+        assertFalse(acceptsConnectedReaderContext(expectedReader, expectedLocation, expectedReader, null))
+        assertFalse(acceptsConnectedReaderContext(expectedReader, expectedLocation, expectedReader, "tml_other"))
+    }
+
     @Test fun `provisioning and collection build modes cannot coexist`() {
         assertThrows(IllegalArgumentException::class.java) {
             ReaderProvisioningConfiguration(
