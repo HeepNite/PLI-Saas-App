@@ -21,6 +21,10 @@ const enrollModalSource = readFileSync(
   join(process.cwd(), "components/front/courses/EnrollModal.tsx"),
   "utf8",
 )
+const shareableBookingSource = readFileSync(
+  join(process.cwd(), "components/front/booking/ShareableBookingPage.tsx"),
+  "utf8",
+)
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -80,6 +84,12 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).not.toContain("$15 Sunday &amp; Monday classes after pickup.")
     expect(html).not.toContain("heritage-country-pins")
     expect(html).not.toContain("photograph")
+  })
+
+  it("offers the timed promotion after five seconds on every booking visit", () => {
+    expect(shareableBookingSource).toContain("}, 5_000)")
+    expect(shareableBookingSource).not.toContain("heritage-promo-seen")
+    expect(shareableBookingSource).not.toContain("sessionStorage")
   })
 
   it("keeps the active booking form visible behind a translucent phone verification overlay", () => {
