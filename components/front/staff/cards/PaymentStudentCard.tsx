@@ -174,19 +174,27 @@ export function PaymentStudentCard({
         )
       ) : null}
       <header className="flex items-center gap-3">
-        <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
-          {payment.customerAvatarUrl ? (
-            <Image
-              src={payment.customerAvatarUrl}
-              alt={identity.fullName}
-              fill
-              unoptimized
-              sizes="64px"
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            initials
-          )}
+        <div className="relative h-16 w-16 shrink-0">
+          <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl border border-white/20 bg-black/35 text-lg font-bold shadow-[0_14px_30px_-18px_rgba(0,0,0,0.85)]">
+            {payment.customerAvatarUrl ? (
+              <Image
+                src={payment.customerAvatarUrl}
+                alt={identity.fullName}
+                fill
+                unoptimized
+                sizes="64px"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              initials
+            )}
+          </div>
+          <HeritagePinDeliveryControl
+            userId={payment.userId}
+            heritagePin={payment.heritagePin}
+            canDeliver={canEditStudentInfo}
+            onDelivered={onRefreshPaymentsBoard}
+          />
         </div>
         <div className="min-w-0 flex-1">
           <h4 className="truncate text-lg font-semibold leading-tight">{identity.fullName}</h4>
@@ -286,23 +294,6 @@ export function PaymentStudentCard({
           </span>
         </span>
       </div>
-
-      {payment.heritagePin ? (
-        <div
-          title={payment.heritagePin.status === "pending" ? "Physical pin awaiting staff handoff" : "Physical pin delivered"}
-          className="mt-2.5 flex w-full items-center justify-center rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-xs font-semibold text-red-100"
-        >
-          {payment.heritagePin.status === "delivered"
-            ? `Heritage pin · ${payment.heritagePin.countryName}`
-            : `Country pin pending · ${payment.heritagePin.countryName}`}
-        </div>
-      ) : null}
-      <HeritagePinDeliveryControl
-        userId={payment.userId}
-        heritagePin={payment.heritagePin}
-        canDeliver={canEditStudentInfo}
-        onDelivered={onRefreshPaymentsBoard}
-      />
 
       <div className="mt-4 space-y-2.5 border-t border-white/10 pt-3.5 text-xs text-white/85">
         <p className="inline-flex w-full items-center justify-between gap-2">

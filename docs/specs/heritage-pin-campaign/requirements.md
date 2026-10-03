@@ -64,11 +64,14 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 3. Delivery MUST record the delivery timestamp and staff actor while preserving all unrelated purchase metadata.
 4. The staff action MUST be idempotent and audited.
 5. Staff UI MUST distinguish the physical campaign benefit from the existing authentication PIN.
-6. Staff UI MUST show at least:
-   - `Country pin pending · <country>` before handoff; or
-   - `Heritage pin · <country>` after handoff.
+6. Staff UI MUST represent the physical country pin as a compact medallion overlapping the student avatar on both profile-backed and payment-backed cards.
+   - A pending medallion MUST be gray/desaturated and retain the selected country flag.
+   - Authorized staff MUST be able to discover and invoke `Mark <country> pin delivered` by pointer hover and keyboard focus.
+   - Unauthorized staff MUST see pending status without receiving a delivery action.
+   - A delivered medallion MUST remain visible in an active/full-color state with an accessible delivered label.
+   - Full-width pin status and delivery rows MUST NOT duplicate the medallion.
 7. Pending or delivered pin state MUST NOT affect pricing or package eligibility.
-8. Pending/delivered status and the authorized delivery action MUST be available on both profile-backed and payment-backed student cards; the card variant MUST NOT hide fulfillment.
+8. Moving a delivered medallion beside the student name is deferred until campaign closure.
 
 ## Pricing and Package Requirements
 
@@ -135,8 +138,8 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - [ ] A visitor can understand the campaign from the compact heading and timed flag promotion, then select a country from `/booking`.
 - [ ] A successful qualifying Stripe payment creates one pending entitlement tied to the user and purchase.
 - [ ] Non-card or unsuccessful payments create no entitlement.
-- [ ] Staff can see the pending country and mark the pin delivered exactly once.
-- [ ] Delivered status is visible as a distinct Heritage pin badge in the staff student panel.
+- [ ] Staff can see the gray pending country medallion over the avatar and authorized staff can mark the pin delivered exactly once by pointer or keyboard.
+- [ ] Delivered status remains visible as an active/full-color Heritage pin medallion without duplicate full-width rows.
 - [ ] New verified customers receive the existing US$15 new-student price, existing customers receive the regular price, and applicable package holders can reserve with their package.
 - [ ] Pin pending/delivered state produces no pricing or package-routing difference.
 - [ ] Package reservations cannot oversubscribe credits; attendance completion consumes the credit and pre-attendance cancellation releases the reservation.
