@@ -81,7 +81,7 @@ class ProductionOperatorRuntime(
     override val readerConnectionEnabled: Boolean
         get() = native?.readerConnectionReachable == true
     override val collectionControlsEnabled: Boolean
-        get() = !networkOperationInFlight && native?.paymentActionsReachable == true && startSource != null
+        get() = !networkOperationInFlight && underlyingCollectionControlsEnabled()
     override val recoveryEnabled: Boolean
         get() = !networkOperationInFlight && (native?.hasActiveAttempt == true || (selection as? PurchaseCoordinator)?.hasKnownPaymentIntent() == true)
     override val studentLookupEnabled: Boolean
@@ -114,7 +114,7 @@ class ProductionOperatorRuntime(
     override fun selectReader(reader: ConnectedReader) = requireNative().selectReader(reader)
     override fun connectSelectedReader() = requireNative().connectSelectedReader()
     override fun startCollection() {
-        require(collectionControlsEnabled) { "Collection prerequisites are unavailable" }
+        require(underlyingCollectionControlsEnabled()) { "Collection prerequisites are unavailable" }
         val start = requireNotNull(startSource) { "Fresh collection context is unavailable" }.invoke()
         requireNative().start(start.attempt, start.clientSecret)
     }
@@ -146,6 +146,9 @@ class ProductionOperatorRuntime(
     private fun underlyingStudentLookupEnabled(): Boolean =
         (selection as? PurchaseCoordinator)?.let { runCatching(it::studentLookupEnabled).getOrDefault(false) }
             ?: (loginSource == null)
+
+    private fun underlyingCollectionControlsEnabled(): Boolean =
+        native?.paymentActionsReachable == true && startSource != null
 
     private fun network(complete: (Boolean) -> Unit, action: () -> Unit) {
         check(!networkOperationInFlight) { "A network action is already in progress" }
