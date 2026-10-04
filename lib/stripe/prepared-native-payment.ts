@@ -3,7 +3,12 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import type Stripe from "stripe"
 import { internalAttemptSigningKey } from "@/lib/stripe/internal-purchase"
 
-const FLOW = "pli_prepared_native_m2_v1"
+export const PREPARED_NATIVE_PAYMENT_FLOW = "pli_prepared_native_m2_v1"
+const FLOW = PREPARED_NATIVE_PAYMENT_FLOW
+export const isReservedPreparedNativePaymentMetadata = (metadata: unknown) =>
+  Boolean(metadata && typeof metadata === "object" && !Array.isArray(metadata) &&
+    ((metadata as Record<string, unknown>).flowContext === FLOW ||
+      Object.hasOwn(metadata, "selectionDigest") || Object.hasOwn(metadata, "purchaseIdempotencyDigest")))
 export const PREPARED_NATIVE_PAYMENT_TTL_MS = 5 * 60_000
 const MAX_TICKET_LENGTH = 2000
 const MAX_ID_LENGTH = 128
@@ -151,13 +156,25 @@ export function preparedNativePaymentMetadata(ticket: unknown, purchase: Prepare
   }
 }
 
-export function validatePreparedNativePaymentIntent(intent: Stripe.PaymentIntent, ticket: unknown, purchase: PreparedNativePaymentPurchase) {
-  const attempt = boundAttempt(ticket, purchase)
-  const expected = preparedNativePaymentMetadata(ticket, purchase)
+export function validatePreparedNativePaymentIntent(intent: Stripe.PaymentIntent, ticket: unknown | undefined, purchase: PreparedNativePaymentPurchase) {
+  const bound = assertPurchase(purchase)
+  const attempt = ticket === undefined ? undefined : boundAttempt(ticket, bound)
+  const metadata = intent.metadata
+  const expected = attempt
+    ? preparedNativePaymentMetadata(ticket, bound)
+    : {
+        flowContext: FLOW,
+        purchaseId: bound.id,
+        recipientUserId: bound.userId,
+        selectionDigest: nativeFulfillmentMetadataDigest(bound.fulfillmentMetadata),
+        purchaseIdempotencyDigest: idempotencyDigest(bound.idempotencyKey),
+      }
   const status = intent.status
   const allowedStatuses = new Set(["requires_payment_method", "requires_confirmation", "requires_action", "processing", "requires_capture", "canceled", "succeeded"])
-  if (intent.object !== "payment_intent" || intent.livemode !== true || intent.amount !== attempt.amount || intent.currency !== attempt.currency ||
-      !allowedStatuses.has(status) || (status === "succeeded" && intent.amount_received !== attempt.amount) || intent.customer !== null || intent.receipt_email !== null ||
+  if (intent.object !== "payment_intent" || intent.livemode !== true || intent.amount !== bound.amount || intent.currency !== bound.currency ||
+      !allowedStatuses.has(status) || (status === "succeeded" && intent.amount_received !== bound.amount) || intent.customer !== null || intent.receipt_email !== null ||
       !Array.isArray(intent.payment_method_types) || intent.payment_method_types.length !== 1 || intent.payment_method_types[0] !== "card_present" ||
-      !intent.metadata || Object.keys(intent.metadata).length !== Object.keys(expected).length || Object.entries(expected).some(([key, value]) => intent.metadata[key] !== value)) throw paymentMismatch()
+      !metadata || Object.keys(metadata).length !== 9 || Object.entries(expected).some(([key, value]) => metadata[key] !== value) ||
+      !/^[a-f0-9-]{36}$/.test(metadata.attemptId || "") || !validId(metadata.terminalId) || !validId(metadata.actorSessionId) ||
+      typeof metadata.readerId !== "string" || metadata.readerId.length > MAX_ID_LENGTH || !READER_PATTERN.test(metadata.readerId)) throw paymentMismatch()
 }

@@ -180,6 +180,115 @@ describe("stripe webhook checkout session persistence", () => {
       mockPurchaseCreate, mockPurchaseUpdate, mockUpsertUserByIdentifiers, mockSyncScheduledAttendanceFromPurchase,
       mockSyncPackagePurchaseFromPaidPurchase, mockAwardPointsFromRule, mockPrisma.$transaction]) expect(mock).not.toHaveBeenCalled()
   }
+  const preparedNativeEvent = async () => {
+    vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", "fixture-signing-secret-at-least-32-bytes")
+    const proof = await import("@/lib/stripe/prepared-native-payment")
+    const fulfillmentMetadata = {
+      courseSlug: "salsa", courseTitle: "Salsa", packageId: "package_dynamic_1", serviceId: "dropin", addons: "shoe-rental", participants: "2", coupon: "SAVE",
+      packageLabel: "Ten classes", packageTotalCredits: "10", packageIsUnlimited: "false", packageCadence: "weekly", packageMakeUps: "1", packageValidDays: "180", date: "2026-10-04", time: "13:00",
+    }
+    const purchase = { id: "purchase_dynamic_1", userId: "user_dynamic_1", idempotencyKey: "native-m2-prepared:dynamic_1", stripePaymentIntentId: null, amount: 2599, currency: "usd", status: "pending", ...fulfillmentMetadata, metadata: fulfillmentMetadata }
+    const preparedPurchase = { id: purchase.id, userId: purchase.userId, amount: purchase.amount, currency: purchase.currency, idempotencyKey: purchase.idempotencyKey, fulfillmentMetadata }
+    const ticket = proof.issuePreparedNativePaymentAttempt({ terminalId: "terminal_dynamic", sessionId: "session_dynamic" }, { readerId: "tmr_dynamic", purchase: preparedPurchase })
+    const intent = { id: "pi_dynamic_1", object: "payment_intent", livemode: true, status: "succeeded", amount: 2599, amount_received: 2599, currency: "usd", customer: null, receipt_email: null, payment_method_types: ["card_present"], metadata: proof.preparedNativePaymentMetadata(ticket, preparedPurchase) }
+    return { event: { id: "evt_dynamic_1", type: "payment_intent.succeeded", livemode: true, data: { object: intent } }, purchase, intent }
+  }
+  const expectNoDynamicFallback = () => {
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+  }
+  it("fulfills the exact stored prepared native package and service without ordinary checkout upsert", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    mockPurchaseFindUnique.mockResolvedValue(purchase)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "purchase_dynamic_1", status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      data: { status: "paid", stripePaymentIntentId: "pi_dynamic_1" },
+    }))
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user_dynamic_1", purchaseId: "purchase_dynamic_1", source: "stripe_prepared_native",
+      metadata: expect.objectContaining({ packageId: "package_dynamic_1", packageTotalCredits: "10" }),
+    }))
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      purchaseId: "purchase_dynamic_1", courseSlug: "salsa", courseTitle: "Salsa", date: "2026-10-04", time: "13:00",
+      source: "stripe_prepared_native",
+    }))
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
+  })
+  it("commits the paid package before attendance and completes the event afterward", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    const order: string[] = []
+    mockPurchaseFindUnique.mockResolvedValue(purchase)
+    mockConstructEvent.mockReturnValue(event)
+    mockSyncPackagePurchaseFromPaidPurchase.mockImplementation(async () => { order.push("package"); return { id: "package_purchase_1", packageId: "package_dynamic_1" } })
+    mockSyncScheduledAttendanceFromPurchase.mockImplementation(async () => { order.push("attendance") })
+    mockStripeWebhookEventUpdate.mockImplementation(async ({ data }: { data: { status?: string } }) => { if (data.status === "completed") order.push("event:completed"); return {} })
+    let commit = 0
+    const transaction = async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => {
+      const result = await callback(mockPrisma); order.push(`commit:${++commit}`); return result
+    }
+    mockPrisma.$transaction.mockImplementationOnce(transaction).mockImplementationOnce(transaction)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(order).toEqual(["package", "commit:1", "attendance", "event:completed", "commit:2"])
+  })
+  it("completes a prepared native tombstone without attendance or regrant", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    mockPurchaseFindUnique.mockResolvedValue({ ...purchase, status: "reversed" })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", purchaseId: "purchase_dynamic_1" }) }))
+  })
+  it.each([
+    ["extra reserved metadata", (event: any, purchase: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, extra: "no" } } } }), (purchase: any) => purchase],
+    ["partial reserved metadata", (event: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { flowContext: "pli_prepared_native_m2_v1" } } } }), (purchase: any) => purchase],
+    ["amount substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, amount: 1 } } }), (purchase: any) => purchase],
+    ["currency substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, currency: "eur" } } }), (purchase: any) => purchase],
+    ["selection substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, selectionDigest: "a".repeat(64) } } } }), (purchase: any) => purchase],
+    ["idempotency substitution", (event: any) => event, (purchase: any) => ({ ...purchase, idempotencyKey: "native-m2-prepared:other" })],
+    ["PaymentIntent substitution", (event: any) => event, (purchase: any) => ({ ...purchase, stripePaymentIntentId: "pi_other" })],
+    ["Purchase substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, purchaseId: "purchase_other" } } } }), (purchase: any) => purchase],
+  ])("fails closed for prepared native %s without ordinary or USD1 fulfillment", async (_caseName, mutateEvent, mutatePurchase) => {
+    const fixture = await preparedNativeEvent()
+    mockPurchaseFindUnique.mockResolvedValue(mutatePurchase(fixture.purchase))
+    mockConstructEvent.mockReturnValue(mutateEvent(fixture.event, fixture.purchase))
+
+    expect((await sendInternalEvent()).status).toBe(500)
+    expectNoDynamicFallback()
+  })
+  it("retries a failed prepared native attendance sync with the same paid Purchase and PaymentIntent", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    const paid = { ...purchase, status: "paid", stripePaymentIntentId: "pi_dynamic_1" }
+    mockPurchaseFindUnique.mockResolvedValueOnce(purchase).mockResolvedValueOnce(purchase).mockResolvedValueOnce(paid).mockResolvedValueOnce(paid)
+    mockConstructEvent.mockReturnValue(event)
+    mockSyncScheduledAttendanceFromPurchase.mockRejectedValueOnce(new Error("attendance unavailable"))
+
+    expect((await sendInternalEvent()).status).toBe(500)
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }))
+
+    const { Prisma } = await import("@prisma/client")
+    const p2002 = () => new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" })
+    mockStripeWebhookEventCreate.mockRejectedValueOnce(p2002())
+    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 1 })
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledOnce()
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(2)
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledTimes(2)
+
+    mockStripeWebhookEventCreate.mockRejectedValueOnce(p2002())
+    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({ eventId: event.id, status: "completed" })
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(2)
+  })
   it("dispatches a signed succeeded internal payment to one fixed-credit fulfillment without ordinary checkout effects", async () => {
     const event = await internalEvent()
     vi.stubEnv("INTERNAL_PURCHASE_LIVE_ENABLED", "false")

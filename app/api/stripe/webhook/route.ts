@@ -41,6 +41,11 @@ import {
   readInternalAttempt,
   validateInternalIntent,
 } from "@/lib/stripe/internal-purchase"
+import {
+  isReservedPreparedNativePaymentMetadata,
+  validatePreparedNativePaymentIntent,
+  type PreparedNativePaymentPurchase,
+} from "@/lib/stripe/prepared-native-payment"
 
 export const runtime = "nodejs"
 
@@ -846,6 +851,124 @@ async function fulfillInternalPaymentIntent(intent: Stripe.PaymentIntent, eventI
   })
 }
 
+const preparedNativePurchaseProof = (purchase: Pick<Purchase, "id" | "userId" | "amount" | "currency" | "idempotencyKey" | "metadata">): PreparedNativePaymentPurchase => {
+  if (!purchase.idempotencyKey || !purchase.metadata || typeof purchase.metadata !== "object" || Array.isArray(purchase.metadata)) {
+    throw new Error("Prepared native purchase proof is missing")
+  }
+  return {
+    id: purchase.id,
+    userId: purchase.userId,
+    amount: purchase.amount,
+    currency: purchase.currency,
+    idempotencyKey: purchase.idempotencyKey,
+    fulfillmentMetadata: purchase.metadata as Record<string, string>,
+  }
+}
+
+async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
+  if (intent.status !== "succeeded" || !intent.metadata || typeof intent.metadata.purchaseId !== "string") {
+    throw new Error("Prepared native payment is incomplete")
+  }
+  // The event provides only the closed Purchase key. Every proof fact and all
+  // fulfillment selection values are read from the durable Purchase instead.
+  const initial = await prisma.purchase.findUnique({ where: { id: intent.metadata.purchaseId } })
+  if (!initial) throw new Error("Prepared native purchase is missing")
+  validatePreparedNativePaymentIntent(intent, undefined, preparedNativePurchaseProof(initial))
+
+  const fulfillment = await prisma.$transaction(async (tx) => {
+    const purchase = await tx.purchase.findUnique({ where: { id: initial.id } })
+    if (!purchase) throw new Error("Prepared native purchase is missing")
+    const proof = preparedNativePurchaseProof(purchase)
+    validatePreparedNativePaymentIntent(intent, undefined, proof)
+
+    // A reversal/manual-resolution tombstone always wins over paid delivery.
+    if (purchase.status === "reversed") {
+      await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+      return null
+    }
+    if (purchase.status === "pending") {
+      if (purchase.stripePaymentIntentId && purchase.stripePaymentIntentId !== intent.id) {
+        throw new Error("Prepared native payment identity mismatch")
+      }
+      const updated = await tx.purchase.updateMany({
+        where: { id: purchase.id, status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
+        data: { status: "paid", stripePaymentIntentId: intent.id },
+      })
+      if (updated.count !== 1) {
+        const current = await tx.purchase.findUnique({ where: { id: purchase.id } })
+        if (current?.status === "reversed") {
+          await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+          return null
+        }
+        if (current?.status !== "paid" || current.stripePaymentIntentId !== intent.id) {
+          throw new Error("Prepared native payment identity mismatch")
+        }
+      }
+    } else if (purchase.status !== "paid" || purchase.stripePaymentIntentId !== intent.id) {
+      throw new Error("Prepared native payment identity mismatch")
+    }
+
+    const metadata = proof.fulfillmentMetadata
+    const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
+      userId: purchase.userId,
+      purchaseId: purchase.id,
+      tx,
+      source: "stripe_prepared_native",
+      metadata: {
+        courseSlug: purchase.courseSlug,
+        packageId: purchase.packageId || undefined,
+        packageLabel: metadata.packageLabel,
+        packageTotalCredits: metadata.packageTotalCredits,
+        packageIsUnlimited: metadata.packageIsUnlimited,
+        packageCadence: metadata.packageCadence,
+        packageMakeUps: metadata.packageMakeUps,
+        packageValidDays: metadata.packageValidDays,
+      },
+    })
+    return { purchase, metadata, packagePurchaseId: packagePurchase?.id }
+  })
+  if (!fulfillment) return
+
+  // Attendance owns its root transaction and must observe the committed package.
+  // Its shared paid-Purchase guard remains the reversal/tombstone boundary.
+  await syncScheduledAttendanceFromPurchase({
+    userId: fulfillment.purchase.userId,
+    purchaseId: fulfillment.purchase.id,
+    courseSlug: fulfillment.purchase.courseSlug,
+    courseTitle: fulfillment.purchase.courseTitle,
+    date: fulfillment.metadata.date,
+    time: fulfillment.metadata.time,
+    packagePurchaseId: fulfillment.packagePurchaseId,
+    preferredStatus: resolveAttendanceStatusForFlow({
+      metadata: fulfillment.metadata as StripeMetadata,
+      hasPackagePurchase: Boolean(fulfillment.packagePurchaseId),
+    }),
+    source: "stripe_prepared_native",
+  })
+
+  // Event completion follows attendance in its own transaction. A failure above
+  // leaves the event retryable; paid Purchase/package/attendance operations are idempotent.
+  await prisma.$transaction(async (tx) => {
+    await completeInternalWebhookEventTx(tx, eventId, fulfillment.purchase.id)
+  })
+}
+
+async function handleReservedPreparedNativePaymentEvent(event: Stripe.Event) {
+  const claim = await claimStripeWebhookEvent(event.id, event.type)
+  if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
+  if (claim === "in-flight") return new NextResponse("Event is currently being processed", { status: 409 })
+  try {
+    await fulfillPreparedNativePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+  } catch {
+    await markStripeWebhookEventFailed(event.id)
+    return new NextResponse("Prepared native payment fulfillment failed", { status: 500 })
+  }
+  return NextResponse.json({ received: true })
+}
+
+const isReservedPreparedNativePaymentEvent = (event: Stripe.Event) =>
+  isReservedPreparedNativePaymentMetadata((event.data.object as { metadata?: unknown }).metadata)
+
 async function handleVerifiedInternalPaymentEvent(event: Stripe.Event) {
   const claim = await claimStripeWebhookEvent(event.id, event.type)
   if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
@@ -974,6 +1097,9 @@ export async function POST(req: Request) {
     const message = err instanceof Error ? err.message : "Unknown error"
     return new NextResponse(`Webhook error: ${message}`, { status: 400 })
   }
+
+  // Reserved markers never fall through to ordinary checkout or historical USD1 handling.
+  if (isReservedPreparedNativePaymentEvent(event)) return handleReservedPreparedNativePaymentEvent(event)
 
   // Reserved internal markers are verified before ordinary processing and dispatched only to their fulfillment path.
   try {
