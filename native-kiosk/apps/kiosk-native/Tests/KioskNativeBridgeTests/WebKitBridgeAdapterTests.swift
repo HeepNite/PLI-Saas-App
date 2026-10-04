@@ -14,6 +14,7 @@ final class WebKitBridgeAdapterTests: XCTestCase {
     func testGateRequiresMainFrameAndExactCanonicalOrigin() {
         let adapter = makeAdapter()
         XCTAssertTrue(adapter.accepts(frame: frame(host: "KIOSK.EXAMPLE")))
+        XCTAssertTrue(adapter.accepts(frame: frame(port: 443)))
         [
             frame(scheme: "http"), frame(host: "other.example"), frame(port: 8443),
             frame(host: nil), frame(isMainFrame: false),
@@ -60,7 +61,7 @@ final class WebKitBridgeAdapterTests: XCTestCase {
         return WebKitBridgeAdapter(approvedOrigin: "https://kiosk.example", bridge: bridge)!
     }
 
-    private func frame(scheme: String? = "https", host: String? = "kiosk.example", port: Int? = 443, isMainFrame: Bool = true) -> WebKitBridgeFrameContext {
+    private func frame(scheme: String? = "https", host: String? = "kiosk.example", port: Int? = 0, isMainFrame: Bool = true) -> WebKitBridgeFrameContext {
         WebKitBridgeFrameContext(scheme: scheme, host: host, port: port, isMainFrame: isMainFrame)
     }
 

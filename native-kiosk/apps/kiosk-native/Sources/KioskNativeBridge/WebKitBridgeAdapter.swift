@@ -65,7 +65,7 @@ public final class WebKitBridgeAdapter: NSObject, WKScriptMessageHandlerWithRepl
         frame.isMainFrame &&
             frame.scheme?.caseInsensitiveCompare("https") == .orderedSame &&
             frame.host?.lowercased() == origin.host &&
-            frame.port == 443
+            (frame.port == 0 || frame.port == 443)
     }
 
     func receive(body: Any, frame: WebKitBridgeFrameContext) -> [String: String] {
