@@ -37,10 +37,10 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
 - [x] 5. Prepare the Heritage promotion and reversible catalog rollout for the two new courses and package applicability.
   - Status: done; remote application remains gated after deployment
   - Checks: live catalog read-only dry-run; target slugs absent; exact replaced slots found; shared plans identified; rollback documented; catalog SHA-256 `715db220424906182debec80883373d8c90576e1c85125abb4623efa93388d00`
-  - Commit: `ef769827`
+  - Commits: original `ef769827`; corrected-chain replay `63edf837`
 - [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, request catalog-mutation authorization, and perform live checks.
-  - Status: in progress
-  - Checks: CI-equivalent verification, review receipt, deployment readiness, live HTTP/catalog/price evidence
+  - Status: in progress; local chain verified, no push or PR created
+  - Checks: five linear slices verified at 381, 330, 374, 260, and 103 changed lines; all range whitespace checks passed; rollout is passive documentation-only; remote freshness and CI remain pending
   - Commit: pending
 
 ## Constraints
@@ -53,5 +53,8 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
 
 ## Evidence
 
-- Branch: `feat/course-promotions`
-- Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/public-booking-package-routing`
+- Historical aggregate branch: `feat/course-promotions`
+- Delivery tracker branch: `feat/course-promotions-chain` at cached `origin/codex/develop`
+- Corrected delivery tip: `docs/course-promotions-rollout-chain`
+- Slice order: contract → rules → editor → checkout → rollout
+- Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-05-rollout`
