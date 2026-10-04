@@ -39,8 +39,8 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Checks: live catalog read-only dry-run; target slugs absent; exact replaced slots found; shared plans identified; rollback documented; catalog SHA-256 `715db220424906182debec80883373d8c90576e1c85125abb4623efa93388d00`
   - Commits: original `ef769827`; corrected-chain replay `63edf837`
 - [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, request catalog-mutation authorization, and perform live checks.
-  - Status: in progress; local chain verified, no push or PR created
-  - Checks: five linear slices verified at 381, 330, 374, 260, and 114 changed lines; all range whitespace checks passed; rollout is passive documentation-only; remote freshness and CI remain pending
+  - Status: in progress; branches pushed and draft PRs `#603`–`#607` created
+  - Checks: five linear slices verified at 381, 330, 374, 260, and 117 changed lines; all range whitespace checks passed; rollout is passive documentation-only; each PR currently has two passing checks and one pending analysis check
   - Commit: pending
 
 ## Constraints
@@ -57,4 +57,7 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
 - Delivery tracker branch: `feat/course-promotions-chain` at cached `origin/codex/develop`
 - Corrected delivery tip: `docs/course-promotions-rollout-chain`
 - Slice order: contract → rules → editor → checkout → rollout
+- Draft PRs: `#603` → `#604` → `#605` → `#606` → `#607`
+- Each PR links approved issue `#539`, has exactly one `type:*` label, and excludes `.atl/skill-registry.md`
+- Tracker PR remains deferred while its branch intentionally matches `codex/develop`
 - Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-05-rollout`
