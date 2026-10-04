@@ -1,8 +1,22 @@
-# Requirements: internal USD 1 general-class-credit preparation
+# Requirements: native M2 LIVE production preparation
 
-## Confirmed scope
+## Current production contract — supersedes fixed USD 1 / one-credit behavior
 
-The user has superseded the former Stripe-only/no-benefit contract. USD 1 is now a genuine, finite entitlement sale: it buys exactly one general class credit for one existing student selected and immutably bound before PaymentIntent creation. This documentation and planning change authorizes no source, provider, database, device, deployment, or activation operation.
+This contract supersedes every conflicting fixed-USD-1, one-credit, catalog, fulfillment, reversal, reader, and route statement retained below. Those sections are historical validation evidence only; they do not define production behavior or authorize implementation. This documentation update authorizes no source, schema, provider, device, deployment, APK-install, physical-reader, or LIVE-charge operation.
+
+| Boundary | Acceptance criterion |
+| --- | --- |
+| Kiosk and UI | The sole kiosk is exactly `https://pli.palladiumlatin.art/staff/terminal`. `/checkin` is out of scope. Preserve the current web UI: its existing card / Apple Pay / Google Pay choice is the only visible payment action. |
+| Exact selection and amount | When Android native capability is admitted, that existing action invokes an invisible native bridge and the physical M2. The server determines the exact total for the exact selected service, package, or product currently displayed and fulfills that same immutable selection. Neither client amount nor client product/selection is trusted. Fixed USD 1 and one general-class-credit behavior are not production behavior. |
+| Preparation and secrecy | Reuse checkout validation and a durable pending `Purchase`/idempotency contract. JavaScript receives only an opaque, one-use prepared-purchase reference. Purchase ID, PaymentIntent ID, ticket, client secret, cookies, PIN, avoidable phone values, provider objects, and diagnostics remain native/server-only. |
+| State machine | Web preparation occurs before native admission. Bridge admission is the point of no return: after admission there is never automatic fallback to a second web charge. Native/server recovery owns unresolved attempts, and only a fresh server `Paid` result completes the UI. |
+| Web fallback | Before native admission, absent or unavailable bridge uses the existing in-tablet web Stripe PaymentElement flow inside `/staff/terminal`. It never redirects to `/checkin`, has no M2-flag dependency, and must be buildable/deployable independently if native exact-total work misses the deadline. |
+| Android host | Admit the bridge only for the exact HTTPS origin and exact `/staff/terminal` main frame. Deny redirects, new windows, foreign origins, and foreign paths. Use an AndroidX WebKit message listener only when its feature is available; do not use `addJavascriptInterface` as a fallback. |
+| Reuse and release | Reuse existing structures first. No schema change is authorized unless later source analysis proves it unavoidable. Local implementation never authorizes Vercel mutation, deployment, APK installation, physical reader action, or a LIVE charge. |
+
+## Historical USD 1 scope and validation evidence
+
+The following former contract is preserved solely as historical evidence. Its USD 1 / one-general-credit production terms are superseded by the current production contract above.
 
 Parent-supplied evidence confirms idempotent creation of one Product and one Price, followed by GET verification under the same LIVE merchant; this documentation task made no API calls.
 

@@ -1,10 +1,34 @@
 # Native M2 LIVE readiness: preparation analysis
 
-> Historical baseline analysis below. The subsequent Stripe-only ledger decision and both local backend units are recorded in [resolve.md](resolve.md). Current execution evidence is in [the task document](../../../odd/tasks/native-m2-live-internal-purchase.md); pending-ledger and no-implementation statements below describe the earlier baseline only. Runtime activation and physical LIVE validation remain unapproved and unperformed.
+> **Active production-contract analysis.** The superseding analysis in **Newly settled production-contract conflict** directly below is current and aligns with [requirements.md](requirements.md) and [resolve.md](resolve.md). The exact immutable server-authoritative selection must be fulfilled, not only charged. Only the legacy sections beginning with **Historical baseline and authority** are retained as historical evidence. Implementation sequencing and current pending state are solely in [tasks.md](tasks.md). No implementation, runtime activation, or physical LIVE validation is claimed or authorized.
+
+## Newly settled production-contract conflict
+
+The current production contract replaces fixed USD 1 / one-credit behavior with server-authoritative exact-total payment for the exact selected service, package, or product in the sole kiosk, `https://pli.palladiumlatin.art/staff/terminal`. The existing visible card / Apple Pay / Google Pay choice remains unchanged. `/checkin` is out of scope.
+
+| Discovered conflict | Consequence for the settled contract |
+| --- | --- |
+| The current internal M2 service hardcodes USD 1 and one credit. | It cannot be the production exact-total authority; fixed amount and credit fulfillment must not be carried forward. |
+| `/api/checkout/intent` validates an authoritative amount but does not create a `Purchase`. | Its validation must be reused with a durable pending-`Purchase` and idempotency contract before native payment admission; validation alone cannot bind or recover the fulfilled selection. |
+| The kiosk currently branches to QR hosted checkout while the regular embedded PaymentElement remains. | The production fallback must preserve the embedded PaymentElement inside `/staff/terminal`, with no QR-hosted or `/checkin` diversion. |
+
+### Candidate architecture constraints (not implementation)
+
+- The existing kiosk UI keeps one payment action that prepares the selected checkout server-side with existing validation, a durable pending `Purchase`, an idempotency identity, and only a one-use opaque prepared-purchase reference in JavaScript.
+- Bridge absence or unavailability retains the embedded PaymentElement fallback in `/staff/terminal`; it is independently buildable/deployable from native exact-total work.
+- Native admission passes only the opaque reference through a feature-gated AndroidX WebKit message listener admitted from the exact `https://pli.palladiumlatin.art/staff/terminal` main frame. Native/server resolves selection, payment identity, M2 activity, recovery, and a fresh `Paid` result; the browser never receives payment/provider diagnostics or identifiers.
+- Current `Purchase` and checkout structures are reused unless source analysis demonstrates that the durable pending-purchase contract cannot be represented without a schema change.
+
+### Risks to resolve during later source work
+
+- Existing checkout validation may need a narrow extension to bind the exact selected service/package/product while preserving its current amount authority and web flow.
+- A native-admitted unresolved attempt must not automatically re-enter web checkout; recovery needs durable ownership and idempotency semantics before the bridge is enabled.
+- Host navigation/message restrictions must distinguish the exact allowed main frame from redirects, new windows, foreign origins, and foreign paths without `addJavascriptInterface` fallback.
+- No local result proves Vercel deployment, APK installation, physical M2 behavior, or a LIVE charge; all remain external gates.
 
 Prepare LIVE from MAIN while preserving TEST. The separate internal-use USD 1 one-time Product/Price is created and parent-verified; see [requirements.md](requirements.md) and [resolve.md](resolve.md). No production code is implemented. Catalog setup does not approve application implementation, release, or LIVE testing with real payment details.
 
-## Baseline and authority
+## Historical baseline and authority
 
 - Working branch: `feat/native-m2-live-preparation`.
 - Base: MAIN commit `87563a6ce50ae8af584f4fa842a96e7f84158983`.
@@ -45,13 +69,9 @@ These operational results were reported by the parent; this documentation task m
 
 Location and catalog setup are complete, not application readiness or a Stripe policy exception. The restricted key remains securely outside repositories for setup only, not backend payments or connection tokens. No key value is recorded here. No charge, Checkout Session, card operation, reader registration, deployment, database or schema change occurred. This documentation update neither reads credentials/evidence files nor repeats remote verification.
 
-## Proposed first local slice — collection disabled
+## Historical collection-disabled constraints
 
-1. On this MAIN-derived branch, define the narrow compatibility boundary for strict device authentication and identity/assignment preflight, reusing MAIN's Stripe primitives without weakening its staff-session or internal-gateway boundaries.
-2. Resolve the approved internal Product/Price server-side (LIVE, active, USD 100 cents, one-time), without client overrides or changes to existing class pricing. Approve a non-class ledger and caller/customer mapping before choosing an adapter; do not substitute the prototype's anonymous class-sale ledger.
-3. Add focused contract/composition coverage when implementation is separately authorized: unauthorized or mismatched devices fail closed, existing web checkout is unchanged, amount policy cannot be overridden, and selected reservation/recovery components preserve one PaymentIntent across retries.
-
-Keep native collection disabled until the complete authorized payment, reconciliation, ledger, and release requirements are satisfied. No application changes or tests have been performed by this preparation task.
+The historical preparation identified these constraints: strict device authentication and identity/assignment preflight must reuse MAIN's Stripe primitives without weakening staff-session or internal-gateway boundaries; server-side catalog resolution must reject client overrides and preserve existing class pricing; and focused contract/composition coverage must fail closed for unauthorized or mismatched devices, unchanged web checkout, amount-policy overrides, and retry recovery. Native collection remains disabled without complete authorized payment, reconciliation, ledger, and release requirements. No application changes or tests have been performed by this preparation task.
 
 ## Boundaries and outstanding decisions
 
@@ -77,4 +97,4 @@ Keep native collection disabled until the complete authorized payment, reconcili
 
 Preparation rollback affects only this folder's documents on the isolated branch. For any future enabled payment flow, stop new collections while retaining reconciliation, unresolved payment identities, financial records, and audit evidence; never erase history or replace an unknown payment with a new attempt. Leave the TEST sandbox and existing web/QR flow intact.
 
-Next consolidated decision: approve the internal product's non-class ledger, durable attempt ownership, and authenticated caller/customer mapping together, then the bounded implementation plan in resolve.md. Account, location and catalog setup evidence are recorded; runtime access, deployment and charges remain separate pending boundaries.
+Current implementation sequencing and pending state are maintained solely in [tasks.md](tasks.md). Account, location, and catalog setup evidence are recorded; runtime access, deployment, and charges remain separate pending boundaries.
