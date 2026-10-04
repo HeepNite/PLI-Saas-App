@@ -31,14 +31,22 @@ function requireReference(value: unknown): string {
 
 export async function issuePreparedNativePurchase({ purchaseId, terminalId, sessionId }: IssueInput) {
   const reference = randomBytes(32).toString("base64url")
+  const now = new Date()
+  const expiresAt = new Date(now.getTime() + PREPARED_NATIVE_PURCHASE_TTL_MS)
+  const existing = await prisma.preparedNativePurchase.findUnique({ where: { purchaseId } })
+
+  if (existing) {
+    if (existing.consumedAt || existing.terminalId !== terminalId || existing.sessionId !== sessionId || existing.expiresAt > now) throw unavailable()
+    const rotated = await prisma.preparedNativePurchase.updateMany({
+      where: { id: existing.id, terminalId, sessionId, consumedAt: null, expiresAt: { lte: now } },
+      data: { referenceHash: digest(reference), expiresAt },
+    })
+    if (rotated.count !== 1) throw unavailable()
+    return reference
+  }
+
   await prisma.preparedNativePurchase.create({
-    data: {
-      purchaseId,
-      terminalId,
-      sessionId,
-      referenceHash: digest(reference),
-      expiresAt: new Date(Date.now() + PREPARED_NATIVE_PURCHASE_TTL_MS),
-    },
+    data: { purchaseId, terminalId, sessionId, referenceHash: digest(reference), expiresAt },
   })
   return reference
 }

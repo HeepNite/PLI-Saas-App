@@ -11,6 +11,8 @@ import {
 import { validateCheckoutPayload, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
+import { createOrReuseNativePreparedPurchase } from "@/lib/checkout/native-prepared-purchase"
+import { issuePreparedNativePurchase } from "@/lib/stripe/prepared-native-purchase"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
@@ -147,10 +149,14 @@ export async function POST(req: Request) {
   }
 
   const rawPaymentSurface = (body as { paymentSurface?: unknown }).paymentSurface
-  if (rawPaymentSurface !== undefined && rawPaymentSurface !== "embedded") {
+  if (rawPaymentSurface !== undefined && rawPaymentSurface !== "embedded" && rawPaymentSurface !== "native_m2_prepare") {
     return NextResponse.json({ error: "Invalid payment surface" }, { status: 400 })
   }
   const isEmbeddedPaymentSurface = rawPaymentSurface === "embedded"
+  const isNativeM2Preparation = rawPaymentSurface === "native_m2_prepare"
+  if (isNativeM2Preparation && (body as { prepareOnly?: unknown }).prepareOnly === true) {
+    return NextResponse.json({ error: "Native preparation cannot be prepare-only" }, { status: 400 })
+  }
 
   const {
     email,
@@ -200,7 +206,7 @@ export async function POST(req: Request) {
   }
 
   const { preparedAccount, verification, source, fallbackReason, terminalAuth, preparedContextId } = preparation
-  const { clerkUser, resolvedUserId, identity, account } = preparedAccount
+  const { clerkUser, resolvedUserId, identity, account, userId } = preparedAccount
 
   if (prepareOnly) {
     console.info("[staff-terminal-checkout-latency] checkout-intent", {
@@ -240,6 +246,52 @@ export async function POST(req: Request) {
     resolvedUserId,
     validation,
   })
+
+  if (isNativeM2Preparation) {
+    if (
+      photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL ||
+      source !== "prepared" ||
+      !preparedContextId ||
+      !userId ||
+      !terminalAuth?.ok ||
+      !terminalAuth.terminal.id ||
+      !terminalAuth.sessionId
+    ) {
+      return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
+    }
+
+    try {
+      const purchase = await createOrReuseNativePreparedPurchase({
+        preparedContextId,
+        recipient: {
+          userId,
+          email: identity.resolvedEmail,
+          name: name || [firstName, lastName].filter(Boolean).join(" ") || null,
+          phone: identity.phoneNormalized || null,
+        },
+        selection: {
+          courseSlug: validation.courseSlug,
+          courseTitle: validation.courseTitle,
+          amount: validation.amountInt,
+          currency: validation.currency,
+          packageId: validation.packageId,
+          serviceId: validation.serviceId,
+          addons: validation.addons,
+          participants: validation.safeParticipants,
+          coupon: validation.coupon,
+        },
+        fulfillmentMetadata: metadata,
+      })
+      const preparedPurchaseReference = await issuePreparedNativePurchase({
+        purchaseId: purchase.id,
+        terminalId: terminalAuth.terminal.id,
+        sessionId: terminalAuth.sessionId,
+      })
+      return NextResponse.json({ preparedPurchaseReference, state: "prepared" })
+    } catch {
+      return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
+    }
+  }
 
   const shouldDelegateTerminalPaymentIntent =
     !isEmbeddedPaymentSurface &&

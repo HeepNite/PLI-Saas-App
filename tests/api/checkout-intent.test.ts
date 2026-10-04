@@ -6,6 +6,8 @@ const mockResolveCheckoutPreparation = vi.fn()
 const mockEnforceNewStudent = vi.fn()
 const mockCreatePaymentIntent = vi.fn()
 const mockClearPreparedCheckout = vi.fn()
+const mockCreateOrReuseNativePreparedPurchase = vi.fn()
+const mockIssuePreparedNativePurchase = vi.fn()
 
 const ENV_KEYS = [
   "NEST_GATEWAY_ENABLED",
@@ -51,6 +53,14 @@ vi.mock("@/lib/checkout/validation", () => ({
   validateCheckoutPayload: (...args: unknown[]) => mockValidate(...args),
 }))
 
+vi.mock("@/lib/checkout/native-prepared-purchase", () => ({
+  createOrReuseNativePreparedPurchase: (...args: unknown[]) => mockCreateOrReuseNativePreparedPurchase(...args),
+}))
+
+vi.mock("@/lib/stripe/prepared-native-purchase", () => ({
+  issuePreparedNativePurchase: (...args: unknown[]) => mockIssuePreparedNativePurchase(...args),
+}))
+
 vi.mock("stripe", () => ({
   default: class Stripe {
     paymentIntents = {
@@ -74,6 +84,10 @@ describe("checkout intent route", () => {
     mockEnforceNewStudent.mockReset()
     mockCreatePaymentIntent.mockReset()
     mockClearPreparedCheckout.mockReset()
+    mockCreateOrReuseNativePreparedPurchase.mockReset()
+    mockIssuePreparedNativePurchase.mockReset()
+    mockCreateOrReuseNativePreparedPurchase.mockResolvedValue({ id: "purchase_1" })
+    mockIssuePreparedNativePurchase.mockResolvedValue("prepared-reference")
 
     mockValidate.mockReturnValue({
       courseSlug: "salsa-femenina-matutina",
@@ -296,6 +310,73 @@ describe("checkout intent route", () => {
     await expect(res.json()).resolves.toMatchObject({ clientSecret: "pi_secret_123" })
     expect(mockCreatePaymentIntent).toHaveBeenCalledTimes(1)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects native preparation requests that also request ordinary prepareOnly", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", prepareOnly: true }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Native preparation cannot be prepare-only" })
+    expect(mockValidate).not.toHaveBeenCalled()
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockCreateOrReuseNativePreparedPurchase).not.toHaveBeenCalled()
+    expect(mockIssuePreparedNativePurchase).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+  })
+
+  it("prepares only the validated prepared kiosk purchase and exposes no checkout internals", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({
+      paymentSurface: "native_m2_prepare",
+      photoContext: "kiosk_terminal",
+      kioskSessionToken: "kiosk_session_1",
+      courseSlug: "client-claim",
+      amount: 1,
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ preparedPurchaseReference: "prepared-reference", state: "prepared" })
+    expect(mockCreateOrReuseNativePreparedPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      preparedContextId: "prepared_ctx_1",
+      recipient: expect.objectContaining({ userId: "user_123" }),
+      selection: expect.objectContaining({
+        courseSlug: "salsa-femenina-matutina", amount: 2000, currency: "usd", serviceId: "dropin",
+      }),
+      fulfillmentMetadata: expect.objectContaining({ courseSlug: "salsa-femenina-matutina", userId: "user_123" }),
+    }))
+    expect(mockIssuePreparedNativePurchase).toHaveBeenCalledWith({
+      purchaseId: "purchase_1", terminalId: "terminal_1", sessionId: "terminal_session_1",
+    })
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+    expect(mockClearPreparedCheckout).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["fallback context", { source: "fallback", preparedContextId: undefined, terminalAuth: null, userId: "user_123" }],
+    ["missing existing database user", { source: "prepared", preparedContextId: "prepared_ctx_1", terminalAuth: undefined, userId: null }],
+  ])("fails closed before capability or provider creation for %s", async (_case, override) => {
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: override.source,
+      preparedContextId: override.preparedContextId,
+      terminalAuth: override.terminalAuth,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: override.userId,
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+        account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+      },
+    })
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", photoContext: "kiosk_terminal" }))
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ error: "Native preparation unavailable" })
+    expect(mockCreateOrReuseNativePreparedPurchase).not.toHaveBeenCalled()
+    expect(mockIssuePreparedNativePurchase).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
   })
 
   it("rejects unknown payment surfaces", async () => {
