@@ -40,7 +40,7 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Commits: original `ef769827`; corrected-chain replay `63edf837`
 - [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, request catalog-mutation authorization, and perform live checks.
   - Status: in progress; local chain verified, no push or PR created
-  - Checks: five linear slices verified at 381, 330, 374, 260, and 103 changed lines; all range whitespace checks passed; rollout is passive documentation-only; remote freshness and CI remain pending
+  - Checks: five linear slices verified at 381, 330, 374, 260, and 114 changed lines; all range whitespace checks passed; rollout is passive documentation-only; remote freshness and CI remain pending
   - Commit: pending
 
 ## Constraints
