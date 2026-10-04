@@ -107,6 +107,7 @@ model Purchase {
   updatedAt               DateTime          @updatedAt
   packagePurchases        PackagePurchase[]
   stripeWebhookEvents     StripeWebhookEvent[]
+  preparedNativePurchase  PreparedNativePurchase?
 
   @@index([userId])
   @@index([userId, status])
@@ -115,6 +116,22 @@ model Purchase {
   @@index([createdAt])
   @@index([status, createdAt])
   @@unique([parentPurchaseId])
+}
+
+model PreparedNativePurchase {
+  id            String   @id @default(cuid())
+  referenceHash String   @unique
+  purchaseId    String   @unique
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  terminalId    String
+  sessionId     String
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([terminalId, sessionId, expiresAt])
+  @@index([expiresAt])
 }
 
 model PackagePlan {

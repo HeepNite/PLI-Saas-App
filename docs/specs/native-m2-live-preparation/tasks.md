@@ -14,7 +14,7 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 - The fallback neither selects QR-hosted checkout nor redirects to `/checkin`.
 - Focused behavior coverage proves those fallback boundaries.
 
-**Current state:** Implemented and independently verified locally; pending work-unit commit and deployment authorization. The 145-line six-file slice passed 62/62 focused tests, full TypeScript, and diff checks. Its closed `paymentSurface: "embedded"` discriminator prevents a globally enabled card-present gateway from supplying an incompatible intent to PaymentElement. No deployment, provider, device, flag, or LIVE operation ran.
+**Current state:** Complete in work-unit commit `d6b94ab7`. The 145-line six-file slice passed 62/62 focused tests, full TypeScript, and diff checks. Native review `review-99a4448f8859b0c8` approved it and acknowledgement burned authority. Its closed `paymentSurface: "embedded"` discriminator prevents a globally enabled card-present gateway from supplying an incompatible intent to PaymentElement. Deployment remains separately unauthorized; no provider, device, flag, or LIVE operation ran.
 
 ## 2. Prepared-purchase backend
 
@@ -28,7 +28,7 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 - The paid purchase fulfills the same immutable selection, not merely its charge.
 - Whether an additive schema change is unavoidable is established before proposing one.
 
-**Current state:** Pending; no schema or source work is authorized by this document.
+**Current state:** Design reconciled in `design.md`. Source analysis proved an additive one-to-one capability record unavoidable because neither the readable signed ticket, non-consuming account-preparation context, mutable Purchase metadata, nor payment status can atomically represent a random digest, caller binding, expiry, and consumption state. Capability persistence is implemented locally in a 191-line slice: 6/6 focused tests, non-incremental TypeScript, Prisma validation, and whitespace checks pass. Commit and native review remain pending. Preparation, native payment, and fulfillment-proof slices remain pending.
 
 ## 3. Android host
 
