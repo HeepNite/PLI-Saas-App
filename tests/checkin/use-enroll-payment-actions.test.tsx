@@ -973,17 +973,48 @@ describe("useEnrollPaymentActions", () => {
       expect(setProcessing).not.toHaveBeenLastCalledWith(false)
     })
 
-    it("falls back only when preparation is not the exact closed response", async () => {
+    it("releases failed or invalid preparation for embedded fallback and retry", async () => {
       const fetchMock = vi.fn()
+        .mockRejectedValueOnce(new Error("preparation failed"))
+        .mockResolvedValueOnce(jsonResponse({ clientSecret: "embedded_secret" }))
         .mockResolvedValueOnce(jsonResponse({ preparedPurchaseReference: reference, state: "prepared", extra: true }))
         .mockResolvedValueOnce(jsonResponse({ clientSecret: "embedded_secret" }))
+        .mockResolvedValueOnce(jsonResponse({ preparedPurchaseReference: reference, state: "prepared" }))
       vi.stubGlobal("fetch", fetchMock)
+      installBridge((raw) => {
+        const request = JSON.parse(raw)
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: request.requestId, payload: { operationReference: "op_1", state: "accepted" } }) })
+      })
       const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true }))
 
       await getResult().handleSubmit()
+      await getResult().handleSubmit()
+      await getResult().handleSubmit()
 
-      expect(fetchMock).toHaveBeenCalledTimes(2)
-      expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).paymentSurface).toBe("embedded")
+      expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).paymentSurface)).toEqual(["native_m2_prepare", "embedded", "native_m2_prepare", "embedded", "native_m2_prepare"])
+    })
+
+    it("serializes preparation before native admission", async () => {
+      let resolvePreparation!: (response: Response) => void
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(() => new Promise<Response>((resolve) => { resolvePreparation = resolve }))
+      const postMessage = vi.fn((raw: string) => {
+        const request = JSON.parse(raw)
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: request.requestId, payload: { operationReference: "op_1", state: "accepted" } }) })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      installBridge(postMessage)
+      const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+
+      const first = getResult().handleSubmit()
+      void getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      resolvePreparation(jsonResponse({ preparedPurchaseReference: reference, state: "prepared" }))
+      await first
+      await getResult().handleSubmit()
+
+      expect(postMessage).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls.filter(([, init]) => JSON.parse(init.body as string).paymentSurface === "embedded")).toHaveLength(0)
     })
 
     it.each(["throws", "timeout", "malformed", "rejected"])("never requests an embedded intent after post-dispatch %s", async (mode) => {

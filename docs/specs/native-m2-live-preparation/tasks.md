@@ -54,7 +54,7 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 - Fresh server `Paid` proves both payment and fulfillment of the exact immutable server-authoritative selection.
 - Focused behavior coverage proves the integration and recovery boundaries.
 
-**Current state:** The local W3a web client is implemented but uncommitted and unreviewed: focused bridge/hook tests (62/62) and non-incremental TypeScript passed. It prepares only the exact opaque reference, admits one AndroidX handoff, and retains the embedded fallback only before admission. No host, provider, deployment, or LIVE payment operation is authorized.
+**Current state:** The local W3a web client is implemented but uncommitted and unreviewed: focused bridge/hook tests (63/63) and non-incremental TypeScript passed. It synchronously locks native preparation, admits one AndroidX handoff, and retains the embedded fallback only before admission. No host, provider, deployment, or LIVE payment operation is authorized.
 
 ## 5. Physical and deployment gate
 

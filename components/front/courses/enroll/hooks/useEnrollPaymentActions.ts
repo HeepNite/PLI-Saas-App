@@ -488,6 +488,8 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
 
     if (paymentMethod === "stripe") {
       if (isKioskTerminalFlow && isNativePaymentBridgeAvailable()) {
+        nativeAttemptRef.current = true
+        let nativeHandoffStarted = false
         try {
           const token = isSignedIn ? await getToken({ skipCache: true }) : null
           const prepared = await requestCheckoutIntentApi({
@@ -495,17 +497,16 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             payload: buildCheckoutPayload({ paymentSurface: "native_m2_prepare" }),
           })
           if (prepared.res.ok && isPreparedPurchaseResponse(prepared.data)) {
-            nativeAttemptRef.current = true
+            nativeHandoffStarted = true
             const handoff = await handOffPreparedPurchase(prepared.data.preparedPurchaseReference)
-            if (handoff.admitted) {
-              if (handoff.state === "rejected") setFormError("We couldn't start the payment. Please try again.")
-              return
-            }
-            nativeAttemptRef.current = false
+            if (handoff.state === "rejected") setFormError("We couldn't start the payment. Please try again.")
+            return
           }
         } catch {
+          if (nativeHandoffStarted) return
           // Preparation is pre-admission; retain the existing embedded fallback.
         }
+        nativeAttemptRef.current = false
       }
       try {
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
