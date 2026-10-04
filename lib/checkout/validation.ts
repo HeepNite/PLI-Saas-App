@@ -22,6 +22,8 @@ export type CheckoutBody = {
   name?: string
   phone?: string
   prepareOnly?: boolean
+  /** Closed discriminator for the staff-terminal embedded PaymentElement fallback. */
+  paymentSurface?: "embedded"
   photoContext?: string
   flowContext?: string
   kioskSessionToken?: string

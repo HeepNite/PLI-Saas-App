@@ -278,6 +278,35 @@ describe("checkout intent route", () => {
     expect(gatewayPayload.metadata).not.toHaveProperty("consecutiveLinkedCourseTime")
   })
 
+  it("keeps an explicitly embedded prepared kiosk intent local when the terminal gateway is enabled", async () => {
+    enableTerminalPaymentGateway()
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(
+      createRouteRequest({
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "kiosk_session_1",
+        paymentSurface: "embedded",
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ clientSecret: "pi_secret_123" })
+    expect(mockCreatePaymentIntent).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects unknown payment surfaces", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ paymentSurface: "gateway" }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid payment surface" })
+    expect(mockValidate).not.toHaveBeenCalled()
+  })
+
   it("clears prepared context after a successful card fast path", async () => {
     const { POST } = await import("@/app/api/checkout/intent/route")
     const req = createRouteRequest({ photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" })

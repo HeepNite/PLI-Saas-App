@@ -513,21 +513,41 @@ describe("useEnrollPaymentActions", () => {
   })
 
   // ---------------------------------------------------------------------
-  // handleSubmit — kiosk terminal QR/card path
+  // handleSubmit — staff terminal stripe (embedded PaymentElement) path
   // ---------------------------------------------------------------------
-  describe("handleSubmit — kiosk terminal stripe (QR) path", () => {
-    it("starts kiosk QR checkout and does not call the regular stripe intent endpoint", async () => {
-      const fetchMock = vi.fn(async () => jsonResponse({ sessionId: "s", url: "https://pay" }))
+  describe("handleSubmit — staff terminal stripe path", () => {
+    it("uses a checkout intent and opens the embedded modal instead of starting kiosk QR checkout", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(
+        async () => jsonResponse({ clientSecret: "terminal_secret" })
+      )
       vi.stubGlobal("fetch", fetchMock)
       const setProcessing = vi.fn()
+      const setStripeClientSecret = vi.fn()
+      const setShowStripeModal = vi.fn()
       const { getResult } = await renderHook(
-        defaultInput({ paymentMethod: "stripe", isKioskTerminalFlow: true, setProcessing })
+        defaultInput({
+          paymentMethod: "stripe",
+          isKioskTerminalFlow: true,
+          setProcessing,
+          setStripeClientSecret,
+          setShowStripeModal,
+        })
       )
 
       await getResult().handleSubmit()
 
-      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
-      expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+      const intentCall = fetchMock.mock.calls[0]
+      expect(JSON.parse(intentCall[1].body as string)).toMatchObject({
+        amount: 2500,
+        courseSlug: "bjj-fundamentals",
+        serviceId: "regular",
+        packageId: "",
+        paymentSurface: "embedded",
+      })
+      expect(setStripeClientSecret).toHaveBeenCalledWith("terminal_secret")
+      expect(setShowStripeModal).toHaveBeenCalledWith(true)
       expect(setProcessing).toHaveBeenCalledWith(true)
       expect(setProcessing).toHaveBeenLastCalledWith(false)
     })
@@ -564,29 +584,27 @@ describe("useEnrollPaymentActions", () => {
     })
 
     it("proceeds when the optional validateBeforeSubmit dep returns no issue", async () => {
-      const fetchMock = vi.fn(async () => jsonResponse({ sessionId: "s", url: "https://pay" }))
+      const fetchMock = vi.fn(async () => jsonResponse({ clientSecret: "terminal_secret" }))
       vi.stubGlobal("fetch", fetchMock)
       const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true }))
 
       await getResult().handleSubmit(undefined, { validateBeforeSubmit: () => null })
 
-      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
     })
 
-    it("shows an alert and stops processing when the QR checkout throws", async () => {
-      vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down") }))
-      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-      const setProcessing = vi.fn()
-      const setKioskQrCheckout = vi.fn()
+    it("does not open the modal when the terminal checkout intent fails", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "Card declined" }, { status: 402, ok: false })))
+      const setShowStripeModal = vi.fn()
+      const setStripeClientSecret = vi.fn()
       const { getResult } = await renderHook(
-        defaultInput({ isKioskTerminalFlow: true, setProcessing, setKioskQrCheckout })
+        defaultInput({ isKioskTerminalFlow: true, setShowStripeModal, setStripeClientSecret })
       )
 
       await getResult().handleSubmit()
 
-      expect(alertSpy).toHaveBeenCalledWith("We couldn't start the QR payment. Please try again.")
-      expect(setProcessing).toHaveBeenLastCalledWith(false)
-      alertSpy.mockRestore()
+      expect(setStripeClientSecret).not.toHaveBeenCalled()
+      expect(setShowStripeModal).not.toHaveBeenCalled()
     })
   })
 
@@ -608,6 +626,19 @@ describe("useEnrollPaymentActions", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
       expect(setStripeClientSecret).toHaveBeenCalledWith("secret_abc")
       expect(setShowStripeModal).toHaveBeenCalledWith(true)
+    })
+
+    it("keeps non-terminal check-in on hosted checkout", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ url: "https://checkout.stripe.test/session" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(
+        defaultInput({ isCheckInFlow: true, isKioskTerminalFlow: false })
+      )
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
     })
 
     it("sends the exact cents amount and service/package ids in the intent payload", async () => {

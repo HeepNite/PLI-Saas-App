@@ -146,6 +146,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
+  const rawPaymentSurface = (body as { paymentSurface?: unknown }).paymentSurface
+  if (rawPaymentSurface !== undefined && rawPaymentSurface !== "embedded") {
+    return NextResponse.json({ error: "Invalid payment surface" }, { status: 400 })
+  }
+  const isEmbeddedPaymentSurface = rawPaymentSurface === "embedded"
+
   const {
     email,
     firstName,
@@ -236,6 +242,7 @@ export async function POST(req: Request) {
   })
 
   const shouldDelegateTerminalPaymentIntent =
+    !isEmbeddedPaymentSurface &&
     photoContext === FLOW_CONTEXT.KIOSK_TERMINAL &&
     source === "prepared" &&
     Boolean(terminalAuth?.ok) &&

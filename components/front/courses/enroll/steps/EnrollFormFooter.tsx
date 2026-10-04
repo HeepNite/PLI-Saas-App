@@ -101,11 +101,7 @@ export default function EnrollFormFooter({
               ? "Processing..."
               : consecutiveOfferLoading && activeStepKey === "payments"
                 ? "Checking promotions..."
-                : isKioskTerminalFlow && paymentMethod === "stripe"
-                  ? kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
-                    ? "Create new QR"
-                    : "Show QR"
-                  : t("confirm")}
+                : t("confirm")}
           </button>
         )}
       </div>

@@ -159,7 +159,10 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
 
   const requestAccountPreparation = React.useCallback(async (): Promise<PreparedAccountState | null> => {
     const { res, data } = await requestCheckoutIntentApi({
-      payload: buildCheckoutPayload({ prepareOnly: true }),
+      payload: buildCheckoutPayload({
+        prepareOnly: true,
+        ...(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+      }),
     })
     const account = data?.account as PreparedAccountState | undefined
     if (!res.ok || !account || typeof account.hasAvatar !== "boolean") {
@@ -172,7 +175,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
     setPreparedAccount(account)
     return account
-  }, [buildCheckoutPayload, setFormError, setPreparedAccount])
+  }, [buildCheckoutPayload, isKioskTerminalFlow, setFormError, setPreparedAccount])
 
   const showRegularFallbackPopup = React.useCallback(
     (message?: string) => {
@@ -305,23 +308,6 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       }
     }
     setProcessing(true)
-
-    if (paymentMethod === "stripe" && isKioskTerminalFlow) {
-      try {
-        await startKioskQrCheckout()
-      } catch (err) {
-        console.error(err)
-        setKioskQrCheckout({
-          ...createEmptyKioskQrCheckoutState(),
-          phase: "error",
-          error: "We couldn't start the QR payment. Please try again.",
-        })
-        alert("We couldn't start the QR payment. Please try again.")
-      } finally {
-        setProcessing(false)
-      }
-      return
-    }
 
     // Mobile-QR check-in (new student OR existing customer, NOT the staff kiosk
     // terminal): use Stripe HOSTED checkout (full-page redirect) instead of the
@@ -497,14 +483,20 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     if (paymentMethod === "stripe") {
       try {
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutIntentApi({ token, payload: buildCheckoutPayload() })
+        let result = await requestCheckoutIntentApi({
+          token,
+          payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+        })
         const code = typeof result.data?.code === "string" ? result.data.code : undefined
         if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
           await new Promise((resolve) => window.setTimeout(resolve, 350))
           const refreshed = await getToken({ skipCache: true })
           if (refreshed) {
             token = refreshed
-            result = await requestCheckoutIntentApi({ token, payload: buildCheckoutPayload() })
+            result = await requestCheckoutIntentApi({
+              token,
+              payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+            })
           }
         }
         if (!result.res.ok) {
