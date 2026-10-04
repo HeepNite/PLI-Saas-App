@@ -304,12 +304,13 @@ describe("checkout session route", () => {
     })
     mockFindHeritagePinEntitlement.mockResolvedValueOnce({ status: "delivered", sourcePurchaseId: "pin_purchase_1" })
 
-    const { POST, handleCheckoutSession } = await import("@/app/api/checkout/session/route")
+    const { POST } = await import("@/app/api/checkout/session/route")
+    const { runWithTrustedCheckoutChannel } = await import("@/lib/checkout/trusted-checkout-channel")
     const request = new Request("http://localhost/api/checkout/session", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(channel === "public_booking" ? { bookingSource: channel, heritagePinCountryCode: "MX" } : {}),
     })
-    const response = channel === "profile" ? await handleCheckoutSession(request, "profile") : await POST(request)
+    const response = channel === "profile" ? await runWithTrustedCheckoutChannel("profile", () => POST(request)) : await POST(request)
 
     expect(response.status).toBe(200)
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({

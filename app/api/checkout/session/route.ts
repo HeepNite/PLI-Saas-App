@@ -30,6 +30,7 @@ import {
 import { findHeritagePinEntitlementForIdentity } from "@/lib/campaigns/heritage-pin-entitlement"
 import { getNewYorkDateKey, resolveCoursePromotionPrice, type CoursePromotionChannel } from "@/lib/promotions/course-promotions"
 import { prisma } from "@/lib/prisma"
+import { getTrustedCheckoutChannel } from "@/lib/checkout/trusted-checkout-channel"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -218,7 +219,7 @@ const handleSpecialClassCheckout = async (body: Record<string, unknown>) => {
   })
 }
 
-export async function handleCheckoutSession(req: Request, trustedChannel?: "profile") {
+async function handleCheckoutSession(req: Request) {
   const startedAt = Date.now()
   if (!stripe) {
     return NextResponse.json({ error: "Stripe not configured" }, { status: 500 })
@@ -334,7 +335,7 @@ export async function handleCheckoutSession(req: Request, trustedChannel?: "prof
   const { clerkUser, resolvedUserId, identity } = preparedAccount
   const promotionChannel: CoursePromotionChannel | null = photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && terminalAuth
     ? "trusted_kiosk"
-    : trustedChannel === "profile"
+    : getTrustedCheckoutChannel() === "profile"
       ? "profile"
       : bookingSource === "public_booking"
         ? "public_booking"
