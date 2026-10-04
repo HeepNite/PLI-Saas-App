@@ -32,6 +32,7 @@ export type PreparedNativePaymentAttempt = PreparedNativePaymentCaller & {
   amount: number
   currency: string
   selectionDigest: string
+  idempotencyDigest: string
 }
 
 export class PreparedNativePaymentError extends Error {
@@ -74,6 +75,8 @@ function assertPurchase(purchase: PreparedNativePaymentPurchase): PreparedNative
   return purchase
 }
 
+const idempotencyDigest = (idempotencyKey: string) => createHash("sha256").update(idempotencyKey).digest("hex")
+
 const signature = (payload: string) => createHmac("sha256", internalAttemptSigningKey())
   .update(`${FLOW}:${payload}`).digest("base64url")
 const encode = (attempt: PreparedNativePaymentAttempt) => Buffer.from(JSON.stringify(attempt)).toString("base64url")
@@ -86,7 +89,7 @@ export function issuePreparedNativePaymentAttempt(caller: PreparedNativePaymentC
     v: 1, id: randomUUID(), issuedAt, expiresAt: issuedAt + PREPARED_NATIVE_PAYMENT_TTL_MS,
     terminalId: caller.terminalId, sessionId: caller.sessionId, readerId: input.readerId,
     purchaseId: purchase.id, recipientUserId: purchase.userId, amount: purchase.amount, currency: purchase.currency,
-    selectionDigest: nativeFulfillmentMetadataDigest(purchase.fulfillmentMetadata),
+    selectionDigest: nativeFulfillmentMetadataDigest(purchase.fulfillmentMetadata), idempotencyDigest: idempotencyDigest(purchase.idempotencyKey),
   }
   const payload = encode(attempt)
   const ticket = `${payload}.${signature(payload)}`
@@ -105,10 +108,11 @@ function decodedAttempt(ticket: unknown): PreparedNativePaymentAttempt {
   } catch {
     throw invalidAttempt()
   }
-  if (!attempt || Object.keys(attempt).length !== 12 || attempt.v !== 1 || typeof attempt.id !== "string" || !/^[a-f0-9-]{36}$/.test(attempt.id) ||
+  if (!attempt || Object.keys(attempt).length !== 13 || attempt.v !== 1 || typeof attempt.id !== "string" || !/^[a-f0-9-]{36}$/.test(attempt.id) ||
       !Number.isSafeInteger(attempt.issuedAt) || attempt.issuedAt < 0 || attempt.issuedAt > Date.now() || attempt.expiresAt !== attempt.issuedAt + PREPARED_NATIVE_PAYMENT_TTL_MS ||
       !validId(attempt.terminalId) || !validId(attempt.sessionId) || typeof attempt.readerId !== "string" || attempt.readerId.length > MAX_ID_LENGTH || !READER_PATTERN.test(attempt.readerId) ||
-      !validId(attempt.purchaseId) || !validId(attempt.recipientUserId) || !validAmount(attempt.amount) || !validCurrency(attempt.currency) || !DIGEST_PATTERN.test(attempt.selectionDigest) || encode(attempt) !== payload) throw invalidAttempt()
+      !validId(attempt.purchaseId) || !validId(attempt.recipientUserId) || !validAmount(attempt.amount) || !validCurrency(attempt.currency) ||
+      !DIGEST_PATTERN.test(attempt.selectionDigest) || !DIGEST_PATTERN.test(attempt.idempotencyDigest) || encode(attempt) !== payload) throw invalidAttempt()
   return attempt
 }
 
@@ -133,7 +137,8 @@ function boundAttempt(ticket: unknown, purchase: PreparedNativePaymentPurchase) 
   const attempt = readPreparedNativePaymentAttempt(ticket)
   const bound = assertPurchase(purchase)
   if (attempt.purchaseId !== bound.id || attempt.recipientUserId !== bound.userId || attempt.amount !== bound.amount ||
-      attempt.currency !== bound.currency || attempt.selectionDigest !== nativeFulfillmentMetadataDigest(bound.fulfillmentMetadata)) throw paymentMismatch()
+      attempt.currency !== bound.currency || attempt.selectionDigest !== nativeFulfillmentMetadataDigest(bound.fulfillmentMetadata) ||
+      attempt.idempotencyDigest !== idempotencyDigest(bound.idempotencyKey)) throw paymentMismatch()
   return attempt
 }
 
@@ -142,6 +147,7 @@ export function preparedNativePaymentMetadata(ticket: unknown, purchase: Prepare
   return {
     flowContext: FLOW, attemptId: attempt.id, purchaseId: attempt.purchaseId, recipientUserId: attempt.recipientUserId,
     terminalId: attempt.terminalId, actorSessionId: attempt.sessionId, readerId: attempt.readerId, selectionDigest: attempt.selectionDigest,
+    purchaseIdempotencyDigest: attempt.idempotencyDigest,
   }
 }
 

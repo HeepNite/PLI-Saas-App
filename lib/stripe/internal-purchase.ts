@@ -17,6 +17,9 @@ export type InternalPurchaseRequest =
   | { action: "attempt"; phone: string }
   | { action: "payment-intent"; ticket: string; paymentIntentId?: string }
   | { action: "recover"; ticket: string; paymentIntentId: string }
+  | { action: "prepared-attempt"; preparedPurchaseReference: string }
+  | { action: "prepared-payment-intent"; ticket: string; paymentIntentId?: string }
+  | { action: "prepared-recover"; ticket: string; paymentIntentId: string }
 
 export class InternalPurchaseError extends Error {
   constructor(message: string, readonly status = 503) {
@@ -127,11 +130,16 @@ export const parseInternalPurchaseRequest = (body: unknown): InternalPurchaseReq
     return Object.keys(input).length === 2 && typeof input.phone === "string" && input.phone.trim().length >= 6 && input.phone.length <= 32
       ? input as InternalPurchaseRequest : null
   }
-  if (action !== "payment-intent" && action !== "recover") return null
+  if (action === "prepared-attempt") {
+    return Object.keys(input).length === 2 && typeof input.preparedPurchaseReference === "string" &&
+      /^[A-Za-z0-9_-]{43}$/.test(input.preparedPurchaseReference) ? input as InternalPurchaseRequest : null
+  }
+  const prepared = action === "prepared-payment-intent" || action === "prepared-recover"
+  if (!prepared && action !== "payment-intent" && action !== "recover") return null
   if (Object.keys(input).some((key) => !["action", "ticket", "paymentIntentId"].includes(key))) return null
-  if (typeof ticket !== "string" || !ticket || ticket.length > 500) return null
-  if (action === "recover" || Object.hasOwn(input, "paymentIntentId")) {
-    if (typeof paymentIntentId !== "string" || !/^pi_[a-zA-Z0-9]+$/.test(paymentIntentId)) return null
+  if (typeof ticket !== "string" || !ticket || ticket.length > (prepared ? 2000 : 500)) return null
+  if (action === "recover" || action === "prepared-recover" || Object.hasOwn(input, "paymentIntentId")) {
+    if (typeof paymentIntentId !== "string" || paymentIntentId.length > 128 || !/^pi_[a-zA-Z0-9]+$/.test(paymentIntentId)) return null
   }
   return input as InternalPurchaseRequest
 }

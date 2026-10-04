@@ -11,6 +11,12 @@ import {
   issueInternalAttempt, readInternalAttempt, requireFreshInternalAttempt, internalAttemptExpiry,
   internalAttemptKey, internalIntentMetadata, validateInternalIntent, type InternalPurchaseRequest,
 } from "@/lib/stripe/internal-purchase"
+import { consumePreparedNativePurchase, PreparedNativePurchaseError } from "@/lib/stripe/prepared-native-purchase"
+import {
+  PreparedNativePaymentError, issuePreparedNativePaymentAttempt, preparedNativePaymentIdempotencyKey,
+  preparedNativePaymentMetadata, readPreparedNativePaymentAttempt, validatePreparedNativePaymentIntent,
+  type PreparedNativePaymentPurchase,
+} from "@/lib/stripe/prepared-native-payment"
 export { InternalPurchaseError } from "@/lib/stripe/internal-purchase"
 
 export const isInternalPurchaseEnabled = () =>
@@ -108,6 +114,55 @@ const assertBoundPurchase = (purchase: BoundPurchase | null, ticket: string) => 
   return purchase
 }
 
+const preparedPurchase = (purchase: BoundPurchase | null, requirePending = false): PreparedNativePaymentPurchase => {
+  if (!purchase || (requirePending && purchase.status !== "pending") || !purchase.idempotencyKey ||
+      !purchase.metadata || typeof purchase.metadata !== "object" || Array.isArray(purchase.metadata)) {
+    throw new InternalPurchaseError("Prepared purchase is invalid", 409)
+  }
+  try {
+    return {
+      id: purchase.id, userId: purchase.userId, amount: purchase.amount, currency: purchase.currency,
+      idempotencyKey: purchase.idempotencyKey, fulfillmentMetadata: purchase.metadata as Record<string, string>,
+    }
+  } catch {
+    throw new InternalPurchaseError("Prepared purchase is invalid", 409)
+  }
+}
+
+const readPreparedPurchase = async (purchaseId: string, requirePending = false) =>
+  preparedPurchase(await prisma.purchase.findUnique({ where: { id: purchaseId } }), requirePending)
+
+type PreparedPaymentContext = {
+  attempt: ReturnType<typeof readPreparedNativePaymentAttempt>
+  purchase: PreparedNativePaymentPurchase
+  paymentIntentId: string | undefined
+}
+
+const resolvePreparedPaymentContext = async (
+  input: Extract<InternalPurchaseRequest, { action: "prepared-payment-intent" | "prepared-recover" }>,
+  caller: TerminalConnectionTokenGatewayRequest,
+): Promise<PreparedPaymentContext> => {
+  const attempt = readPreparedNativePaymentAttempt(input.ticket, caller)
+  const associated = await prisma.purchase.findUnique({ where: { id: attempt.purchaseId } })
+  const associatedId = associated?.stripePaymentIntentId || undefined
+  if (input.paymentIntentId && associatedId && input.paymentIntentId !== associatedId) {
+    throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+  }
+  const paymentIntentId = input.paymentIntentId || associatedId
+  const purchase = preparedPurchase(associated, !paymentIntentId)
+  preparedNativePaymentMetadata(input.ticket, purchase)
+  if (!paymentIntentId) readPreparedNativePaymentAttempt(input.ticket, caller, { requireFresh: true })
+  return { attempt, purchase, paymentIntentId }
+}
+
+const asInternalPreparedError = (error: unknown) => {
+  if (error instanceof InternalPurchaseError) return error
+  if (error instanceof PreparedNativePaymentError || error instanceof PreparedNativePurchaseError) {
+    return new InternalPurchaseError(error.message, error.status)
+  }
+  return new InternalPurchaseError("Payment outcome unknown; retain this ticket and retry it only or reconcile", 502)
+}
+
 type StudentIdentity = { id: string; name: string | null }
 
 export type StudentLookupAdapter = {
@@ -202,6 +257,55 @@ const readBoundPurchaseById = async (purchaseId: string, paymentIntentId: string
   return purchase
 }
 
+const bindPreparedPaymentIntent = async (purchase: PreparedNativePaymentPurchase, paymentIntentId: string) => {
+  const current = await prisma.purchase.findUnique({ where: { id: purchase.id } })
+  if (!current || (current.stripePaymentIntentId && current.stripePaymentIntentId !== paymentIntentId)) {
+    throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+  }
+  if (!current.stripePaymentIntentId) {
+    await prisma.purchase.updateMany({
+      where: { id: purchase.id, stripePaymentIntentId: null }, data: { stripePaymentIntentId: paymentIntentId },
+    })
+  }
+  const rebound = await prisma.purchase.findUnique({ where: { id: purchase.id } })
+  if (!rebound || rebound.stripePaymentIntentId !== paymentIntentId) {
+    throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+  }
+}
+
+const preparedPayment = async (
+  stripe: Stripe,
+  input: Extract<InternalPurchaseRequest, { action: "prepared-payment-intent" | "prepared-recover" }>,
+  context: PreparedPaymentContext,
+) => {
+  try {
+    const { attempt, purchase } = context
+    let id = context.paymentIntentId
+    if (!id) {
+      await createStripeTerminalPaymentIntent({ paymentIntents: { create: async (params, options) => {
+        const intent = await stripe.paymentIntents.create({ ...params, capture_method: "automatic" }, options)
+        id = intent.id
+        return intent
+      } } }, {
+        amount: purchase.amount, currency: purchase.currency, idempotencyKey: preparedNativePaymentIdempotencyKey(purchase),
+        metadata: preparedNativePaymentMetadata(input.ticket, purchase),
+      })
+    }
+    if (!id) throw new Error("Missing provider identity")
+    const intent = await stripe.paymentIntents.retrieve(id)
+    validatePreparedNativePaymentIntent(intent, input.ticket, purchase)
+    if (intent.id !== id) throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+    await bindPreparedPaymentIntent(purchase, id)
+    const result = { id, status: intent.status, paid: intent.status === "succeeded" }
+    const collectible = ["requires_payment_method", "requires_confirmation"].includes(intent.status)
+    if (input.action === "prepared-recover" || !collectible || Date.now() >= attempt.expiresAt) return result
+    if (!intent.client_secret?.trim()) throw new InternalPurchaseError("Payment client secret missing; retain the attempt", 502)
+    return { ...result, clientSecret: intent.client_secret }
+  } catch (error) {
+    throw asInternalPreparedError(error)
+  }
+}
+
 const internalPayment = async (
   stripe: Stripe, input: Extract<InternalPurchaseRequest, { ticket: string }>,
 ) => {
@@ -240,6 +344,35 @@ export const prepareInternalPurchase = async (
   if (input.action === "student-lookup") {
     const { student } = await lookupStudent(input.phone)
     return { student: { name: student.name } }
+  }
+  if (input.action === "prepared-attempt") {
+    try {
+      const { purchaseId } = await consumePreparedNativePurchase(input.preparedPurchaseReference, caller)
+      const purchase = await readPreparedPurchase(purchaseId, true)
+      const readerId = paymentReaderId()
+      const stripe = createLiveClient(caller.terminalId)
+      await verifyLiveMerchant(stripe)
+      await verifyReader(stripe, readerId)
+      const ticket = issuePreparedNativePaymentAttempt(caller, { readerId, purchase })
+      return { ticket, expiresAt: readPreparedNativePaymentAttempt(ticket).expiresAt, readerId, locationId: approved.locationId }
+    } catch (error) {
+      throw asInternalPreparedError(error)
+    }
+  }
+  if (input.action === "prepared-payment-intent" || input.action === "prepared-recover") {
+    try {
+      const context = await resolvePreparedPaymentContext(input, caller)
+      const stripe = createLiveClient(caller.terminalId)
+      await verifyLiveMerchant(stripe)
+      if (input.action === "prepared-payment-intent") {
+        const readerId = paymentReaderId()
+        if (context.attempt.readerId !== readerId) throw new InternalPurchaseError("Reader assignment changed; reconcile this attempt", 409)
+        await verifyReader(stripe, readerId)
+      }
+      return preparedPayment(stripe, input, context)
+    } catch (error) {
+      throw asInternalPreparedError(error)
+    }
   }
   const attempt = "ticket" in input ? readInternalAttempt(input.ticket, caller) : null
   // A visible lookup result is informational only. Bind attempts to a fresh,

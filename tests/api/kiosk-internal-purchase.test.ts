@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   reader: vi.fn(), create: vi.fn(), retrieve: vi.fn(),
   usersQueryRaw: vi.fn(), usersFindUnique: vi.fn(),
   purchaseFindUnique: vi.fn(), purchaseCreate: vi.fn(), purchaseUpdateMany: vi.fn(),
+  preparedFindUnique: vi.fn(), preparedUpdateMany: vi.fn(),
 }))
 vi.mock("@/lib/security/staff-terminal", () => ({ authorizeStaffTerminalSession: mocks.auth }))
 vi.mock("@/lib/security/rate-limit", () => ({
@@ -30,11 +32,19 @@ vi.mock("@/lib/prisma", () => ({
       create: (...args: unknown[]) => mocks.purchaseCreate(...args),
       updateMany: (...args: unknown[]) => mocks.purchaseUpdateMany(...args),
     },
+    preparedNativePurchase: {
+      findUnique: (...args: unknown[]) => mocks.preparedFindUnique(...args),
+      updateMany: (...args: unknown[]) => mocks.preparedUpdateMany(...args),
+    },
     $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
       purchase: {
         findUnique: (...args: unknown[]) => mocks.purchaseFindUnique(...args),
         create: (...args: unknown[]) => mocks.purchaseCreate(...args),
         updateMany: (...args: unknown[]) => mocks.purchaseUpdateMany(...args),
+      },
+      preparedNativePurchase: {
+        findUnique: (...args: unknown[]) => mocks.preparedFindUnique(...args),
+        updateMany: (...args: unknown[]) => mocks.preparedUpdateMany(...args),
       },
     }),
   },
@@ -53,6 +63,9 @@ vi.mock("stripe", () => ({
 }))
 
 let boundPurchase: Record<string, unknown> | null = null
+let preparedCapability: {
+  purchaseId: string; consumed: boolean; referenceHash: string; terminalId: string; sessionId: string; expiresAt: Date
+} | null = null
 
 const catalog = {
   accountId: "acct_1PWRzcRtYdjwed35", productId: "prod_VJV0rf6b1sjK9x",
@@ -114,7 +127,10 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     mocks.purchaseFindUnique.mockReset()
     mocks.purchaseCreate.mockReset()
     mocks.purchaseUpdateMany.mockReset()
+    mocks.preparedFindUnique.mockReset()
+    mocks.preparedUpdateMany.mockReset()
     boundPurchase = null
+    preparedCapability = null
     mocks.usersQueryRaw.mockResolvedValue([{ id: "student_1", name: "Test Student" }])
     mocks.usersFindUnique.mockResolvedValue({ id: "student_1", email: "student@example.test", name: "Test Student", phone: "+15550101" })
     mocks.purchaseFindUnique.mockImplementation(async ({ where }) => {
@@ -131,6 +147,17 @@ describe("internal LIVE preflight and connection-token boundary", () => {
       if (boundPurchase && data.stripePaymentIntentId) boundPurchase = { ...boundPurchase, stripePaymentIntentId: data.stripePaymentIntentId }
       return { count: 1 }
     })
+    mocks.preparedUpdateMany.mockImplementation(async ({ where }) => {
+      const expiry = where.expiresAt as { gt: Date }
+      if (preparedCapability && !preparedCapability.consumed && where.referenceHash === preparedCapability.referenceHash &&
+          where.terminalId === preparedCapability.terminalId && where.sessionId === preparedCapability.sessionId &&
+          preparedCapability.expiresAt > expiry.gt) {
+        preparedCapability.consumed = true
+        return { count: 1 }
+      }
+      return { count: 0 }
+    })
+    mocks.preparedFindUnique.mockImplementation(async () => preparedCapability && { purchaseId: preparedCapability.purchaseId })
     mocks.create.mockImplementation(async (params) => {
       const intent = { ...params, id: "pi_fixture", object: "payment_intent", livemode: true,
         status: "requires_payment_method", amount_received: 0, customer: null, receipt_email: null, client_secret: "pi_fixture_secret" }
@@ -444,6 +471,148 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     it("does not query arbitrary payment IDs without a signed attempt", async () => {
       expect((await request({ action: "recover", ticket: "forged", paymentIntentId: "pi_any" })).status).toBe(400)
       expect(mocks.retrieve).not.toHaveBeenCalled()
+    })
+
+    describe("prepared native dynamic Purchase flow", () => {
+      const reference = "a".repeat(43)
+      const expectNoPreparedProviderReads = () => {
+        for (const key of ["account", "product", "price", "location", "reader", "create", "retrieve"] as const) {
+          expect(mocks[key]).not.toHaveBeenCalled()
+        }
+      }
+      const preparePurchase = () => {
+        boundPurchase = {
+          id: "purchase_dynamic_1", userId: "user_1", amount: 2599, currency: "usd", status: "pending",
+          idempotencyKey: "native-m2-prepared:purchase_dynamic_1", stripePaymentIntentId: null,
+          metadata: { courseSlug: "salsa", serviceId: "dropin", startsAt: "2026-10-04T17:00:00Z", paymentSurface: "native_m2_prepare" },
+        }
+        preparedCapability = {
+          purchaseId: "purchase_dynamic_1", consumed: false,
+          referenceHash: createHash("sha256").update(reference).digest("hex"), terminalId: "terminal_live", sessionId: "session_live",
+          expiresAt: new Date(Date.now() + 5 * 60_000),
+        }
+      }
+      const admit = async () => {
+        const response = await request({ action: "prepared-attempt", preparedPurchaseReference: reference })
+        expect(response.status).toBe(200)
+        const body = await response.json() as { ticket: string }
+        expect(Object.keys(body).sort()).toEqual(["expiresAt", "locationId", "readerId", "ticket"])
+        return body
+      }
+
+      it("strictly parses the new closed actions", async () => {
+        const { parseInternalPurchaseRequest } = await import("@/lib/stripe/internal-purchase")
+        expect(parseInternalPurchaseRequest({ action: "prepared-attempt", preparedPurchaseReference: reference })).toEqual({ action: "prepared-attempt", preparedPurchaseReference: reference })
+        expect(parseInternalPurchaseRequest({ action: "prepared-payment-intent", ticket: "ticket" })).toEqual({ action: "prepared-payment-intent", ticket: "ticket" })
+        expect(parseInternalPurchaseRequest({ action: "prepared-recover", ticket: "ticket", paymentIntentId: "pi_known" })).toEqual({ action: "prepared-recover", ticket: "ticket", paymentIntentId: "pi_known" })
+        for (const body of [
+          { action: "prepared-attempt" }, { action: "prepared-attempt", preparedPurchaseReference: reference, extra: true },
+          { action: "prepared-payment-intent", ticket: "ticket", paymentIntentId: 1 },
+          { action: "prepared-recover", ticket: "ticket" }, { action: "prepared-recover", ticket: "ticket", paymentIntentId: "pi_known", extra: true },
+        ]) expect(parseInternalPurchaseRequest(body)).toBeNull()
+      })
+
+      it("consumes the caller-bound reference once, issues no web capability, and creates from exact Purchase facts without catalog reads", async () => {
+        preparePurchase()
+        const { ticket } = await admit()
+        expect((await request({ action: "prepared-attempt", preparedPurchaseReference: reference })).status).toBe(409)
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(200)
+        expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ amount: 2599, currency: "usd", payment_method_types: ["card_present"],
+          metadata: expect.objectContaining({ purchaseId: "purchase_dynamic_1", recipientUserId: "user_1" }) }),
+        { idempotencyKey: "prepared-native-m2:v1:native-m2-prepared:purchase_dynamic_1" })
+        expect(mocks.product).not.toHaveBeenCalled()
+        expect(mocks.price).not.toHaveBeenCalled()
+        expect((await request({ action: "prepared-payment-intent", ticket, paymentIntentId: "pi_other" })).status).toBe(409)
+      })
+
+      it("rejects invalid, stale, foreign, and duplicate references before provider reads", async () => {
+        preparePurchase()
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-attempt", preparedPurchaseReference: "b".repeat(43) })).status).toBe(409)
+        expectNoPreparedProviderReads()
+
+        preparePurchase()
+        preparedCapability!.expiresAt = new Date(Date.now())
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-attempt", preparedPurchaseReference: reference })).status).toBe(409)
+        expectNoPreparedProviderReads()
+
+        preparePurchase()
+        mocks.auth.mockResolvedValueOnce({ ok: true, sessionId: "foreign", terminal: { id: "terminal_live" } })
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-attempt", preparedPurchaseReference: reference })).status).toBe(409)
+        expectNoPreparedProviderReads()
+
+        preparePurchase()
+        await admit()
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-attempt", preparedPurchaseReference: reference })).status).toBe(409)
+        expectNoPreparedProviderReads()
+      })
+
+      it("rejects Purchase mutations before payment creation or retrieval and requires pending for a fresh intent", async () => {
+        preparePurchase()
+        const { ticket } = await admit()
+        boundPurchase = { ...boundPurchase!, idempotencyKey: "native-m2-prepared:mutated" }
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(409)
+        expectNoPreparedProviderReads()
+
+        preparePurchase()
+        const pending = await admit()
+        boundPurchase = { ...boundPurchase!, status: "succeeded" }
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-payment-intent", ticket: pending.ticket })).status).toBe(409)
+        expectNoPreparedProviderReads()
+
+        preparePurchase()
+        const recoverable = await admit()
+        expect((await request({ action: "prepared-payment-intent", ticket: recoverable.ticket })).status).toBe(200)
+        boundPurchase = { ...boundPurchase!, idempotencyKey: "native-m2-prepared:mutated-recovery" }
+        vi.clearAllMocks()
+        expect((await request({ action: "prepared-recover", ticket: recoverable.ticket, paymentIntentId: "pi_fixture" })).status).toBe(409)
+        expectNoPreparedProviderReads()
+      })
+
+      it("allows exact read-only recovery of a non-pending Purchase with a known payment ID", async () => {
+        preparePurchase()
+        const { ticket } = await admit()
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(200)
+        boundPurchase = { ...boundPurchase!, status: "succeeded" }
+        mocks.create.mockClear()
+        mocks.retrieve.mockClear()
+        expect((await request({ action: "prepared-recover", ticket, paymentIntentId: "pi_fixture" })).status).toBe(200)
+        expect(mocks.create).not.toHaveBeenCalled()
+        expect(mocks.retrieve).toHaveBeenCalledExactlyOnceWith("pi_fixture")
+      })
+
+      it("rejects foreign callers and expired unknown tickets but recovers the same known ID without replacement", async () => {
+        preparePurchase()
+        const { ticket } = await admit()
+        mocks.auth.mockResolvedValueOnce({ ok: true, sessionId: "other", terminal: { id: "terminal_live" } })
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(403)
+        mocks.create.mockRejectedValueOnce(new Error("unknown outcome"))
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(502)
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(200)
+        expect(mocks.create.mock.calls[1]).toEqual(mocks.create.mock.calls[0])
+
+        preparePurchase()
+        const unknown = await admit()
+        mocks.create.mockRejectedValueOnce(new Error("unknown outcome"))
+        expect((await request({ action: "prepared-payment-intent", ticket: unknown.ticket })).status).toBe(502)
+        vi.setSystemTime(new Date("2026-09-23T12:06:00Z"))
+        expect((await request({ action: "prepared-payment-intent", ticket: unknown.ticket })).status).toBe(409)
+        expect(mocks.create).toHaveBeenCalledTimes(3)
+
+        preparePurchase()
+        const fresh = await admit()
+        await request({ action: "prepared-payment-intent", ticket: fresh.ticket })
+        vi.setSystemTime(new Date("2026-09-23T12:12:00Z"))
+        const response = await request({ action: "prepared-recover", ticket: fresh.ticket, paymentIntentId: "pi_fixture" })
+        expect(response.status).toBe(200)
+        expect(await response.json()).toEqual({ id: "pi_fixture", status: "requires_payment_method", paid: false })
+        expect(mocks.create).toHaveBeenCalledTimes(4)
+      })
     })
   })
 })

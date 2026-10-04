@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type Stripe from "stripe"
 
@@ -35,12 +36,15 @@ describe("prepared native payment proof", () => {
     const attempt = proof.readPreparedNativePaymentAttempt(ticket, caller, { requireFresh: true })
 
     expect(attempt).toMatchObject({ terminalId: caller.terminalId, sessionId: caller.sessionId, readerId: "tmr_reader_1",
-      purchaseId: purchase.id, recipientUserId: purchase.userId, amount: 2599, currency: "usd" })
+      purchaseId: purchase.id, recipientUserId: purchase.userId, amount: 2599, currency: "usd",
+      idempotencyDigest: createHash("sha256").update(purchase.idempotencyKey).digest("hex") })
     expect(proof.preparedNativePaymentIdempotencyKey(purchase)).toBe("prepared-native-m2:v1:native-m2-prepared:purchase_1")
     expect(proof.preparedNativePaymentIdempotencyKey({ ...purchase, id: "purchase_other" })).toBe(
       proof.preparedNativePaymentIdempotencyKey(purchase),
     )
-    expect(proof.preparedNativePaymentMetadata(ticket, purchase)).toEqual(proof.preparedNativePaymentMetadata(ticket, purchase))
+    expect(proof.preparedNativePaymentMetadata(ticket, purchase)).toEqual(expect.objectContaining({
+      purchaseIdempotencyDigest: attempt.idempotencyDigest,
+    }))
     expect(proof.nativeFulfillmentMetadataDigest({ startsAt: "2026-10-04T17:00:00Z", serviceId: "dropin", courseSlug: "salsa" }))
       .toBe(attempt.selectionDigest)
   })
@@ -56,7 +60,7 @@ describe("prepared native payment proof", () => {
 
   it.each([
     ["amount", 1], ["currency", "eur"], ["purchaseId", "purchase_other"], ["recipientUserId", "user_other"],
-    ["selectionDigest", "a".repeat(64)], ["readerId", "tmr_other"],
+    ["selectionDigest", "a".repeat(64)], ["idempotencyDigest", "a".repeat(64)], ["readerId", "tmr_other"],
   ])("rejects a tampered %s claim with a sanitized typed error", async (key, value) => {
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const ticket = proof.issuePreparedNativePaymentAttempt(caller, { readerId: "tmr_reader_1", purchase })
@@ -99,6 +103,7 @@ describe("prepared native payment proof", () => {
     ["recipient", { metadata: { recipientUserId: "user_other" } }], ["terminal", { metadata: { terminalId: "terminal_other" } }],
     ["session", { metadata: { actorSessionId: "session_other" } }], ["reader", { metadata: { readerId: "tmr_other" } }],
     ["digest", { metadata: { selectionDigest: "a".repeat(64) } }],
+    ["idempotency digest", { metadata: { purchaseIdempotencyDigest: "a".repeat(64) } }],
   ])("rejects provider %s substitutions", async (_case, override) => {
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const ticket = proof.issuePreparedNativePaymentAttempt(caller, { readerId: "tmr_reader_1", purchase })
@@ -124,5 +129,8 @@ describe("prepared native payment proof", () => {
     } as Stripe.PaymentIntent
     expect(() => proof.validatePreparedNativePaymentIntent(intent, ticket, purchase)).not.toThrow()
     expectError(() => proof.preparedNativePaymentMetadata(ticket, { ...purchase, amount: 1 }), { code: "payment_mismatch" })
+    expectError(() => proof.preparedNativePaymentMetadata(ticket, { ...purchase, idempotencyKey: "native-m2-prepared:changed" }), {
+      code: "payment_mismatch",
+    })
   })
 })
