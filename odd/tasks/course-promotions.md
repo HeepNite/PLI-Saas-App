@@ -34,12 +34,12 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Status: done
   - Checks: 116 focused tests, typecheck, scoped ESLint (0 errors; 7 pre-existing warnings), `git diff --check`
   - Commit: `fadaf866`
-- [ ] 5. Configure the Heritage promotion and prepare a reversible catalog rollout for the two new courses and package applicability.
+- [x] 5. Prepare the Heritage promotion and reversible catalog rollout for the two new courses and package applicability.
+  - Status: done; remote application remains gated after deployment
+  - Checks: live catalog read-only dry-run; target slugs absent; exact replaced slots found; shared plans identified; rollback documented; catalog SHA-256 `715db220424906182debec80883373d8c90576e1c85125abb4623efa93388d00`
+  - Commit: `ef769827`
+- [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, request catalog-mutation authorization, and perform live checks.
   - Status: in progress
-  - Checks: dry-run, mode-0600 backup, environment proof, rollback material; no remote mutation without fresh authorization
-  - Commit: pending
-- [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, and perform live read-only checks.
-  - Status: pending
   - Checks: CI-equivalent verification, review receipt, deployment readiness, live HTTP/catalog/price evidence
   - Commit: pending
 
