@@ -14,6 +14,11 @@ import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
 import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
 import { createKioskSessionCheckoutPayloadFields } from "@/lib/checkin/enroll-flow"
 import {
+  handOffPreparedPurchase,
+  isNativePaymentBridgeAvailable,
+  isPreparedPurchaseResponse,
+} from "@/components/front/courses/enroll/effects/native-payment-bridge"
+import {
   requestCheckoutCashApi,
   requestCheckoutIntentApi,
   requestCheckoutSessionApi,
@@ -95,6 +100,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup, setResumeContactFlowAfterSignIn,
     t,
   } = input
+  const nativeAttemptRef = React.useRef(false)
 
   const buildCheckoutPayload = React.useCallback(
     (extra: Record<string, unknown> = {}) =>
@@ -297,7 +303,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
   ) => {
     if (e) e.preventDefault()
-    if (processing) return
+    if (processing || nativeAttemptRef.current) return
     setFormError(null)
     if (deps) {
       const validationIssue = deps.validateBeforeSubmit()
@@ -481,6 +487,26 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
 
     if (paymentMethod === "stripe") {
+      if (isKioskTerminalFlow && isNativePaymentBridgeAvailable()) {
+        try {
+          const token = isSignedIn ? await getToken({ skipCache: true }) : null
+          const prepared = await requestCheckoutIntentApi({
+            token,
+            payload: buildCheckoutPayload({ paymentSurface: "native_m2_prepare" }),
+          })
+          if (prepared.res.ok && isPreparedPurchaseResponse(prepared.data)) {
+            nativeAttemptRef.current = true
+            const handoff = await handOffPreparedPurchase(prepared.data.preparedPurchaseReference)
+            if (handoff.admitted) {
+              if (handoff.state === "rejected") setFormError("We couldn't start the payment. Please try again.")
+              return
+            }
+            nativeAttemptRef.current = false
+          }
+        } catch {
+          // Preparation is pre-admission; retain the existing embedded fallback.
+        }
+      }
       try {
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
         let result = await requestCheckoutIntentApi({
