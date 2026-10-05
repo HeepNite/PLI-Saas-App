@@ -243,7 +243,7 @@ class KioskApplication : Application() {
         val transport = StaffSessionTransport(origin, System::currentTimeMillis)
         var purchase = PurchaseCoordinator(origin, store, StaffSessionPurchaseApi(transport), System::currentTimeMillis)
         val loginSource = { slug: String, pin: CharArray -> purchase.login { transport.login(slug, pin) }; Unit }
-        val state = clearResolvedAttempt(store, store.read())
+        val state = store.read()
         val nativeForTicket: (AttemptTicket) -> NativeCollectionRuntime = { boundTicket ->
             val latest = store.read()
             val boundSession = requireNotNull(latest.session) { "Original staff session is unavailable" }
@@ -291,6 +291,19 @@ class KioskApplication : Application() {
         native.initialize()
         return ProductionOperatorRuntime(
             native, purchase, startSource, loginSource, nativeForTicket, networkExecutor, paidRollover,
+        )
+    }
+
+    /** Session capture remains available for the web PaymentElement even when collection is disabled. */
+    internal fun createWebSessionReadiness(admission: SecureWebAdmission): WebSessionReadiness {
+        val origin = ApprovedOrigin(admission.origin)
+        val clock = System::currentTimeMillis
+        return WebSessionReadiness(
+            origin,
+            EncryptedStateStore(this),
+            StaffSessionTransport(origin, clock),
+            CookieManagerBrowserCookieReader,
+            clock,
         )
     }
 

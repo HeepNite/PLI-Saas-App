@@ -10,11 +10,12 @@ import android.webkit.WebViewClient
 /** Dedicated kiosk host; native collection composition remains deliberately absent in this slice. */
 class KioskWebActivity : Activity() {
     private var webView: WebView? = null
-    private var messageHost: SecureWebMessageHost? = null
+    private var sessionReadiness: WebSessionReadiness? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val admission = SecureWebAdmission.from(BuildConfig.APPROVED_HTTPS_ORIGIN) ?: run { finish(); return }
+        sessionReadiness = (application as? KioskApplication)?.createWebSessionReadiness(admission) ?: run { finish(); return }
         webView = WebView(this).also { view ->
             view.settings.apply {
                 javaScriptEnabled = true
@@ -27,20 +28,27 @@ class KioskWebActivity : Activity() {
             view.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) =
                     admission.shouldOverrideNavigation(request.url.toString(), request.isRedirect, request.isForMainFrame)
+
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (isExactTerminalCompletion(admission, url, view.url)) sessionReadiness?.capture(url, view.url)
+                }
             }
             view.webChromeClient = object : WebChromeClient() {
                 override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message) = false
             }
             setContentView(view)
-            messageHost = SecureWebMessageHost(view, admission, BuildConfig.NATIVE_COLLECTION_ENABLED, null)
-            messageHost?.attach()
+            // No dispatcher is composed in this slice, so no message listener or bridge is exposed.
             view.loadUrl(admission.terminalUrl)
         }
     }
 
     override fun onDestroy() {
-        messageHost?.invalidate()
         webView?.destroy()
         super.onDestroy()
+    }
+
+    companion object {
+        internal fun isExactTerminalCompletion(admission: SecureWebAdmission, completedUrl: String?, currentUrl: String?) =
+            completedUrl == admission.terminalUrl && currentUrl == admission.terminalUrl
     }
 }
