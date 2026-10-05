@@ -41,7 +41,7 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 - Payment and provider values remain outside JavaScript.
 - Focused behavior coverage proves the admission and denial boundaries.
 
-**Current state:** Host/admission is implemented locally; provider dispatch is intentionally not connected, so the web fallback remains authoritative. Only host `onDestroy` invalidates this slice; session/reader invalidation awaits dispatch integration. No APK, device, or reader operation is authorized.
+**Current state:** Host/admission is implemented locally; main-frame navigation remains exact-target/non-redirect while subframes load without bridge admission. Provider dispatch is intentionally not connected, so the web fallback remains authoritative. Only host `onDestroy` invalidates this slice; session/reader invalidation awaits dispatch integration. No APK, device, or reader operation is authorized.
 
 ## 4. Web/native integration
 

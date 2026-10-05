@@ -11,6 +11,9 @@ class SecureWebAdmission private constructor(val origin: String) {
 
     fun allowsMainFrameNavigation(url: String?, isRedirect: Boolean) = !isRedirect && url == terminalUrl
 
+    fun shouldOverrideNavigation(url: String?, isRedirect: Boolean, isMainFrame: Boolean) =
+        isMainFrame && !allowsMainFrameNavigation(url, isRedirect)
+
     fun acceptsMessage(sourceOrigin: String?, isMainFrame: Boolean, currentUrl: String?) =
         sourceOrigin == origin && isMainFrame && allowsMainFrameNavigation(currentUrl, isRedirect = false)
 

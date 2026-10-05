@@ -34,6 +34,16 @@ class SecureWebMessageHostTest {
     }
 
     @Test
+    fun navigationOverridesOnlyDeniedMainFrames() {
+        val policy = requireNotNull(SecureWebAdmission.from(origin))
+        assertFalse(policy.shouldOverrideNavigation(terminal, false, false))
+        assertFalse(policy.shouldOverrideNavigation("https://foreign.invalid/staff/terminal", false, false))
+        assertFalse(policy.shouldOverrideNavigation(terminal, false, true))
+        assertTrue(policy.shouldOverrideNavigation(terminal, true, true))
+        assertTrue(policy.shouldOverrideNavigation("https://foreign.invalid/staff/terminal", false, true))
+    }
+
+    @Test
     fun adapterDispatchesOnlyAdmittedMessagesAndRepliesWithRedactedJson() {
         var calls = 0
         val bridge = SecureWebBridge(mapOf("collect" to SecureBridgeOperation(emptyMap()) {

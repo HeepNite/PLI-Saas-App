@@ -26,7 +26,7 @@ class KioskWebActivity : Activity() {
             }
             view.webViewClient = object : WebViewClient() {
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) =
-                    !request.isForMainFrame || !admission.allowsMainFrameNavigation(request.url.toString(), request.isRedirect)
+                    admission.shouldOverrideNavigation(request.url.toString(), request.isRedirect, request.isForMainFrame)
             }
             view.webChromeClient = object : WebChromeClient() {
                 override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message) = false
