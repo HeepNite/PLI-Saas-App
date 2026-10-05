@@ -255,6 +255,26 @@ describe("staff school courses route security", () => {
           ],
           publication: { mode: "launch_date", launchDate: "2026-11-11" },
           specialDiscount: { type: "custom", label: "  Holiday deal ", priceCents: 1234.9 },
+          promotions: [
+            {
+              id: "heritage-october",
+              label: "  Heritage pin benefit  ",
+              active: true,
+              pricing: { kind: "fixed", amountCents: 1500 },
+              window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+              audience: "heritage_pin_delivered",
+              channels: ["profile", "public_booking", "profile", "forged"],
+            },
+            {
+              id: "invalid-free",
+              label: "Invalid",
+              active: true,
+              pricing: { kind: "fixed", amountCents: 0 },
+              window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+              audience: "everyone",
+              channels: ["public_booking"],
+            },
+          ],
         },
       }),
     })
@@ -277,6 +297,15 @@ describe("staff school courses route security", () => {
       specialEvents: [{ date: "2026-10-10", times: ["17:30"], label: "Special event" }],
       publication: { mode: "launch_date", launchDate: "2026-11-11" },
       specialDiscount: { type: "custom", label: "Holiday deal", priceCents: 1235 },
+      promotions: [{
+        id: "heritage-october",
+        label: "Heritage pin benefit",
+        active: true,
+        pricing: { kind: "fixed", amountCents: 1500 },
+        window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+        audience: "heritage_pin_delivered",
+        channels: ["profile", "public_booking"],
+      }],
     })
   })
 })
