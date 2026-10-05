@@ -288,6 +288,7 @@ export function BookingPageContent({
                           {formatTime(occurrence.time)}
                           {occurrence.durationMinutes ? ` · ${occurrence.durationMinutes} min` : ""}
                         </p>
+                        {occurrence.promotionLabels?.[0] ? <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.08em] text-[#ff7a82]">{occurrence.promotionLabels[0]}</p> : null}
                         <p className="mt-1 truncate text-[10px] text-white/42 sm:text-xs">{occurrence.instructorName}</p>
                       </div>
                       <HeritageBookButton
@@ -378,12 +379,9 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
     setNavigatingId(occurrence.id)
     document.documentElement.dataset.qrBooking = "true"
     delete document.documentElement.dataset.qrBookingReady
-    if (!countryCode) {
-      router.push(occurrence.bookingUrl)
-      return
-    }
     const separator = occurrence.bookingUrl.includes("?") ? "&" : "?"
-    router.push(`${occurrence.bookingUrl}${separator}bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(countryCode)}`)
+    const countryParam = countryCode ? `&heritagePinCountryCode=${encodeURIComponent(countryCode)}` : ""
+    router.push(`${occurrence.bookingUrl}${separator}bookingSource=public_booking${countryParam}`)
   }, [router])
 
   const selectOccurrence = (occurrence: ShareableBookingOccurrence) => {

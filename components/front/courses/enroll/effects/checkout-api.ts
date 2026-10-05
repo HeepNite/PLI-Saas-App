@@ -4,6 +4,7 @@ type RequestOptions = {
   token?: string | null
   payload: Record<string, unknown>
   fetchImpl?: FetchImpl
+  endpoint?: "/api/checkout/session" | "/api/profile/checkout/session"
 }
 
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
@@ -42,8 +43,8 @@ export const requestCheckoutIntentApi = async ({ token, payload, fetchImpl }: Re
   return { res, data }
 }
 
-export const requestCheckoutSessionApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
-  const res = await resolveFetch(fetchImpl)("/api/checkout/session", {
+export const requestCheckoutSessionApi = async ({ token, payload, fetchImpl, endpoint = "/api/checkout/session" }: RequestOptions) => {
+  const res = await resolveFetch(fetchImpl)(endpoint, {
     method: "POST",
     headers: createJsonHeaders(token),
     credentials: "include",

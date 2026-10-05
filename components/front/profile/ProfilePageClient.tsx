@@ -358,7 +358,7 @@ export default function ProfilePageClient() {
         setProfileConsecutiveError("Unable to book this class with your package.")
         return
       }
-      const res = await fetch("/api/checkout/session", {
+      const res = await fetch("/api/profile/checkout/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
