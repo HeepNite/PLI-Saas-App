@@ -26,11 +26,17 @@ data class SecureBridgeResponse(
     val error: SecureBridgeError? = null,
 )
 
+internal data class SecureBridgeOperationResult(val operationRef: String?, val state: SecureBridgeState)
+
 /** An allowlisted operation with its complete string-only payload schema. */
-class SecureBridgeOperation(
+class SecureBridgeOperation private constructor(
     val payload: Map<String, Int>,
-    private val handler: (String, String, Map<String, String>) -> SecureBridgeState,
+    private val handler: (String, String, Map<String, String>) -> SecureBridgeOperationResult,
+    @Suppress("UNUSED_PARAMETER") responseAware: Unit,
 ) {
+    constructor(payload: Map<String, Int>, handler: (String, String, Map<String, String>) -> SecureBridgeState) :
+        this(payload, { requestId, reference, fields -> SecureBridgeOperationResult(reference, handler(requestId, reference, fields)) }, Unit)
+
     /** Compatibility constructor for existing payload-only handlers. */
     constructor(payload: Map<String, Int>, handler: (Map<String, String>) -> SecureBridgeState) :
         this(payload, { _, _, fields -> handler(fields) })
@@ -39,8 +45,12 @@ class SecureBridgeOperation(
     constructor(payload: Map<String, Int>, handler: (String, Map<String, String>) -> SecureBridgeState) :
         this(payload, { requestId, _, fields -> handler(requestId, fields) })
 
-    internal fun handle(requestId: String, operationRef: String, fields: Map<String, String>) =
-        handler(requestId, operationRef, fields)
+    internal fun handle(requestId: String, operationRef: String, fields: Map<String, String>) = handler(requestId, operationRef, fields)
+
+    companion object {
+        internal fun withResponse(payload: Map<String, Int>, handler: (String, String, Map<String, String>) -> SecureBridgeOperationResult) =
+            SecureBridgeOperation(payload, handler, Unit)
+    }
 }
 
 /**
@@ -97,8 +107,8 @@ class SecureWebBridge(
         return try {
             val reference = operationRefFactory(envelope.requestId, envelope.operation)
             if (!bounded(reference, MAX_OPERATION_REF_CHARS)) throw IllegalStateException()
-            val state = operation.handle(envelope.requestId, reference, fields)
-            SecureBridgeResponse(envelope.requestId, reference, state)
+            val result = operation.handle(envelope.requestId, reference, fields)
+            SecureBridgeResponse(envelope.requestId, result.operationRef, result.state)
         } catch (_: Exception) {
             failure(envelope.requestId, SecureBridgeError.INTERNAL_ERROR)
         }

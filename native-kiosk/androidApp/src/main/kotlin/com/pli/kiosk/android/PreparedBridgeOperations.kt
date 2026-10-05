@@ -31,35 +31,41 @@ class PreparedBridgeOperations(
     }
 
     fun bridgeOperations(): Map<String, SecureBridgeOperation> = mapOf(
-        START to SecureBridgeOperation(mapOf(PREPARED_PURCHASE_REFERENCE to PREPARED_REFERENCE_LENGTH)) { _, reference, fields ->
-            start(reference, fields.getValue(PREPARED_PURCHASE_REFERENCE))
+        START to SecureBridgeOperation.withResponse(mapOf(PREPARED_PURCHASE_REFERENCE to PREPARED_REFERENCE_LENGTH)) { _, reference, fields ->
+            startResult(reference, fields.getValue(PREPARED_PURCHASE_REFERENCE))
         },
-        POLL to SecureBridgeOperation(mapOf(OPERATION_REFERENCE to MAX_OPERATION_REFERENCE_LENGTH)) { _, _, fields ->
-            poll(fields.getValue(OPERATION_REFERENCE))
+        POLL to SecureBridgeOperation.withResponse(mapOf(OPERATION_REFERENCE to MAX_OPERATION_REFERENCE_LENGTH)) { _, _, fields ->
+            pollResult(fields.getValue(OPERATION_REFERENCE))
         },
     )
 
     @Synchronized
-    fun start(operationReference: String, preparedPurchaseReference: String): SecureBridgeState {
-        if (invalidated || !validOperationReference(operationReference) || !validPreparedReference(preparedPurchaseReference)) {
-            return SecureBridgeState.REJECTED
-        }
-        if (operations.containsKey(operationReference) || operations.size >= capacity) return SecureBridgeState.REJECTED
+    fun start(operationReference: String, preparedPurchaseReference: String) =
+        startResult(operationReference, preparedPurchaseReference).state
+
+    @Synchronized
+    private fun startResult(operationReference: String, preparedPurchaseReference: String): SecureBridgeOperationResult {
+        if (invalidated || !validOperationReference(operationReference) || !validPreparedReference(preparedPurchaseReference) ||
+            operations.containsKey(operationReference) || operations.size >= capacity) return SecureBridgeOperationResult(null, SecureBridgeState.REJECTED)
         val entry = Entry()
         operations[operationReference] = entry // Reserve before launching; synchronous callbacks may poll it.
         return try {
             workflow.launch(operationReference, preparedPurchaseReference) { completion -> complete(operationReference, entry, completion) }
-            SecureBridgeState.PENDING
+            SecureBridgeOperationResult(operationReference, SecureBridgeState.PENDING)
         } catch (_: Exception) {
             entry.state = SecureBridgeState.REJECTED
-            SecureBridgeState.REJECTED
+            SecureBridgeOperationResult(operationReference, SecureBridgeState.REJECTED)
         }
     }
 
     @Synchronized
-    fun poll(operationReference: String): SecureBridgeState =
-        if (invalidated || !validOperationReference(operationReference)) SecureBridgeState.REJECTED
-        else operations[operationReference]?.state ?: SecureBridgeState.REJECTED
+    fun poll(operationReference: String) = pollResult(operationReference).state
+
+    @Synchronized
+    private fun pollResult(operationReference: String) =
+        if (invalidated || !validOperationReference(operationReference)) SecureBridgeOperationResult(null, SecureBridgeState.REJECTED)
+        else operations[operationReference]?.let { SecureBridgeOperationResult(operationReference, it.state) }
+            ?: SecureBridgeOperationResult(null, SecureBridgeState.REJECTED)
 
     @Synchronized
     fun invalidate() {

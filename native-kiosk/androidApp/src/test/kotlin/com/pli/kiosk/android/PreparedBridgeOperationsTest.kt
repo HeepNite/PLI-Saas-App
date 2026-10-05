@@ -24,7 +24,8 @@ class PreparedBridgeOperationsTest {
         assertEquals(SecureBridgeState.PENDING, bridge.dispatch(request("two", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"$preparedTwo\"}")).state)
         completions.getValue("opaque-one")(PreparedRecoveryState.PAID)
 
-        assertEquals(SecureBridgeState.PAID, poll(bridge, "state-one", "opaque-one").state)
+        val paid = poll(bridge, "state-one", "opaque-one")
+        assertTrue(paid.state == SecureBridgeState.PAID && paid.operationRef == "opaque-one" && paid.operationRef != "opaque-state-one")
         assertEquals(SecureBridgeState.PENDING, poll(bridge, "state-two", "opaque-two").state)
     }
 
@@ -38,7 +39,8 @@ class PreparedBridgeOperationsTest {
         assertEquals(SecureBridgeState.PENDING, bridge.dispatch(request("one", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference()}\"}")).state)
         complete?.invoke(PreparedRecoveryState.PAID)
         assertEquals(SecureBridgeState.PAID, operations.poll("colliding-reference"))
-        assertEquals(SecureBridgeState.REJECTED, bridge.dispatch(request("two", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference('B')}\"}")).state)
+        val rejected = bridge.dispatch(request("two", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference('B')}\"}"))
+        assertTrue(rejected.state == SecureBridgeState.REJECTED && rejected.operationRef == null)
         assertEquals(SecureBridgeState.PAID, operations.poll("colliding-reference"))
         assertEquals(1, launches)
     }
@@ -83,11 +85,13 @@ class PreparedBridgeOperationsTest {
         val response = bridge.dispatch(request("one", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference()}\"}"))
         val reference = requireNotNull(response.operationRef)
 
-        assertEquals(SecureBridgeState.REJECTED, poll(bridge, "unknown", "opaque-unknown").state)
-        assertEquals(SecureBridgeState.REJECTED, second.poll(reference))
+        val unknown = poll(bridge, "unknown", "opaque-unknown")
+        assertTrue(unknown.state == SecureBridgeState.REJECTED && unknown.operationRef == null)
+        val crossContext = poll(bridge(second), "cross-context", reference)
+        assertTrue(crossContext.state == SecureBridgeState.REJECTED && crossContext.operationRef == null)
         first.invalidate()
         val stale = poll(bridge, "stale", reference)
-        assertEquals(SecureBridgeState.REJECTED, stale.state)
+        assertTrue(stale.state == SecureBridgeState.REJECTED && stale.operationRef == null)
         assertFalse(stale.toString().contains(reference))
     }
 
