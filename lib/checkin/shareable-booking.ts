@@ -1,4 +1,5 @@
 import type { CourseData } from "@/constants/courses"
+import { getPotentialCoursePromotionLabels } from "@/lib/promotions/course-promotions"
 import { buildQrBookingUrl } from "@/lib/checkin/qr-booking-links"
 import { getTimesForWeekday, parseScheduleRules } from "@/lib/schedule-rules"
 
@@ -31,6 +32,7 @@ export type ShareableBookingOccurrence = {
   coverImageUrl: string | null
   instructorName: string
   bookingUrl: string
+  promotionLabels?: string[]
 }
 
 export type BookingOccurrenceGroup = {
@@ -155,6 +157,14 @@ export const buildShareableBookingOccurrences = (
             date,
             time,
             durationMinutes: durationMinutes ?? undefined,
+          }),
+          promotionLabels: getPotentialCoursePromotionLabels({
+            promotions: course.scheduleRules && typeof course.scheduleRules === "object"
+              ? (course.scheduleRules as Record<string, unknown>).promotions
+              : [],
+            channel: "public_booking",
+            classDate: date,
+            purchaseDate: firstDate,
           }),
         })
       }
