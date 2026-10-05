@@ -6,7 +6,7 @@
 
 ## Objective
 
-Convert public booking visitors during the Latin Heritage campaign by awarding one physical country pin after a qualifying card payment and recording its fulfillment against the identified student. The physical pin is independent from class pricing, customer eligibility, and package usage.
+Convert public booking visitors during the Latin Heritage campaign by awarding one physical country pin after a qualifying card payment and recording its fulfillment against the identified student. Pin acquisition remains independent from pricing and package usage. A separately configured course promotion MAY use verified delivered-pin status as an audience requirement under `docs/specs/course-promotions/requirements.md`.
 
 ## Scope
 
@@ -18,7 +18,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - Create a pending country-pin entitlement only after a successful qualifying card payment.
 - Let authorized staff mark the physical pin as delivered.
 - Show campaign country and pending/delivered status in the staff student panel.
-- Preserve the existing server-authoritative pricing contract: verified first-time customers receive the US$15 new-student price, existing customers receive the current regular price, and applicable package holders book against their package.
+- Preserve server-authoritative pricing: applicable packages retain priority, existing first-time pricing remains valid, and staff-configured course promotions may supply a lower independently authorized price.
 - Make campaign acquisition and benefit dates centrally configurable, initially October 2026 in `America/New_York`.
 - Require card/wallet for remote public web booking while preserving cash for trusted in-studio kiosk flows.
 - Preserve PLI branding and selected class context throughout the booking handoff without flashing the general course/home experience.
@@ -43,7 +43,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 ## Acquisition Requirements
 
 1. Any student without an existing Heritage country-pin entitlement MAY earn the benefit once.
-2. The public booking campaign announcement MUST explain that a completed online payment earns a country pin. It MUST NOT imply that pin status changes class pricing.
+2. The public booking campaign announcement MUST explain that a completed online payment earns a country pin. Any separate delivered-pin class benefit MUST be presented as a bounded course promotion and MUST NOT imply that pending status or client claims change pricing.
 3. The booking journey MUST request a country from a controlled country selector for a student attempting to earn the benefit. The campaign geography MUST be limited to Hispanic America and Spain: Argentina, Bolivia, Chile, Colombia, Costa Rica, Cuba, Dominican Republic, Ecuador, El Salvador, Guatemala, Honduras, Mexico, Nicaragua, Panama, Paraguay, Peru, Puerto Rico, Uruguay, Venezuela, and Spain.
 4. Country input and campaign markers MUST be treated as untrusted until validated server-side. Every country outside the campaign geography MUST be rejected even when it is otherwise a valid ISO country code.
 5. A qualifying acquisition MUST:
@@ -55,7 +55,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 7. A successful qualifying payment MUST create exactly one pending entitlement associated with the user and source purchase.
 8. Replayed Stripe events or later qualifying purchases MUST NOT create duplicate entitlements.
 9. A free-form note MAY expose the country for staff readability, but MUST NOT be the authorization source for delivery status or pricing.
-10. Existing new-student, regular drop-in, and package pricing remain independent from the campaign and authoritative.
+10. Existing new-student, regular drop-in, package, and course-promotion decisions remain independently server-authoritative.
 
 ## Delivery Requirements
 
@@ -70,7 +70,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
    - Unauthorized staff MUST see pending status without receiving a delivery action.
    - A delivered medallion MUST remain visible in an active/full-color state with an accessible delivered label.
    - Full-width pin status and delivery rows MUST NOT duplicate the medallion.
-7. Pending or delivered pin state MUST NOT affect pricing or package eligibility.
+7. Pin state MUST NOT affect package eligibility. Delivered state MAY satisfy a course promotion audience only through the server-authoritative promotion contract; pending state never qualifies.
 8. Moving a delivered medallion beside the student name is deferred until campaign closure.
 
 ## Pricing and Package Requirements
@@ -82,7 +82,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 5. Package capacity MUST be reserved so one credit cannot back multiple future bookings, while definitive credit consumption and usage reporting occur only when attendance transitions from scheduled to attended.
 6. Canceling a scheduled package booking before attendance MUST release its reservation without consuming a credit.
 7. Package, regular, and new-student decisions MUST be recalculated server-side from the authenticated user, selected class, purchase history, and package state.
-8. Client flags, query parameters, pin status, notes, or displayed totals MUST NOT authorize a price or package credit.
+8. Client flags, query parameters, notes, displayed totals, or unverified pin claims MUST NOT authorize a price or package credit. A delivered entitlement may authorize only a bounded course promotion resolved on the server.
 
 ## Payment-Channel Requirements
 
@@ -102,7 +102,7 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 5. The timed promotion MUST use a concise flag collage instead of the supplied real-pin photograph and MUST keep explanatory copy short enough to scan immediately.
 6. The timed promotion MUST not open over the country-selection dialog or interrupt a booking already in progress.
 7. Campaign-only treatment MUST disappear automatically outside the configured acquisition window.
-8. Campaign copy MUST concisely communicate that online booking earns a selected-country pin and MUST NOT claim a pin-controlled class price.
+8. Campaign copy MUST concisely communicate that online booking earns a selected-country pin. Any delivered-pin class benefit MUST use the applicable course promotion label and MUST NOT promise an unverified price.
 9. Selecting `BOOK` MUST preserve the selected course, date, time, and country through the existing registration/checkout flow.
 10. Navigation MUST immediately show a branded PLI transition instead of the general course/home page or its loading skeleton.
 11. The compact form MUST retain the PLI logo, Heritage heading, and a concise summary of the selected class and campaign. The global announcement, catalog navigation, footer, home control, and assistant chrome MUST remain hidden for the entire public booking process.
@@ -140,8 +140,8 @@ Convert public booking visitors during the Latin Heritage campaign by awarding o
 - [ ] Non-card or unsuccessful payments create no entitlement.
 - [ ] Staff can see the gray pending country medallion over the avatar and authorized staff can mark the pin delivered exactly once by pointer or keyboard.
 - [ ] Delivered status remains visible as an active/full-color Heritage pin medallion without duplicate full-width rows.
-- [ ] New verified customers receive the existing US$15 new-student price, existing customers receive the regular price, and applicable package holders can reserve with their package.
-- [ ] Pin pending/delivered state produces no pricing or package-routing difference.
+- [ ] New verified customers retain existing first-time pricing, applicable package holders reserve with their package, and other customers receive the lowest independently authorized server price.
+- [ ] Pending pin state produces no pricing difference; delivered state affects price only when a bounded course promotion requires it.
 - [ ] Package reservations cannot oversubscribe credits; attendance completion consumes the credit and pre-attendance cancellation releases the reservation.
 - [ ] Remote public booking is card/wallet only, while trusted kiosk cash remains available.
 - [ ] Changing the bounded campaign end configuration extends eligibility without logic changes.

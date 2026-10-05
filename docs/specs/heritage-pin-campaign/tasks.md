@@ -58,6 +58,13 @@ The delivered-pin pricing items below describe the original implementation histo
 
 Available validation is green: 3,485 non-integration tests, typecheck, ESLint with zero errors, isolated-port Playwright, and desktop/mobile inspection. Seven unrelated PostgreSQL integration suites remain blocked because this worktree has no `DATABASE_URL`; the attempted full run otherwise reported 3,506 passing tests and 41 skips. Delivery slicing remains required before PR creation.
 
+## Work Unit 9 — Course promotion integration
+
+- [ ] Delegate delivered-pin pricing authority to the bounded course-promotions contract.
+- [ ] Keep pending status and pin acquisition independent from pricing.
+- [ ] Configure the approved October US$15 benefit on the two replacement courses.
+- [ ] Preserve package-first routing and exact-identity verification.
+
 ## Delivery Notes
 
 - Keep each work-unit commit reviewable and include tests with behavior.

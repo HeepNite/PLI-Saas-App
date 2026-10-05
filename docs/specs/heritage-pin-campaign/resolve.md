@@ -6,8 +6,8 @@
 2. **Acquisition:** A successful card/wallet payment from the public campaign journey during the bounded acquisition window creates a pending entitlement.
 3. **Country:** The visitor selects a country from a controlled list. Country of origin is campaign data, not the billing-address country.
 4. **Physical handoff:** Payment does not claim physical possession. Staff must mark the pin delivered.
-5. **No pricing authority:** Pending, delivered, or absent physical pin state never changes class price or package eligibility.
-6. **Pricing:** Verified first-time customers retain the existing US$15 new-student price; existing customers without an applicable package receive the regular price.
+5. **Bounded promotion authority:** Pin state never changes package eligibility. Delivered state may satisfy only a server-authoritative course promotion audience; pending or absent state never qualifies.
+6. **Pricing:** Verified first-time customers retain existing first-purchase pricing, and other customers receive the lowest independently authorized server price.
 7. **Packages:** Existing customers with an applicable active package reserve the selected class against that package; reservation capacity is held at booking and credit is consumed when attendance is completed.
 8. **Extension:** October 2026 is the default. Central configuration may extend the acquisition end date.
 9. **Remote payment:** Public remote purchases use card/wallet only when payment is actually required.
@@ -19,7 +19,7 @@
 
 ### Note versus structured state
 
-The country may be rendered as a human-readable note, but entitlement and delivery are derived from structured purchase metadata. Physical-pin metadata is never a pricing or package authorization mechanism.
+The country may be rendered as a human-readable note, but entitlement and delivery are derived from structured purchase metadata. Physical-pin metadata never authorizes package usage or an arbitrary price; delivered status may satisfy only a bounded course promotion defined by `docs/specs/course-promotions/requirements.md`.
 
 ### Existing authentication PIN
 
@@ -27,7 +27,7 @@ The country may be rendered as a human-readable note, but entitlement and delive
 
 ### Existing pricing and package routing
 
-A verified customer with no successful purchase and no package history may pay US$15 under the existing first-purchase rule. Existing customers pay the regular price unless an active package applies to the selected course. In that case the public booking reserves the class against the package, prevents credit oversubscription, and finalizes consumption only when attendance becomes attended. Heritage pin state is irrelevant to every branch.
+A verified customer with no successful purchase and no package history may receive existing first-purchase pricing. An active applicable package remains first priority: public booking reserves the class, prevents credit oversubscription, and finalizes consumption only when attendance becomes attended. Without a package, checkout compares independently authorized prices. Delivered Heritage status may qualify for a bounded course promotion; pending status is irrelevant.
 
 ### Existing QR and kiosk flows
 
