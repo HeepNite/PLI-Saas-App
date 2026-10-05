@@ -47,12 +47,15 @@ data class AttemptTicket(
     val locationId: String,
 )
 
+enum class AttemptMode { LEGACY, PREPARED }
+
 data class AttemptState(
     val ticket: AttemptTicket?,
     val sessionAssociation: String,
     val origin: String,
     val paymentIntentId: String? = null,
     val resolved: Boolean = false,
+    val mode: AttemptMode = AttemptMode.LEGACY,
 )
 
 data class DurableState(
@@ -119,12 +122,24 @@ interface StudentSelectionActions {
  * Coordinates the one retained server-signed ticket. It has no SDK collection entry point;
  * hardware collection belongs to the later native unit.
  */
-class PurchaseCoordinator(
+class PurchaseCoordinator private constructor(
     private val approvedOrigin: ApprovedOrigin,
     private val store: StateStore,
     private val api: PurchaseApi,
+    private val preparedApi: PreparedPurchaseApi?,
     private val clock: () -> Long,
 ) : StudentSelectionActions {
+    constructor(approvedOrigin: ApprovedOrigin, store: StateStore, api: PurchaseApi, clock: () -> Long) :
+        this(approvedOrigin, store, api, null, clock)
+
+    constructor(
+        approvedOrigin: ApprovedOrigin,
+        store: StateStore,
+        api: PurchaseApi,
+        clock: () -> Long,
+        preparedApi: PreparedPurchaseApi?,
+    ) : this(approvedOrigin, store, api, preparedApi, clock)
+
     companion object {
         // One kiosk process must not issue/recover two attempts concurrently through separate controllers.
         private val operationLock = ReentrantLock()
@@ -190,6 +205,22 @@ class PurchaseCoordinator(
 
     fun start(): Outcome = exclusive { performStart() }
 
+    /** Admits one opaque exact-total purchase without retaining its one-use reference. */
+    fun startPrepared(preparedPurchaseReference: String): Outcome = exclusive {
+        validatePreparedReference(preparedPurchaseReference)
+        val state = load()
+        val session = originalSession(state)
+        require(state.attempt == null) { "A retained attempt requires reconciliation" }
+        val api = requireNotNull(preparedApi) { "Prepared purchase API is unavailable" }
+        // Persist before the external issue request; a lost response must never be replayed.
+        val marker = AttemptState(null, session.association, session.origin, mode = AttemptMode.PREPARED)
+        persist(DurableState(session, marker))
+        val ticket = api.preparedAttempt(session, preparedPurchaseReference)
+        validateNewTicket(ticket)
+        persist(DurableState(session, marker.copy(ticket = ticket)))
+        Outcome.PENDING
+    }
+
     /**
      * Returns only the SDK handoff for one pending, durably retained PaymentIntent. The secret is
      * validated before return and is never copied into [DurableState].
@@ -207,7 +238,7 @@ class PurchaseCoordinator(
         require(!attempt.resolved) { "Resolved records remain retained without a reset operation" }
         val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
         val id = requireNotNull(attempt.paymentIntentId) { "No known PaymentIntent exists to recover" }
-        accept(session, attempt, api.recover(session, ticket, id))
+        accept(session, attempt, recover(session, attempt, ticket, id))
     }
 
     fun login(login: () -> StaffSession): StaffSession = exclusive {
@@ -241,6 +272,10 @@ class PurchaseCoordinator(
         if (attempt != null) {
             require(!attempt.resolved) { "A resolved record has no reset operation" }
             validateBinding(session, attempt)
+            require(attempt.mode == AttemptMode.LEGACY || attempt.ticket != null) {
+                "Prepared issuance outcome is unknown; reconcile with an operator"
+            }
+            if (attempt.mode == AttemptMode.PREPARED) preparedApiOrFail()
             // Issuing a ticket is the last legal action before explicit reader binding.
             // A retained ticket or ID is resumed/recovered by its dedicated paths, never reissued.
             return Outcome.PENDING
@@ -277,10 +312,20 @@ class PurchaseCoordinator(
             val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
             val id = attempt.paymentIntentId
             if (id != null) {
-                return collectionStart(session, attempt, api.refreshCollection(session, ticket, id))
+                val payment = if (attempt.mode == AttemptMode.PREPARED) {
+                    preparedApiOrFail().preparedPaymentIntent(session, ticket, id)
+                } else {
+                    api.refreshCollection(session, ticket, id)
+                }
+                return collectionStart(session, attempt, payment)
             }
             require(ticket.expiresAt > clock()) { "The unknown ticket expired; reconcile with an operator" }
-            return collectionStart(session, attempt, api.prepare(session, ticket))
+            val payment = if (attempt.mode == AttemptMode.PREPARED) {
+                preparedApiOrFail().preparedPaymentIntent(session, ticket)
+            } else {
+                api.prepare(session, ticket)
+            }
+            return collectionStart(session, attempt, payment)
         }
 
         throw IllegalStateException("A durable signed ticket and validated reader are required before collection")
@@ -306,6 +351,7 @@ class PurchaseCoordinator(
         validateBinding(session, attempt)
         require(!attempt.resolved) { "Resolved records remain retained without a reset operation" }
         requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
+        if (attempt.mode == AttemptMode.PREPARED) preparedApiOrFail()
         return if (attempt.paymentIntentId != null) {
             continueAttempt(session, attempt)
         } else {
@@ -317,7 +363,15 @@ class PurchaseCoordinator(
     private fun continueAttempt(session: StaffSession, attempt: AttemptState): Outcome {
         val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
         val id = requireNotNull(attempt.paymentIntentId) { "No known PaymentIntent exists to recover" }
-        return accept(session, attempt, api.recover(session, ticket, id))
+        return accept(session, attempt, recover(session, attempt, ticket, id))
+    }
+
+    private fun recover(session: StaffSession, attempt: AttemptState, ticket: AttemptTicket, id: String): PaymentResult =
+        if (attempt.mode == AttemptMode.PREPARED) preparedApiOrFail().preparedRecover(session, ticket, id)
+        else api.recover(session, ticket, id)
+
+    private fun preparedApiOrFail(): PreparedPurchaseApi = requireNotNull(preparedApi) {
+        "Prepared purchase API is unavailable"
     }
 
     private fun accept(session: StaffSession, attempt: AttemptState, payment: PaymentResult): Outcome {
@@ -361,7 +415,8 @@ class PurchaseCoordinator(
         val attempt = state.attempt ?: return
         val session = requireNotNull(state.session) { "An attempt requires its original session" }
         validateBinding(session, attempt)
-        if (attempt.resolved) require(attempt.paymentIntentId != null) { "Resolved attempt lacks a payment ID" }
+        if (attempt.resolved) require(attempt.paymentIntentId != null && attempt.ticket != null) { "Resolved attempt lacks payment state" }
+        if (attempt.ticket == null) require(attempt.paymentIntentId == null && !attempt.resolved) { "Ticketless attempt has payment state" }
         attempt.ticket?.let(::validateTicket)
         if (attempt.paymentIntentId != null) require(attempt.paymentIntentId.isNotBlank()) { "Invalid payment ID" }
     }
@@ -375,6 +430,20 @@ class PurchaseCoordinator(
     private fun validateBinding(session: StaffSession, attempt: AttemptState) {
         require(attempt.origin == approvedOrigin.value && attempt.origin == session.origin) { "Attempt origin changed" }
         require(attempt.sessionAssociation == session.association) { "Attempt session changed" }
+    }
+
+    private fun validatePreparedReference(reference: String) {
+        require(reference.length == 43 && reference.all { it.isLetterOrDigit() || it == '-' || it == '_' }) {
+            "Invalid prepared purchase reference"
+        }
+        val decoded = try {
+            java.util.Base64.getUrlDecoder().decode(reference)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid prepared purchase reference", error)
+        }
+        require(decoded.size == 32 && java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(decoded) == reference) {
+            "Invalid prepared purchase reference"
+        }
     }
 
     private fun validateNewTicket(ticket: AttemptTicket) {

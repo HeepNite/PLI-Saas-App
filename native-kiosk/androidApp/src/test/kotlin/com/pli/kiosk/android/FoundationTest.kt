@@ -53,8 +53,31 @@ class FoundationTest {
         }
     }
 
-    private fun coordinator(store: StateStore, api: Api = Api(), time: Long = now) =
-        PurchaseCoordinator(origin, store, api, { time })
+    private inner class PreparedApi : PreparedPurchaseApi {
+        var attempts = 0
+        val paymentIds = mutableListOf<String?>()
+        val recoveries = mutableListOf<String>()
+        var result = PaymentResult("pi_fixture", "requires_payment_method", false, "secret_fixture")
+        var onAttempt: () -> Unit = {}
+        var failAttempt = false
+        override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket {
+            attempts++
+            onAttempt()
+            if (failAttempt) throw IOException("lost response")
+            return ticket
+        }
+        override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?): PaymentResult {
+            paymentIds += paymentIntentId
+            return result
+        }
+        override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+            recoveries += paymentIntentId
+            return result
+        }
+    }
+
+    private fun coordinator(store: StateStore, api: Api = Api(), time: Long = now, prepared: PreparedPurchaseApi? = null) =
+        PurchaseCoordinator(origin, store, api, { time }, prepared)
 
     private fun selectAndConfirm(coordinator: PurchaseCoordinator) {
         coordinator.lookupStudent("+15550000000")
@@ -64,8 +87,9 @@ class FoundationTest {
     @Test fun ticketIsDurableBeforeExplicitCollectionPreparation() {
         val store = MemoryStore(DurableState(session))
         val api = Api()
+        val prepared = PreparedApi()
         api.onPrepare = { assertEquals(ticket, store.state.attempt?.ticket) }
-        val c = coordinator(store, api)
+        val c = coordinator(store, api, prepared = prepared)
         selectAndConfirm(c)
         assertEquals(Outcome.PENDING, c.start())
         assertEquals(ticket, store.state.attempt?.ticket)
@@ -74,6 +98,8 @@ class FoundationTest {
         c.startCollection()
         assertEquals("pi_fixture", store.state.attempt?.paymentIntentId)
         assertFalse(c.collectionEnabled)
+        assertEquals(0, prepared.attempts)
+        assertTrue(prepared.paymentIds.isEmpty())
     }
 
     @Test fun restartWithKnownIdOnlyRecoversEvenAfterExpiry() {
@@ -216,6 +242,77 @@ class FoundationTest {
             assertEquals("pi_fixture", first.get(5, TimeUnit.SECONDS).attempt.paymentIntentId)
             assertEquals(1, api.issued)
         } finally { release.countDown(); pool.shutdownNow() }
+    }
+
+    @Test fun preparedMarkerIsDurableBeforeOneTimeIssueAndNeverRetainsReference() {
+        val store = MemoryStore(DurableState(session))
+        val prepared = PreparedApi()
+        val reference = "A".repeat(43)
+        listOf("", "A".repeat(42), "!" + "A".repeat(42), "B".repeat(43)).forEach {
+            assertFails { coordinator(store, prepared = prepared).startPrepared(it) }
+        }
+        assertNull(store.state.attempt)
+        assertEquals(0, prepared.attempts)
+        prepared.onAttempt = {
+            assertEquals(AttemptMode.PREPARED, store.state.attempt?.mode)
+            assertEquals(session.association, store.state.attempt?.sessionAssociation)
+            assertEquals(session.origin, store.state.attempt?.origin)
+            assertNull(store.state.attempt?.ticket)
+            assertFalse(store.state.toString().contains(reference))
+        }
+
+        assertEquals(Outcome.PENDING, coordinator(store, prepared = prepared).startPrepared(reference))
+
+        assertEquals(1, prepared.attempts)
+        assertEquals(ticket, store.state.attempt?.ticket)
+        assertFalse(store.state.toString().contains(reference))
+    }
+
+    @Test fun lostPreparedIssueResponseBlocksEveryRetryWithoutReissuing() {
+        val store = MemoryStore(DurableState(session))
+        val prepared = PreparedApi().apply { failAttempt = true }
+        assertFails { coordinator(store, prepared = prepared).startPrepared("A".repeat(43)) }
+
+        val restarted = coordinator(store, prepared = prepared)
+        assertFails { restarted.startPrepared("A".repeat(43)) }
+        assertFails { restarted.start() }
+        assertFails { restarted.startCollection() }
+        assertEquals(1, prepared.attempts)
+        assertNull(store.state.attempt?.ticket)
+        assertEquals(AttemptMode.PREPARED, store.state.attempt?.mode)
+    }
+
+    @Test fun preparedPaymentAndRecoveryUseOnlyPreparedApiAndRetainSameId() {
+        val store = MemoryStore(DurableState(session))
+        val legacy = Api()
+        val prepared = PreparedApi()
+        val c = coordinator(store, legacy, prepared = prepared)
+        c.startPrepared("A".repeat(43))
+
+        c.startCollection()
+        assertEquals(listOf<String?>(null), prepared.paymentIds)
+        assertTrue(legacy.submissions.isEmpty())
+        assertEquals("pi_fixture", store.state.attempt?.paymentIntentId)
+        c.startCollection()
+        assertEquals(listOf<String?>(null, "pi_fixture"), prepared.paymentIds)
+
+        c.resume()
+        assertEquals(listOf("pi_fixture"), prepared.recoveries)
+        assertTrue(legacy.recoveries.isEmpty())
+        prepared.result = PaymentResult("pi_other", "requires_payment_method", false, "secret_fixture")
+        assertFails { c.recoverKnownAttempt() }
+        assertEquals(listOf("pi_fixture", "pi_fixture"), prepared.recoveries)
+    }
+
+    @Test fun preparedModeWithoutPreparedApiFailsClosedWithoutLegacyFallback() {
+        val store = MemoryStore(DurableState(session, AttemptState(ticket, session.association, session.origin, mode = AttemptMode.PREPARED)))
+        val legacy = Api()
+
+        assertFails { coordinator(store, legacy).startCollection() }
+        assertFails { coordinator(store, legacy).resume() }
+
+        assertTrue(legacy.submissions.isEmpty())
+        assertTrue(legacy.recoveries.isEmpty())
     }
 
     @Test fun approvedOriginRejectsMissingInsecureOrAmbiguousConfiguration() {

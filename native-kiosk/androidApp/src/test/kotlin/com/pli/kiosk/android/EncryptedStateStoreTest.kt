@@ -49,6 +49,48 @@ class EncryptedStateStoreTest {
         assertEquals(listOf("write", "replace", "sync-directory"), files.operations)
     }
 
+    @Test
+    fun legacySnapshotWithoutModeDecodesAsLegacy() {
+        val state = rawStore("""{"session":null,"attempt":{"ticket":null,"sessionAssociation":"association","origin":"https://approved.invalid","paymentIntentId":null,"resolved":false}}""").read()
+
+        assertEquals(AttemptMode.LEGACY, state.attempt?.mode)
+    }
+
+    @Test
+    fun preparedAttemptRoundTripsWithClosedMode() {
+        val store = EncryptedStateStore(directory, TestStateCryptography, RecordingAtomicStateFileWriter())
+        val state = DurableState(attempt = AttemptState(null, "association", "https://approved.invalid", mode = AttemptMode.PREPARED))
+
+        store.write(state)
+
+        assertEquals(state, store.read())
+    }
+
+    @Test
+    fun invalidDuplicateAndWrongTypeModesFailClosed() {
+        listOf(
+            "\"mode\":\"UNKNOWN\"",
+            "\"mode\":false",
+            "\"mode\":\"LEGACY\",\"mode\":\"PREPARED\"",
+        ).forEach { mode ->
+            assertFailsWith<IOException> {
+                rawStore("""{"session":null,"attempt":{"ticket":null,"sessionAssociation":"association","origin":"https://approved.invalid","paymentIntentId":null,"resolved":false,$mode}}""").read()
+            }
+        }
+    }
+
+    @Test
+    fun ticketlessPreparedStateWithPaymentIdentityFailsClosed() {
+        assertFailsWith<IOException> {
+            rawStore("""{"session":null,"attempt":{"ticket":null,"sessionAssociation":"association","origin":"https://approved.invalid","paymentIntentId":"pi_fixture","resolved":false,"mode":"PREPARED"}}""").read()
+        }
+    }
+
+    private fun rawStore(json: String): EncryptedStateStore {
+        File(directory, "internal-purchase-state.v1").writeBytes(byteArrayOf(1) + ByteArray(12) + json.toByteArray())
+        return EncryptedStateStore(directory, TestStateCryptography, RecordingAtomicStateFileWriter())
+    }
+
     private object TestStateCryptography : StateCryptography {
         override fun encrypt(plaintext: ByteArray): ByteArray = byteArrayOf(1) + ByteArray(12) + plaintext
         override fun decrypt(ciphertext: ByteArray): ByteArray = ciphertext.copyOfRange(13, ciphertext.size)

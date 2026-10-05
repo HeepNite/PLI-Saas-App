@@ -178,6 +178,7 @@ class EncryptedStateStore private constructor(
         put("origin", attempt.origin)
         put("paymentIntentId", attempt.paymentIntentId ?: JSONObject.NULL)
         put("resolved", attempt.resolved)
+        put("mode", attempt.mode.name)
     }
 
     private fun ticketJson(ticket: AttemptTicket): JSONObject = JSONObject().apply {
@@ -188,9 +189,11 @@ class EncryptedStateStore private constructor(
     }
 
     private fun decode(value: String): DurableState {
+        require(countObjectKeys(value, "mode") <= 1) { "Duplicate mode" }
         val root = JSONObject(value)
         val session = nullableObject(root, "session")?.let(::decodeSession)
         val attempt = nullableObject(root, "attempt")?.let(::decodeAttempt)
+        attempt?.let(::validateAttemptSnapshot)
         return DurableState(session, attempt)
     }
 
@@ -207,7 +210,53 @@ class EncryptedStateStore private constructor(
         requiredString(value, "origin"),
         nullableString(value, "paymentIntentId"),
         requiredBoolean(value, "resolved"),
+        decodeMode(value),
     )
+
+    private fun decodeMode(value: JSONObject): AttemptMode {
+        if (!value.has("mode")) return AttemptMode.LEGACY
+        val mode = value.opt("mode") as? String ?: throw IllegalArgumentException("Invalid mode")
+        return try {
+            AttemptMode.valueOf(mode)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalArgumentException("Invalid mode", error)
+        }
+    }
+
+    private fun validateAttemptSnapshot(attempt: AttemptState) {
+        if (attempt.ticket == null) require(attempt.paymentIntentId == null && !attempt.resolved) { "Ticketless attempt has payment state" }
+        if (attempt.resolved) require(attempt.ticket != null && attempt.paymentIntentId != null) { "Resolved attempt lacks payment state" }
+    }
+
+    /** JSONObject discards duplicate keys, so count raw object keys before decoding. */
+    private fun countObjectKeys(value: String, expected: String): Int {
+        var count = 0
+        var index = 0
+        while (index < value.length) {
+            if (value[index++] != '\"') continue
+            val key = StringBuilder()
+            while (index < value.length && value[index] != '\"') {
+                if (value[index] == '\\') {
+                    require(++index < value.length) { "Malformed escape" }
+                    val escaped = value[index++]
+                    if (escaped == 'u') {
+                        require(index + 4 <= value.length) { "Malformed unicode escape" }
+                        key.append(value.substring(index, index + 4).toInt(16).toChar())
+                        index += 4
+                    } else {
+                        key.append(escaped)
+                    }
+                } else {
+                    key.append(value[index++])
+                }
+            }
+            require(index < value.length) { "Unterminated string" }
+            index++
+            while (index < value.length && value[index].isWhitespace()) index++
+            if (index < value.length && value[index] == ':' && key.toString() == expected) count++
+        }
+        return count
+    }
 
     private fun decodeTicket(value: JSONObject): AttemptTicket = AttemptTicket(
         requiredString(value, "value"),
