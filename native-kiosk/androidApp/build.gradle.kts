@@ -35,7 +35,7 @@ android {
         manifestPlaceholders["launcherActivity"] = if (readerProvisioningEnabled) {
             "com.pli.kiosk.android.ReaderProvisioningActivity"
         } else {
-            "com.pli.kiosk.android.OperatorActivity"
+            "com.pli.kiosk.android.KioskWebActivity"
         }
     }
     buildFeatures {
@@ -49,6 +49,7 @@ android {
 }
 kotlin.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 dependencies {
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("com.stripe:stripeterminal:5.6.0")
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")

@@ -41,7 +41,7 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 - Payment and provider values remain outside JavaScript.
 - Focused behavior coverage proves the admission and denial boundaries.
 
-**Current state:** Pending; no APK, device, or reader operation is authorized.
+**Current state:** Host/admission is implemented locally; provider dispatch is intentionally not connected, so the web fallback remains authoritative. Only host `onDestroy` invalidates this slice; session/reader invalidation awaits dispatch integration. No APK, device, or reader operation is authorized.
 
 ## 4. Web/native integration
 
@@ -54,7 +54,7 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 - Fresh server `Paid` proves both payment and fulfillment of the exact immutable server-authoritative selection.
 - Focused behavior coverage proves the integration and recovery boundaries.
 
-**Current state:** The local W3a web client is implemented but uncommitted and unreviewed: focused bridge/hook tests (63/63) and non-incremental TypeScript passed. It synchronously locks native preparation, admits one AndroidX handoff, and retains the embedded fallback only before admission. No host, provider, deployment, or LIVE payment operation is authorized.
+**Current state:** The W3a web handoff correction is commit `01a32300`; its native review escalated with `native_stop_required`. The web client synchronously locks native preparation, admits one AndroidX handoff, and retains the embedded fallback only before admission. The local host is admission-only: provider dispatch remains unconnected. No provider, deployment, or LIVE payment operation is authorized.
 
 ## 5. Physical and deployment gate
 

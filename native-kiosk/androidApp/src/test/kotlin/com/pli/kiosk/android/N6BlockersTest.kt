@@ -24,10 +24,10 @@ class N6BlockersTest {
     private val ticket = AttemptTicket("ticket", now + 100_000, "tmr_fixture", Approved.LOCATION)
     private val reader = ConnectedReader(ticket.readerId, Approved.M2_SERIAL, "stripe_m2", Approved.LOCATION)
 
-    @Test fun operatorActivityIsLaunchable() {
+    @Test fun kioskWebActivityIsTheDefaultLauncher() {
         val context = RuntimeEnvironment.getApplication()
         val launchIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(context.packageName)
-        assertTrue(context.packageManager.queryIntentActivities(launchIntent, 0).any { it.activityInfo.name == OperatorActivity::class.java.name })
+        assertTrue(context.packageManager.queryIntentActivities(launchIntent, 0).any { it.activityInfo.name == KioskWebActivity::class.java.name })
     }
 
     @Test fun discoverySelectionAndConnectionHaveSeparateExactGatesAndNotifyObservers() {
