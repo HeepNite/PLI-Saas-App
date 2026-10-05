@@ -4,6 +4,7 @@ export const WIZARD_STEP_CONFIGS: Record<SchoolWizardEntity, SchoolWizardStepCon
   courses: [
     { key: "main-info", label: "Info" },
     { key: "prices", label: "Prices" },
+    { key: "promotions", label: "Promotions" },
     { key: "media-assets", label: "Media" },
     { key: "schedule", label: "Schedule" },
     { key: "course-links", label: "Relations" },

@@ -7,6 +7,7 @@ import {
   type CoursePublicationMode,
   type CourseSpecialDiscountType,
 } from "./staffAdminConstants"
+import { normalizeCoursePromotions } from "@/lib/promotions/course-promotions"
 import { formatClockLabel, formatIsoDate, normalizeClockTime } from "./staffAdminFormatters"
 import type {
   CoursePublicationSettings,
@@ -223,11 +224,12 @@ export const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRule
   const specialEvents = normalizeSpecialEventEntries(source.specialEvents)
   const publication = normalizePublicationSettings(source.publication)
   const specialDiscount = normalizeSpecialDiscountSettings(source.specialDiscount)
+  const promotions = normalizeCoursePromotions(source.promotions)
 
   const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
   const hasSpecialDiscount =
     specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
-  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
+  if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount && promotions.length === 0) return null
 
   const target = Number(source.weeklyDaysTarget)
   const weeklyDaysTarget = Number.isFinite(target) ? Math.max(1, Math.min(7, Math.round(target))) : Math.max(1, Math.min(7, rules.length))
@@ -247,6 +249,7 @@ export const normalizeCourseScheduleRules = (value: unknown): CourseScheduleRule
     specialEvents,
     publication,
     specialDiscount,
+    promotions,
   }
 }
 

@@ -6,6 +6,7 @@ import type {
 } from "@/lib/security/staff-category"
 import type { StaffRequestStatus, StaffRequestType } from "@/lib/security/staff-request"
 import type { StripeFailureInfo } from "@/lib/stripe-failure"
+import type { CoursePromotion } from "@/lib/promotions/course-promotions"
 import type {
   CoursePublicationMode,
   CourseSpecialDiscountType,
@@ -522,6 +523,7 @@ export type CourseFormState = {
   specialDiscountType: CourseSpecialDiscountType
   specialDiscountCustomLabel: string
   specialDiscountPrice: string
+  promotions?: CoursePromotion[]
   availableTimesCsv: string
   active: boolean
   specialClassOperationsEnabled: boolean
@@ -600,6 +602,7 @@ export type CourseScheduleRulesPayload = {
   specialEvents: CourseSpecialEventEntry[]
   publication?: CoursePublicationSettings
   specialDiscount?: CourseSpecialDiscountSettings
+  promotions?: CoursePromotion[]
 }
 
 export type PackageFormState = {

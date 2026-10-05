@@ -281,13 +281,19 @@ function CoursePreviewSummary({
   )
 }
 
-function CourseDiscountSummary({ courseForm, formatUsdInputLabel }: { courseForm: CourseFormState; formatUsdInputLabel: (value: string) => string }) {
-  if (courseForm.specialDiscountType === "none") return null
+function CourseDiscountSummary({ courseForm }: { courseForm: CourseFormState; formatUsdInputLabel: (value: string) => string }) {
+  const promotions = courseForm.promotions ?? []
+  if (promotions.length === 0) return null
 
   return (
-    <p className="text-black/75 dark:text-white/75">
-      Discount: {formatDiscountLabel(courseForm)} · Price {formatUsdInputLabel(courseForm.specialDiscountPrice)}
-    </p>
+    <div className="text-black/75 dark:text-white/75">
+      <p>Promotions: {promotions.length}</p>
+      <ul className="list-inside list-disc">
+        {promotions.map((promotion) => (
+          <li key={promotion.id}>{promotion.label} · {promotion.active ? "Active" : "Inactive"}</li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -313,12 +319,6 @@ function CourseReviewVariants({ variants, courseTitle, dropInPrice, formatUsdInp
       </div>
     </div>
   )
-}
-
-function formatDiscountLabel(courseForm: CourseFormState) {
-  if (courseForm.specialDiscountType === "custom") return courseForm.specialDiscountCustomLabel || "Custom"
-  if (courseForm.specialDiscountType === "valentines_desc") return "San Valentin desc"
-  return "Navidad desc"
 }
 
 function formatPublication(courseForm: CourseFormState) {

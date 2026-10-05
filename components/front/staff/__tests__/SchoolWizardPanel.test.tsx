@@ -18,7 +18,7 @@ const wizard: SchoolWizardState = {
   goToEntity: vi.fn(),
   nextStep: vi.fn(),
   prevStep: vi.fn(),
-  totalSteps: 7,
+  totalSteps: 8,
 }
 
 function PublishFailureHarness({ action }: { action: "Save Draft" | "Publish" }) {
@@ -71,12 +71,12 @@ describe("SchoolWizardPanel", () => {
     return container
   }
 
-  it("keeps the exact seven-step Course Studio order", async () => {
+  it("keeps Promotions in the bounded visible Course Studio order", async () => {
     const node = await render(<SchoolWizardPanel wizard={wizard} enabledContext={{ courseEditingSlug: null }} />)
     const nav = node.querySelector('nav[aria-label="Wizard steps"]')
     const labels = Array.from(nav?.querySelectorAll("button > span:last-child") || []).map((item) => item.textContent)
 
-    expect(labels).toEqual(["Info", "Prices", "Media", "Schedule", "Relations", "Preview", "Publish"])
+    expect(labels).toEqual(["Prices", "Promotions", "Media", "Schedule", "Relations", "Preview", "Publish"])
   })
 
   it.each(["Save Draft", "Publish"] as const)("announces an asynchronous %s failure and restores focus", async (action) => {
