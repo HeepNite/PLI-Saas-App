@@ -56,6 +56,8 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 
 **Current state:** The W3a web handoff correction is commit `01a32300`; its native review escalated with `native_stop_required`. The web client synchronously locks native preparation, admits one AndroidX handoff, and retains the embedded fallback only before admission. The local host is admission-only: provider dispatch remains unconnected. No provider, deployment, or LIVE payment operation is authorized.
 
+**Current bounded transport unit:** The Android transport now records the exact-total CookieManager contract without invoking it: a future host supplies the raw WebView Cookie header, which is strictly parsed for exactly one `pli_terminal_session`, bound to `ApprovedOrigin` by digest association, and conservatively locally expires after 15 minutes. `PreparedPurchaseApi` sends only closed prepared attempt/payment/recovery payloads; strict UTF-8 non-lenient `JsonReader` streaming reads one closed response object to EOF, rejects duplicate/unknown/nested/wrong-type fields, malformed strings/escapes/surrogates/trailing content, preserves raw base-10 `Long` ticket expiry, requires boolean payment `paid`, and rejects recovery secrets. Focused transport tests cover request key sets, cookie isolation, response strictness, invalid browser headers, association, and expiry. Remaining blocker: future host code must read CookieManager and encrypt/persist the imported session before bridge admission, then separately compose the prepared API with the bridge/coordinator; neither is in this slice.
+
 ## 5. Physical and deployment gate
 
 **Scope:** Obtain separate approval and perform any Vercel deployment, APK installation, reader provisioning or operation, and LIVE validation.

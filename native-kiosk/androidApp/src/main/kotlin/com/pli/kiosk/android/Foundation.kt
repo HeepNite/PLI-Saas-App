@@ -100,6 +100,13 @@ interface PurchaseApi {
     fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult
 }
 
+/** Exact-total native admission is separate from the legacy phone/student purchase protocol. */
+interface PreparedPurchaseApi {
+    fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket
+    fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String? = null): PaymentResult
+    fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult
+}
+
 enum class Outcome { PENDING, PAID, DISABLED }
 
 /** UI seam: implementations may expose only lookup and explicit confirmation, never a student ID. */
@@ -413,12 +420,18 @@ object Contract {
         require(payload.opt("livemode") == true) { "The server is not LIVE" }
     }
 
+    fun attemptTicket(ticket: AttemptTicket) {
+        require(ticket.value.isNotBlank() && ticket.readerId.isNotBlank() && ticket.expiresAt > 0) { "Invalid attempt ticket" }
+        require(ticket.locationId == Approved.LOCATION) { "Ticket location is not approved" }
+    }
+
     /** `recovery` rejects a client secret even if the server accidentally sends one. */
     fun payment(payload: JSONObject, recovery: Boolean): PaymentResult {
         val id = payload.opt("id") as? String ?: throw IllegalArgumentException("Missing payment ID")
         val status = payload.opt("status") as? String ?: throw IllegalArgumentException("Missing payment status")
         val paid = payload.opt("paid") as? Boolean ?: throw IllegalArgumentException("Missing paid status")
-        require(id.isNotBlank() && (status == "succeeded") == paid) { "Inconsistent payment response" }
+        require(id.isNotBlank() && status.isNotBlank() && (status == "succeeded") == paid) { "Inconsistent payment response" }
+        require(!payload.has("clientSecret") || payload.opt("clientSecret") is String) { "Invalid client secret" }
         val secret = if (payload.has("clientSecret")) payload.opt("clientSecret") as? String else null
         require(secret == null || (!recovery && secret.isNotBlank())) { "Client secret is not allowed for recovery" }
         return PaymentResult(id, status, paid, secret)

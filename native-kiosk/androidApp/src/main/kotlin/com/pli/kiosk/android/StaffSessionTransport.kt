@@ -1,9 +1,14 @@
 package com.pli.kiosk.android
 
+import android.util.JsonReader
+import android.util.JsonToken
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStreamReader
 import java.net.URL
+import java.nio.charset.CodingErrorAction
 import java.security.MessageDigest
 import javax.net.ssl.HttpsURLConnection
 
@@ -37,6 +42,15 @@ class StaffSessionTransport private constructor(
         )
     }
 
+    /**
+     * Imports the native-only CookieManager header; JavaScript neither receives nor supplies this value.
+     * CookieManager exposes no Max-Age, so this conservatively expires the captured session after 15 minutes.
+     */
+    fun importBrowserSession(rawCookieHeader: String): StaffSession {
+        val cookie = parseBrowserSessionCookie(rawCookieHeader)
+        return StaffSession(origin.value, sha256(cookie), cookie, safeBrowserCaptureExpiry())
+    }
+
     /** No arbitrary endpoint, redirect, browser cookie jar, or caller-provided origin is accepted. */
     fun postInternalPurchase(session: StaffSession, action: JSONObject): HttpResponse {
         require(session.origin == origin.value && session.expiresAt > clock()) { "Original staff session is unavailable" }
@@ -48,6 +62,37 @@ class StaffSessionTransport private constructor(
     private fun safeExpiry(maxAge: Long): Long {
         require(maxAge > 0 && maxAge <= MAX_SESSION_SECONDS) { "Invalid staff-session expiry" }
         return Math.addExact(clock(), Math.multiplyExact(maxAge, 1_000L))
+    }
+
+    private fun safeBrowserCaptureExpiry(): Long = Math.addExact(clock(), BROWSER_CAPTURE_TTL_MILLIS)
+
+    private fun parseBrowserSessionCookie(header: String): String {
+        require(header.isNotEmpty() && header.none(::isControl)) { "Browser cookie header is invalid" }
+        val pairs = header.split(';').map { segment ->
+            val pair = segment.trim()
+            val delimiter = pair.indexOf('=')
+            require(pair.isNotEmpty() && delimiter > 0) { "Browser cookie header is invalid" }
+            val name = pair.substring(0, delimiter)
+            val value = pair.substring(delimiter + 1)
+            require(isCookieName(name) && isCookieValue(value)) { "Browser cookie header is invalid" }
+            BrowserCookiePair(name, value)
+        }
+        require(pairs.none { it.name.equals(SESSION_COOKIE, ignoreCase = true) && it.name != SESSION_COOKIE }) {
+            "Browser cookie header is invalid"
+        }
+        val sessionCookies = pairs.filter { it.name == SESSION_COOKIE }
+        require(sessionCookies.size == 1) { "Expected exactly one browser staff-session cookie" }
+        return sessionCookies.single().value
+    }
+
+    private fun isControl(value: Char): Boolean = value.code < 0x20 || value.code == 0x7f
+
+    private fun isCookieName(value: String): Boolean = value.isNotEmpty() && value.all { character ->
+        character in 'A'..'Z' || character in 'a'..'z' || character in '0'..'9' || character in "!#$%&'*+-.^_`|~"
+    }
+
+    private fun isCookieValue(value: String): Boolean = value.isNotEmpty() && value.all { character ->
+        character.code in 0x21..0x7e && character !in "\";,\\"
     }
 
     private fun parseSessionCookie(headers: Map<String, List<String>>): ParsedCookie {
@@ -80,12 +125,14 @@ class StaffSessionTransport private constructor(
         .joinToString("") { "%02x".format(it) }
 
     private data class ParsedCookie(val value: String, val maxAge: Long)
+    private data class BrowserCookiePair(val name: String, val value: String)
 
     private companion object {
         const val LOGIN_PATH = "/api/staff/terminal/session"
         const val INTERNAL_PURCHASE_PATH = "/api/kiosk/terminal/internal-purchase"
         const val SESSION_COOKIE = "pli_terminal_session"
         const val MAX_SESSION_SECONDS = 30L * 24 * 60 * 60
+        const val BROWSER_CAPTURE_TTL_MILLIS = 15L * 60 * 1_000
     }
 }
 
@@ -96,7 +143,7 @@ class StaffSessionTransport private constructor(
  */
 class StaffSessionPurchaseApi(
     private val transport: StaffSessionTransport,
-) : PurchaseApi {
+) : PurchaseApi, PreparedPurchaseApi {
     override fun lookup(session: StaffSession, phone: String): StudentLookupResult {
         val response = transport.postInternalPurchase(session, JSONObject().put("action", "student-lookup").put("phone", phone))
         return when (response.status) {
@@ -153,12 +200,86 @@ class StaffSessionPurchaseApi(
         recovery = true,
     )
 
+    override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket {
+        require(preparedPurchaseReference.isNotBlank()) { "Prepared purchase reference is required" }
+        val response = transport.postInternalPurchase(
+            session,
+            JSONObject().put("action", "prepared-attempt").put("preparedPurchaseReference", preparedPurchaseReference),
+        )
+        require(response.status in 200..299) { "Prepared attempt creation failed" }
+        return preparedTicket(response).also(Contract::attemptTicket)
+    }
+
+    override fun preparedPaymentIntent(
+        session: StaffSession,
+        ticket: AttemptTicket,
+        paymentIntentId: String?,
+    ): PaymentResult {
+        Contract.attemptTicket(ticket)
+        val action = JSONObject().put("action", "prepared-payment-intent").put("ticket", ticket.value)
+        paymentIntentId?.let {
+            require(it.isNotBlank()) { "Known PaymentIntent ID is required" }
+            action.put("paymentIntentId", it)
+        }
+        return preparedPayment(session, action, recovery = false)
+    }
+
+    override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+        Contract.attemptTicket(ticket)
+        require(paymentIntentId.isNotBlank()) { "Known PaymentIntent ID is required" }
+        return preparedPayment(
+            session,
+            JSONObject().put("action", "prepared-recover").put("ticket", ticket.value).put("paymentIntentId", paymentIntentId),
+            recovery = true,
+        )
+    }
+
+    private fun preparedTicket(response: HttpResponse): AttemptTicket = prepared(response) { reader ->
+        var ticket: String? = null
+        var expiresAt: Long? = null
+        var readerId: String? = null
+        var locationId: String? = null
+        preparedObject(reader, TICKET_RESPONSE_KEYS) { key ->
+            when (key) {
+                "ticket" -> ticket = string(reader)
+                "expiresAt" -> expiresAt = expiry(reader)
+                "readerId" -> readerId = string(reader)
+                "locationId" -> locationId = string(reader)
+            }
+        }
+        AttemptTicket(requireNotNull(ticket), requireNotNull(expiresAt), requireNotNull(readerId), requireNotNull(locationId))
+    }
+
+    private fun preparedPayment(session: StaffSession, action: JSONObject, recovery: Boolean): PaymentResult {
+        val response = transport.postInternalPurchase(session, action)
+        require(response.status in 200..299) { "Prepared payment request failed" }
+        return prepared(response) { reader ->
+            var id: String? = null
+            var status: String? = null
+            var paid: Boolean? = null
+            var secret: String? = null
+            preparedObject(reader, PAYMENT_RESPONSE_KEYS, OPTIONAL_PAYMENT_RESPONSE_KEYS) { key ->
+                when (key) {
+                    "id" -> id = string(reader)
+                    "status" -> status = string(reader)
+                    "paid" -> paid = boolean(reader)
+                    "clientSecret" -> {
+                        require(!recovery) { "Client secret is not allowed for recovery" }
+                        secret = string(reader)
+                    }
+                }
+            }
+            paymentResult(requireNotNull(id), requireNotNull(status), requireNotNull(paid), secret, recovery)
+        }
+    }
+
     private fun payment(session: StaffSession, action: JSONObject, recovery: Boolean): PaymentResult {
         val response = transport.postInternalPurchase(session, action)
         require(response.status in 200..299) { "Known payment recovery failed" }
         return Contract.payment(json(response), recovery)
     }
 
+    /** Legacy responses retain their original JSONObject behavior. */
     private fun json(response: HttpResponse): JSONObject = try {
         JSONObject(response.body.decodeToString())
     } catch (error: Exception) {
@@ -170,6 +291,101 @@ class StaffSessionPurchaseApi(
 
     private fun requiredLong(value: JSONObject, key: String): Long = (value.opt(key) as? Number)?.toLong()
         ?: throw IOException("Internal purchase response is invalid")
+
+    private fun <T> prepared(response: HttpResponse, parse: (JsonReader) -> T): T = try {
+        strictUnicodeEscapes(response.body)
+        JsonReader(InputStreamReader(ByteArrayInputStream(response.body), Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT))).use { reader ->
+            reader.isLenient = false
+            parse(reader)
+        }
+    } catch (error: IOException) {
+        throw IOException("Internal purchase response is invalid", error)
+    } catch (error: IllegalStateException) {
+        throw IOException("Internal purchase response is invalid", error)
+    }
+
+    private fun strictUnicodeEscapes(body: ByteArray) {
+        var index = 0
+        var quoted = false
+        while (index < body.size) {
+            val character = body[index].toInt() and 0xff
+            when (character) {
+                '"'.code -> { quoted = !quoted; index++ }
+                '\\'.code -> {
+                    if (++index >= body.size) invalid()
+                    val escaped = body[index].toInt() and 0xff
+                    if (escaped == 'u'.code && (index + 4 >= body.size || (1..4).any { !hex(body[index + it]) })) invalid()
+                    index += if (escaped == 'u'.code) 5 else 1
+                }
+                else -> { if (quoted && character < 0x20) invalid(); index++ }
+            }
+        }
+    }
+
+    private fun hex(byte: Byte): Boolean = (byte.toInt() and 0xff).let { it in '0'.code..'9'.code || it in 'a'.code..'f'.code || it in 'A'.code..'F'.code }
+
+    private fun preparedObject(
+        reader: JsonReader,
+        required: Set<String>,
+        optional: Set<String> = emptySet(),
+        field: (String) -> Unit,
+    ) {
+        if (reader.peek() != JsonToken.BEGIN_OBJECT) invalid()
+        reader.beginObject()
+        val seen = mutableSetOf<String>()
+        while (reader.hasNext()) {
+            val key = reader.nextName()
+            if (key !in required && key !in optional || !seen.add(key)) invalid()
+            field(key)
+        }
+        reader.endObject()
+        if (!seen.containsAll(required) || reader.peek() != JsonToken.END_DOCUMENT) invalid()
+    }
+
+    private fun string(reader: JsonReader): String {
+        if (reader.peek() != JsonToken.STRING) invalid()
+        return reader.nextString().also { value -> if (value.hasUnpairedSurrogate() || value.hasControlCharacter()) invalid() }
+    }
+
+    private fun boolean(reader: JsonReader): Boolean {
+        if (reader.peek() != JsonToken.BOOLEAN) invalid()
+        return reader.nextBoolean()
+    }
+
+    private fun expiry(reader: JsonReader): Long {
+        if (reader.peek() != JsonToken.NUMBER) invalid()
+        val lexeme = reader.nextString()
+        if (!BASE_TEN_INTEGER.matches(lexeme)) invalid()
+        return try {
+            java.math.BigInteger(lexeme).longValueExact()
+        } catch (_: ArithmeticException) {
+            invalid()
+        }
+    }
+
+    private fun paymentResult(id: String, status: String, paid: Boolean, secret: String?, recovery: Boolean): PaymentResult {
+        require(id.isNotBlank() && status.isNotBlank() && (status == "succeeded") == paid) { "Inconsistent payment response" }
+        require(secret == null || (!recovery && secret.isNotBlank())) { "Client secret is not allowed for recovery" }
+        return PaymentResult(id, status, paid, secret)
+    }
+
+    private fun String.hasUnpairedSurrogate(): Boolean = indices.any { index ->
+        val code = this[index].code
+        code in 0xd800..0xdbff && (index + 1 == length || this[index + 1].code !in 0xdc00..0xdfff) ||
+            code in 0xdc00..0xdfff && (index == 0 || this[index - 1].code !in 0xd800..0xdbff)
+    }
+
+    private fun String.hasControlCharacter(): Boolean = any { it.code <= 0x1f }
+
+    private fun invalid(): Nothing = throw IOException("Internal purchase response is invalid")
+
+    private companion object {
+        val BASE_TEN_INTEGER = Regex("-?(0|[1-9][0-9]*)")
+        val TICKET_RESPONSE_KEYS = setOf("ticket", "expiresAt", "readerId", "locationId")
+        val PAYMENT_RESPONSE_KEYS = setOf("id", "status", "paid")
+        val OPTIONAL_PAYMENT_RESPONSE_KEYS = setOf("clientSecret")
+    }
 }
 
 data class HttpResponse(val status: Int, val headers: Map<String, List<String>>, val body: ByteArray)
