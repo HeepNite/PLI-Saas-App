@@ -1,7 +1,9 @@
 package com.pli.kiosk.android
 
+import java.security.MessageDigest
+
 /** The only states a Web caller may learn about a validated native operation. */
-enum class SecureBridgeState { ACCEPTED, PENDING, REJECTED }
+enum class SecureBridgeState { ACCEPTED, PENDING, PAID, REJECTED }
 
 /** Closed failures deliberately omit parser, handler, and platform details. */
 enum class SecureBridgeError {
@@ -24,11 +26,22 @@ data class SecureBridgeResponse(
     val error: SecureBridgeError? = null,
 )
 
-/** A registry entry is an allowlisted operation with its complete string-only payload schema. */
-data class SecureBridgeOperation(
+/** An allowlisted operation with its complete string-only payload schema. */
+class SecureBridgeOperation(
     val payload: Map<String, Int>,
-    val handler: (Map<String, String>) -> SecureBridgeState,
-)
+    private val handler: (String, String, Map<String, String>) -> SecureBridgeState,
+) {
+    /** Compatibility constructor for existing payload-only handlers. */
+    constructor(payload: Map<String, Int>, handler: (Map<String, String>) -> SecureBridgeState) :
+        this(payload, { _, _, fields -> handler(fields) })
+
+    /** Supplies the validated request ID without exposing the raw envelope. */
+    constructor(payload: Map<String, Int>, handler: (String, Map<String, String>) -> SecureBridgeState) :
+        this(payload, { requestId, _, fields -> handler(requestId, fields) })
+
+    internal fun handle(requestId: String, operationRef: String, fields: Map<String, String>) =
+        handler(requestId, operationRef, fields)
+}
 
 /**
  * Framework-neutral request parser and serialized dispatcher for one reader/session/origin context.
@@ -56,8 +69,9 @@ class SecureWebBridge(
         val bytes = raw.toByteArray(Charsets.UTF_8)
         if (bytes.size > MAX_REQUEST_BYTES) return failure(null, SecureBridgeError.REQUEST_TOO_LARGE)
         val envelope = parse(raw) ?: return failure(null, SecureBridgeError.MALFORMED_REQUEST)
+        val requestDigest = MessageDigest.getInstance("SHA-256").digest(bytes)
         responses[envelope.requestId]?.let { cached ->
-            return if (cached.bytes.contentEquals(bytes)) cached.response
+            return if (MessageDigest.isEqual(cached.digest, requestDigest)) cached.response
             else failure(envelope.requestId, SecureBridgeError.REQUEST_ID_CONFLICT)
         }
         if (responses.size >= 256) return failure(envelope.requestId, SecureBridgeError.RESPONSE_CACHE_EXHAUSTED)
@@ -65,7 +79,7 @@ class SecureWebBridge(
             envelope.version != VERSION.toString() -> failure(envelope.requestId, SecureBridgeError.UNSUPPORTED_VERSION)
             else -> dispatch(envelope)
         }
-        responses[envelope.requestId] = CachedResponse(bytes, response)
+        responses[envelope.requestId] = CachedResponse(requestDigest, response)
         return response
     }
 
@@ -81,9 +95,9 @@ class SecureWebBridge(
         val fields = fields(envelope.payload, operation.payload)
             ?: return failure(envelope.requestId, SecureBridgeError.INVALID_PAYLOAD)
         return try {
-            val state = operation.handler(fields)
             val reference = operationRefFactory(envelope.requestId, envelope.operation)
             if (!bounded(reference, MAX_OPERATION_REF_CHARS)) throw IllegalStateException()
+            val state = operation.handle(envelope.requestId, reference, fields)
             SecureBridgeResponse(envelope.requestId, reference, state)
         } catch (_: Exception) {
             failure(envelope.requestId, SecureBridgeError.INTERNAL_ERROR)
@@ -108,7 +122,8 @@ class SecureWebBridge(
     private fun failure(requestId: String?, error: SecureBridgeError) = SecureBridgeResponse(requestId, error = error)
 
     private data class Envelope(val version: String, val operation: String, val requestId: String, val payload: Map<String, String?>)
-    private data class CachedResponse(val bytes: ByteArray, val response: SecureBridgeResponse)
+    /** Retains only a fixed SHA-256 digest, never raw request/capability bytes. */
+    private data class CachedResponse(val digest: ByteArray, val response: SecureBridgeResponse)
 
     /** Parses JSON without collapsing duplicate envelope or payload keys. */
     private class StrictJson(private val source: String) {

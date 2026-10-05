@@ -98,9 +98,24 @@ class SecureWebBridgeTest {
         val conflict = bridge.dispatch(request("same", "collect", "{\"token\":\"b\"}"))
 
         assertEquals(first, second)
-        assertEquals("ref-1", first.operationRef)
+        assertEquals("ref-0", first.operationRef)
         assertEquals(SecureBridgeError.REQUEST_ID_CONFLICT, conflict.error)
         assertEquals(1, calls)
+        assertCachedRequestDigest(bridge)
+    }
+
+    @Test
+    fun requestBoundHandlersReceiveTheValidatedRequestAndGeneratedReferenceBeforeSideEffects() {
+        var received: Triple<String, String, Map<String, String>>? = null
+        val bridge = bridge(mapOf("collect" to SecureBridgeOperation(mapOf("token" to 10)) { requestId, reference, fields ->
+            received = Triple(requestId, reference, fields)
+            SecureBridgeState.PENDING
+        })) { requestId, operation -> "opaque-$requestId-$operation" }
+
+        val response = bridge.dispatch(request("one", "collect", "{\"token\":\"abc\"}"))
+
+        assertEquals("opaque-one-collect", response.operationRef)
+        assertEquals(Triple("one", "opaque-one-collect", mapOf("token" to "abc")), received)
     }
 
     @Test
@@ -127,6 +142,15 @@ class SecureWebBridgeTest {
         assertEquals(SecureBridgeError.STALE_CONTEXT, response.error)
         assertNull(response.requestId)
         assertTrue(response.operationRef == null && response.state == null)
+    }
+
+    private fun assertCachedRequestDigest(bridge: SecureWebBridge) {
+        val responses = bridge.javaClass.getDeclaredField("responses").apply { isAccessible = true }.get(bridge) as Map<*, *>
+        val cached = responses.values.single() ?: error("missing cached response")
+        val fields = cached.javaClass.declaredFields
+        assertTrue(fields.none { it.name == "bytes" })
+        val digest = fields.single { it.name == "digest" }.apply { isAccessible = true }.get(cached) as ByteArray
+        assertEquals(32, digest.size)
     }
 
     private fun bridge(
