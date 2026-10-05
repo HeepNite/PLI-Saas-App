@@ -82,13 +82,13 @@ The student card renders a dedicated badge and a `Mark delivered` control only f
 
 ## 7. Pricing And Package Decision
 
-Campaign entitlement is excluded from pricing. After server identity resolution, the booking flow selects exactly one existing authority:
+Campaign acquisition remains excluded from pricing. After server identity resolution, the booking flow selects server-authoritative candidates:
 
-- verified identity with no successful purchase or package history: existing US$15 new-student service;
+- verified identity with no successful purchase or package history: existing first-purchase price;
 - existing customer with an applicable active package: create a scheduled package booking and hold one unit of package capacity;
-- existing customer without an applicable package: regular server-authoritative drop-in price.
+- paid checkout without a package: compare independently authorized existing and course-promotion prices.
 
-A package hold is tied to the scheduled attendance and prevents the same available credit from backing another reservation. The package's consumed-credit count changes only when attendance transitions to an attended state; cancellation before attendance releases the hold. The server derives every branch from authenticated identity and persisted data.
+Delivered entitlement may satisfy only the `heritage_pin_delivered` audience of a bounded course promotion. Pending status cannot affect price. A package hold is tied to scheduled attendance and prevents the same available credit from backing another reservation. The package's consumed-credit count changes only when attendance transitions to an attended state; cancellation before attendance releases the hold. The server derives every branch from authenticated identity and persisted data.
 
 ## 8. Payment-Channel Gate
 
@@ -122,8 +122,9 @@ This gate is localized to personal remote booking and does not remove staff cash
 - replay remains idempotent;
 - cash/failed/out-of-window events do not award;
 - delivery mutation authorization, audit, idempotency, and ownership checks;
-- physical pin state never changes the charged amount;
-- verified first-purchase US$15 remains server-authoritative;
+- pending or unverified pin state never changes the charged amount;
+- delivered state affects price only through a bounded server-authoritative course promotion;
+- verified first-purchase pricing remains server-authoritative;
 - applicable package booking bypasses paid checkout and creates one scheduled hold;
 - forged package/amount claims are rejected;
 - remote cash rejected and trusted kiosk cash accepted.
@@ -143,4 +144,4 @@ This gate is localized to personal remote booking and does not remove staff cash
 
 ## Rollback Boundary
 
-All campaign decisions are centralized. Disabling the campaign configuration stops new awards without deleting historical entitlement metadata. Pricing and package routing remain governed by their existing domains, and UI surfaces tolerate historical pin records after expiry.
+All campaign decisions are centralized. Disabling the campaign configuration stops new awards without deleting historical entitlement metadata. Pricing remains governed by the course-promotions domain, package routing remains independent, and UI surfaces tolerate historical pin records after expiry.
