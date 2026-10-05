@@ -69,6 +69,7 @@ const createInitialCourseForm = (): CourseFormState => ({
   specialDiscountType: "none",
   specialDiscountCustomLabel: "",
   specialDiscountPrice: "",
+  promotions: [],
   availableTimesCsv: "",
   active: true,
   specialClassOperationsEnabled: false,

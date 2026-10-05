@@ -45,7 +45,7 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
   wizard: {
     activeEntity: "courses",
     step: 0,
-    totalSteps: 7,
+    totalSteps: 8,
     enabledContext: { courseEditingSlug: "salsa-basics" },
     onPrevious: vi.fn(),
     onNext: vi.fn(),
@@ -73,6 +73,7 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
     courseForm,
     setCourseForm: dispatch<CourseFormState>(),
   },
+  promotions: { courseForm, setCourseForm: dispatch<CourseFormState>() },
   media: {
     courseEditingSlug: "salsa-basics",
     courseForm,
@@ -206,8 +207,8 @@ describe("StaffCourseStudioPanel", () => {
     const props = createProps({ wizard: { ...createProps().wizard, step: 1 } })
     const node = await renderPanel(props)
 
-    expect(node.textContent).toContain("Prices and discounts")
-    expect(node.textContent).toContain("Step 2 of 7")
+    expect(node.textContent).toContain("Base prices")
+    expect(node.textContent).toContain("Step 2 of 8")
 
     await act(async () => {
       Array.from(node.querySelectorAll("button")).find((button) => button.textContent === "Next →")?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
@@ -220,7 +221,7 @@ describe("StaffCourseStudioPanel", () => {
 
   it("keeps draft schedule and preview steps available before the course is persisted", async () => {
     const draftProps = createProps({
-      wizard: { ...createProps().wizard, step: 3, enabledContext: { courseEditingSlug: null } },
+      wizard: { ...createProps().wizard, step: 4, enabledContext: { courseEditingSlug: null } },
       links: { ...createProps().links, courseEditingSlug: null },
       pricing: { ...createProps().pricing, courseEditingSlug: null },
       media: { ...createProps().media, courseEditingSlug: null },

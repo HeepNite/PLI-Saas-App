@@ -70,36 +70,19 @@ describe("StaffCoursePricingStep", () => {
     expect(node.textContent).toBe("")
   })
 
-  it("allows editing prices before the course is persisted", async () => {
+  it("allows editing base prices before the course is persisted", async () => {
     const node = await renderStep(createProps({ courseEditingSlug: null }))
 
-    expect(node.textContent).toContain("Prices and special discounts")
+    expect(node.textContent).toContain("Base prices")
     expect(node.querySelector<HTMLInputElement>('input[name="courseDropInPrice"]')?.value).toBe("20")
   })
 
-  it("renders price fields and disables discount price when no discount is selected", async () => {
+  it("keeps special-class guidance and moves campaigns to Promotions", async () => {
     const node = await renderStep(createProps({ courseForm: { ...createProps().courseForm, specialClassOperationsEnabled: true } }))
 
-    expect(node.textContent).toContain("Prices and special discounts")
-    expect(node.querySelector<HTMLInputElement>('input[name="courseDropInPrice"]')?.value).toBe("20")
-    expect(node.querySelector<HTMLInputElement>('input[name="courseSpecialDiscountPrice"]')?.disabled).toBe(true)
+    expect(node.textContent).toContain("Base prices")
+    expect(node.querySelector('input[name="courseSpecialDiscountPrice"]')).toBeNull()
+    expect(node.textContent).toContain("configured in the Promotions step")
     expect(node.textContent).toContain("Drop-in is the shared initial Special Class price")
-  })
-
-  it("renders custom label and wires discount type changes", async () => {
-    const setCourseForm = vi.fn()
-    const node = await renderStep(createProps({
-      setCourseForm,
-      courseForm: { ...createProps().courseForm, specialDiscountType: "custom", specialDiscountCustomLabel: "Anniversary Week" },
-    }))
-    const discountType = node.querySelector<HTMLSelectElement>('select[name="courseSpecialDiscountType"]')
-
-    await act(async () => {
-      discountType!.value = "none"
-      discountType!.dispatchEvent(new Event("change", { bubbles: true }))
-    })
-
-    expect(node.querySelector<HTMLInputElement>('input[name="courseSpecialDiscountCustomLabel"]')?.value).toBe("Anniversary Week")
-    expect(setCourseForm).toHaveBeenCalledTimes(1)
   })
 })

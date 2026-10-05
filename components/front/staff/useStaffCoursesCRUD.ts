@@ -1,9 +1,9 @@
 import React from "react"
 
+import { getNewYorkDateKey, normalizeCoursePromotions, type CoursePromotion } from "@/lib/promotions/course-promotions"
 import {
   ISO_DATE_REGEX,
   type CoursePublicationMode,
-  type CourseSpecialDiscountType,
 } from "./staffAdminConstants"
 import {
   centsToUsdInput,
@@ -36,6 +36,24 @@ const usdInputToCents = (value: string) => {
   const parsed = Number(clean)
   if (!Number.isFinite(parsed) || parsed < 0) return null
   return Math.round(parsed * 100)
+}
+
+const resolveEditorPromotions = (rules: CourseScheduleRulesPayload | null): CoursePromotion[] => {
+  const promotions = normalizeCoursePromotions(rules?.promotions)
+  if (promotions.length > 0 || !rules?.specialDiscount || rules.specialDiscount.type === "none") return promotions
+  const amountCents = rules.specialDiscount.priceCents
+  if (!amountCents || amountCents < 50) return promotions
+  const date = getNewYorkDateKey()
+  const label = rules.specialDiscount.label || (rules.specialDiscount.type === "valentines_desc" ? "Valentine's promotion" : "Christmas promotion")
+  return [{
+    id: `legacy-${rules.specialDiscount.type.replace(/_/g, "-")}`,
+    label,
+    active: false,
+    pricing: { kind: "fixed", amountCents },
+    window: { basis: "class_date", startDate: date, endDate: date },
+    audience: "everyone",
+    channels: ["public_booking", "profile"],
+  }]
 }
 
 export type StaffCoursesCRUDInput = {
@@ -156,6 +174,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       specialDiscountType: "none",
       specialDiscountCustomLabel: "",
       specialDiscountPrice: "",
+      promotions: [],
       availableTimesCsv: "",
       active: true,
       specialClassOperationsEnabled: false,
@@ -192,6 +211,11 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       setSchoolError("Enter a positive shared capacity for Special Class operations.")
       return
     }
+    const promotions = normalizeCoursePromotions(courseForm.promotions)
+    if (promotions.length !== (courseForm.promotions ?? []).length) {
+      setSchoolError("Complete every promotion with valid dates, pricing, audience, and at least one channel.")
+      return
+    }
     setSchoolBusy("course")
     try {
       const derivedSchedule = deriveCourseScheduleData(courseScheduleSlots)
@@ -205,10 +229,6 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       const weekdays = derivedSchedule.weekdays.length > 0 ? derivedSchedule.weekdays : courseWeekdays
       if (courseForm.publicationMode === "launch_date" && !ISO_DATE_REGEX.test(courseForm.launchDate.trim())) {
         setSchoolError("Select a valid launch date for Launch date mode.")
-        return
-      }
-      if (courseForm.specialDiscountType === "custom" && !courseForm.specialDiscountCustomLabel.trim()) {
-        setSchoolError("Write a custom discount label.")
         return
       }
       const scheduleRulesPayload: CourseScheduleRulesPayload | null = (() => {
@@ -235,25 +255,10 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
           launchDate,
         }
 
-        const specialDiscountType: CourseSpecialDiscountType =
-          courseForm.specialDiscountType === "valentines_desc" ||
-          courseForm.specialDiscountType === "christmas_desc" ||
-          courseForm.specialDiscountType === "custom"
-            ? courseForm.specialDiscountType
-            : "none"
-        const specialDiscountLabelRaw = courseForm.specialDiscountCustomLabel.trim()
-        const specialDiscountLabel = specialDiscountType === "custom" && specialDiscountLabelRaw ? specialDiscountLabelRaw : null
-        const specialDiscountPriceCents = usdInputToCents(courseForm.specialDiscountPrice)
-        const specialDiscount: CourseSpecialDiscountSettings = {
-          type: specialDiscountType,
-          label: specialDiscountLabel,
-          priceCents: specialDiscountType === "none" ? null : specialDiscountPriceCents,
-        }
+        const specialDiscount: CourseSpecialDiscountSettings = { type: "none", label: null, priceCents: null }
 
         const hasPublicationOverride = publication.mode !== "publish_now" || Boolean(publication.launchDate)
-        const hasSpecialDiscount =
-          specialDiscount.type !== "none" || specialDiscount.priceCents !== null || Boolean(specialDiscount.label)
-        if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && !hasSpecialDiscount) return null
+        if (rules.length === 0 && specialEvents.length === 0 && !hasPublicationOverride && promotions.length === 0) return null
         const derivedWeeklyTarget = [...new Set(rules.map((rule) => rule.weekday))].length
         return {
           mode: usesConcreteSchedule ? "special_event" : "regular",
@@ -266,6 +271,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
           specialEvents,
           publication,
           specialDiscount,
+          promotions,
         }
       })()
       const coursePayload = {
@@ -388,6 +394,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
         specialDiscountType: "none",
         specialDiscountCustomLabel: "",
         specialDiscountPrice: "",
+        promotions: resolveEditorPromotions(normalizeCourseScheduleRules(existingCourse.scheduleRules)),
         availableTimesCsv: (existingCourse.availableTimes || []).join(", "),
         active: existingCourse.active ?? true,
         specialClassOperationsEnabled: existingCourse.specialClassOperationsEnabled ?? false,
@@ -453,6 +460,7 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       specialDiscountType,
       specialDiscountCustomLabel,
       specialDiscountPrice,
+      promotions: resolveEditorPromotions(parsedRules),
       availableTimesCsv: item.availableTimes.join(","),
       active: item.active,
       specialClassOperationsEnabled: item.specialClassOperationsEnabled ?? false,

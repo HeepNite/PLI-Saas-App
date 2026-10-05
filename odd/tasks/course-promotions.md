@@ -22,12 +22,12 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Status: done
   - Checks: spec consistency, stale-contract grep, `git diff --check`, 381 changed lines
   - Commit: `6b18db1d`
-- [ ] 2. Add the typed promotion model, normalization, persistence contract, and server-side price resolver with focused tests.
-  - Status: in progress
-  - Checks: focused domain/API tests, typecheck, diff check
-  - Commit: pending
+- [x] 2. Add the typed promotion model, normalization, persistence contract, and server-side price resolver with focused tests.
+  - Status: done
+  - Checks: 23 focused tests, typecheck, `git diff --check`, 330 changed lines
+  - Commit: `efa23ee4`
 - [ ] 3. Add the dedicated Promotions wizard step, migrate the dormant special-discount controls, and cover UI behavior.
-  - Status: pending
+  - Status: in progress
   - Checks: focused component tests, typecheck, lint, diff check
   - Commit: pending
 - [ ] 4. Integrate promotion labels and authoritative pricing into public booking, profile, and trusted checkout paths.
