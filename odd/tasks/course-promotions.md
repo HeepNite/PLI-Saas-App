@@ -30,17 +30,17 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Status: done
   - Checks: 53 focused tests across wizard/domain/API, typecheck, `git diff --check`
   - Commits: `f1ecc21a`, `a54737a2`
-- [ ] 4. Integrate promotion labels and authoritative pricing into public booking, profile, and trusted checkout paths.
-  - Status: in progress
-  - Checks: focused checkout/booking/profile tests, typecheck, lint, diff check
-  - Commit: pending
-- [ ] 5. Configure the Heritage promotion and prepare a reversible catalog rollout for the two new courses and package applicability.
-  - Status: pending
-  - Checks: dry-run, mode-0600 backup, environment proof, rollback material; no remote mutation without fresh authorization
-  - Commit: pending
-- [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, and perform live read-only checks.
-  - Status: pending
-  - Checks: CI-equivalent verification, review receipt, deployment readiness, live HTTP/catalog/price evidence
+- [x] 4. Integrate promotion labels and authoritative pricing into public booking, profile, and trusted checkout paths.
+  - Status: done
+  - Checks: 116 focused tests, typecheck, scoped ESLint (0 errors; 7 pre-existing warnings), `git diff --check`
+  - Commit: `fadaf866`
+- [x] 5. Prepare the Heritage promotion and reversible catalog rollout for the two new courses and package applicability.
+  - Status: done; remote application remains gated after deployment
+  - Checks: live catalog read-only dry-run; target slugs absent; exact replaced slots found; shared plans identified; rollback documented; catalog SHA-256 `715db220424906182debec80883373d8c90576e1c85125abb4623efa93388d00`
+  - Commits: original `ef769827`; corrected-chain replay `63edf837`
+- [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, request catalog-mutation authorization, and perform live checks.
+  - Status: in progress; branches pushed and draft PRs `#603`–`#607` created
+  - Checks: five linear slices verified at 381, 330, 374, 260, and 117 changed lines; all range whitespace checks passed; rollout is passive documentation-only; all checks passed on draft PRs `#603`–`#607`
   - Commit: pending
 
 ## Constraints
@@ -53,5 +53,11 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
 
 ## Evidence
 
-- Branch: `feat/course-promotions`
-- Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/public-booking-package-routing`
+- Historical aggregate branch: `feat/course-promotions`
+- Delivery tracker branch: `feat/course-promotions-chain` at cached `origin/codex/develop`
+- Corrected delivery tip: `docs/course-promotions-rollout-chain`
+- Slice order: contract → rules → editor → checkout → rollout
+- Draft PRs: `#603` → `#604` → `#605` → `#606` → `#607`
+- Each PR links approved issue `#539`, has exactly one `type:*` label, and excludes `.atl/skill-registry.md`
+- Tracker PR remains deferred while its branch intentionally matches `codex/develop`
+- Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-05-rollout`
