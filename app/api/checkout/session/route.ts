@@ -27,10 +27,11 @@ import {
   isHeritagePinAcquisitionDate,
   normalizeHeritagePinCountryCode,
 } from "@/lib/campaigns/heritage-pin"
-import { findHeritagePinEntitlementForIdentity } from "@/lib/campaigns/heritage-pin-entitlement"
-import { getNewYorkDateKey, resolveCoursePromotionPrice, type CoursePromotionChannel } from "@/lib/promotions/course-promotions"
+import type { CoursePromotionChannel } from "@/lib/promotions/course-promotions"
 import { prisma } from "@/lib/prisma"
 import { getTrustedCheckoutChannel } from "@/lib/checkout/trusted-checkout-channel"
+import { resolveCoursePromotionCheckoutPricing } from "@/lib/checkout/course-promotion-pricing"
+import { enforcePublicBookingPolicy } from "@/lib/checkout/public-booking-policy"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -280,20 +281,25 @@ async function handleCheckoutSession(req: Request) {
     photoContext === FLOW_CONTEXT.QR_PHONE &&
     (body as Record<string, unknown>)?.checkInBooking === true
 
-  const validation = await validateCheckoutPayload(body)
-  if (isApiError(validation)) {
-    return toErrorResponse(validation)
+  const initialValidation = await validateCheckoutPayload(body)
+  if (isApiError(initialValidation)) {
+    return toErrorResponse(initialValidation)
   }
-  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+  const trustedChannel = getTrustedCheckoutChannel()
+  if (trustedChannel === "public_booking") {
+    const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
+    if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
+  }
+  const initialEffectiveSession = resolveKioskEffectiveSessionDateTime({
     photoContext,
-    validation,
+    validation: initialValidation,
   })
 
   const base = getBaseUrl()
-  const success = validation.consecutiveAddOnOnly
-    ? `${base}/checkin/promo-added?course=${encodeURIComponent(validation.consecutiveCourseTitle ?? "")}&price=${validation.consecutivePriceCents ?? 0}&remaining=${validation.packageRemaining ?? ""}`
+  const success = initialValidation.consecutiveAddOnOnly
+    ? `${base}/checkin/promo-added?course=${encodeURIComponent(initialValidation.consecutiveCourseTitle ?? "")}&price=${initialValidation.consecutivePriceCents ?? 0}&remaining=${initialValidation.packageRemaining ?? ""}`
     : isMobileQrCheckInBooking
-      ? `${base}/checkin/booked?course=${encodeURIComponent(validation.courseTitle)}&name=${encodeURIComponent(firstName ?? "")}`
+      ? `${base}/checkin/booked?course=${encodeURIComponent(initialValidation.courseTitle)}&name=${encodeURIComponent(firstName ?? "")}`
       : `${base}/client-profile?status=success`
   // On cancel, a plain `/courses/{slug}?status=cancel` drops ALL the QR/new-student
   // context. Since SMS verification signed the new student in mid-flow, re-opening the
@@ -304,11 +310,11 @@ async function handleCheckoutSession(req: Request) {
   // (hasCompletedPurchase), so a genuine returning customer cannot abuse the flag.
   const cancel = isMobileQrCheckInBooking
     ? `${base}${buildQrBookingUrl({
-        courseSlug: validation.courseSlug,
-        date: effectiveSession.date ?? undefined,
-        time: effectiveSession.time ?? undefined,
-      })}${validation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel${bookingSource === "public_booking" && heritagePinCountryCode ? `&bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}` : ""}`
-    : `${base}/courses/${validation.courseSlug}?status=cancel`
+        courseSlug: initialValidation.courseSlug,
+        date: initialEffectiveSession.date ?? undefined,
+        time: initialEffectiveSession.time ?? undefined,
+      })}${initialValidation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel${bookingSource === "public_booking" && heritagePinCountryCode ? `&bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}` : ""}`
+    : `${base}/courses/${initialValidation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -323,62 +329,64 @@ async function handleCheckoutSession(req: Request) {
       photoContext,
       allowExistingAccountLookup: photoContext === FLOW_CONTEXT.KIOSK_TERMINAL,
       kioskSessionToken,
-      serviceId: validation.serviceId,
-      validation,
+      serviceId: initialValidation.serviceId,
+      validation: initialValidation,
     }
   )
   if (isApiError(preparation)) {
     return toErrorResponse(preparation)
   }
 
+  const validation = await validateCheckoutPayload(body)
+  if (isApiError(validation)) {
+    return toErrorResponse(validation)
+  }
+  const publicBookingPolicy = trustedChannel === "public_booking"
+    ? enforcePublicBookingPolicy(validation)
+    : null
+  if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
+  const currency = publicBookingPolicy?.currency ?? validation.currency
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
+
   const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
   const { clerkUser, resolvedUserId, identity } = preparedAccount
   const promotionChannel: CoursePromotionChannel | null = photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && terminalAuth
     ? "trusted_kiosk"
-    : getTrustedCheckoutChannel() === "profile"
-      ? "profile"
-      : bookingSource === "public_booking"
-        ? "public_booking"
-        : null
+    : trustedChannel === "profile" || trustedChannel === "public_booking"
+      ? trustedChannel
+      : null
   const promotions = validation.course && typeof validation.course.scheduleRules === "object" && validation.course.scheduleRules
     ? (validation.course.scheduleRules as Record<string, unknown>).promotions
     : []
   const regularDropIn = validation.course?.enrollment?.services?.find((service) => service.id === "dropin")
   const regularPriceCents = regularDropIn?.price ? Math.round(regularDropIn.price * 100) : 0
-  const promotionShapeEligible = Boolean(
-    promotionChannel &&
-    (validation.serviceId === "dropin" || validation.serviceId === "new-student") &&
-    validation.safeParticipants === 1 &&
-    !validation.packageId && !validation.coupon && validation.addons.length === 0 &&
-    validation.consecutivePriceCents === null && !validation.consecutiveAddOnOnly,
-  )
-  const heritageEntitlement = promotionShapeEligible
-    ? await findHeritagePinEntitlementForIdentity(prisma, {
-        clerkId: resolvedUserId,
-        email: identity.resolvedEmail,
-        phone: identity.phoneNormalized,
-      })
-    : null
-  const promotionPrice = promotionShapeEligible && promotionChannel
-    ? resolveCoursePromotionPrice({
-        promotions,
-        channel: promotionChannel,
-        classDate: effectiveSession.date || validation.date,
-        purchaseDate: getNewYorkDateKey(),
-        regularPriceCents,
-        hasDeliveredHeritagePin: heritageEntitlement?.status === "delivered",
-      })
-    : { applied: false as const, reason: "no_eligible_promotion" as const }
-  const appliedPromotion = promotionPrice.applied && promotionPrice.amountCents < validation.amountInt ? promotionPrice : null
-  const effectiveAmountCents = appliedPromotion?.amountCents ?? validation.amountInt
-  const promotionMetadata: Record<string, string> = appliedPromotion ? {
-    coursePromotionId: appliedPromotion.promotion.id,
-    coursePromotionLabel: appliedPromotion.promotion.label,
-    coursePromotionPriceCents: String(appliedPromotion.amountCents),
-    coursePromotionPricingKind: appliedPromotion.promotion.pricing.kind,
-    coursePromotionAudience: appliedPromotion.promotion.audience,
-    coursePromotionDateBasis: appliedPromotion.promotion.window.basis,
-  } : {}
+  const { effectiveAmountCents, promotionMetadata } = await resolveCoursePromotionCheckoutPricing({
+    db: prisma,
+    trustedChannel: promotionChannel,
+    authoritativePromotions: promotions,
+    authoritativeCourse: validation.course,
+    classDate: effectiveSession.date || validation.date,
+    classTime: effectiveSession.time || validation.time,
+    amountCents: validation.amountInt,
+    regularPriceCents,
+    checkoutShape: {
+      serviceId: validation.serviceId,
+      safeParticipants: validation.safeParticipants,
+      packageId: validation.packageId,
+      coupon: validation.coupon,
+      addons: validation.addons,
+      consecutivePriceCents: validation.consecutivePriceCents,
+      consecutiveAddOnOnly: validation.consecutiveAddOnOnly,
+    },
+    resolvedIdentity: {
+      clerkId: resolvedUserId,
+      email: identity.resolvedEmail,
+      phone: identity.phoneNormalized,
+    },
+  })
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
@@ -405,7 +413,7 @@ async function handleCheckoutSession(req: Request) {
         {
           quantity: 1,
           price_data: {
-            currency: validation.currency,
+            currency,
             unit_amount: effectiveAmountCents,
             product_data: {
               name: validation.courseTitle,
