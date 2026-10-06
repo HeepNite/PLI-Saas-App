@@ -284,7 +284,7 @@ describe("checkout session route", () => {
     expect(checkout?.metadata).not.toHaveProperty("heritagePinEntitlementPurchaseId")
   })
 
-  it.each(["public_booking", "profile"] as const)("applies a configured delivered-Heritage promotion to %s", async (channel) => {
+  it("does not trust a direct public_booking body value for promotion pricing", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
     mockValidate.mockResolvedValueOnce({
@@ -305,12 +305,44 @@ describe("checkout session route", () => {
     mockFindHeritagePinEntitlement.mockResolvedValueOnce({ status: "delivered", sourcePurchaseId: "pin_purchase_1" })
 
     const { POST } = await import("@/app/api/checkout/session/route")
-    const { runWithTrustedCheckoutChannel } = await import("@/lib/checkout/trusted-checkout-channel")
-    const request = new Request("http://localhost/api/checkout/session", {
+    const response = await POST(new Request("http://localhost/api/checkout/session?bookingSource=public_booking", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(channel === "public_booking" ? { bookingSource: channel, heritagePinCountryCode: "MX" } : {}),
+      body: JSON.stringify({ bookingSource: "public_booking", heritagePinCountryCode: "MX" }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
+      line_items: [expect.objectContaining({ price_data: expect.objectContaining({ unit_amount: 2000 }) })],
+      metadata: expect.not.objectContaining({ coursePromotionId: expect.any(String) }),
+    }))
+  })
+
+  it("applies a configured delivered-Heritage promotion to the trusted profile channel", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
+    mockValidate.mockResolvedValue({
+      courseSlug: "bachata-beginners", courseTitle: "Bachata Beginners", amountInt: 2000, currency: "usd",
+      date: "2026-10-08", time: "21:10", packageId: "", serviceId: "dropin", addons: [], safeParticipants: 1,
+      coupon: "", pkg: null, packageTotalCredits: null, packageIsUnlimited: false, packageCadence: "",
+      packageMakeUps: 0, packageValidDays: 180, consecutivePriceCents: null, consecutiveAddOnOnly: false,
+      course: {
+        schedule: { availableWeekdays: [3], availableTimes: ["21:10"] },
+        enrollment: { services: [{ id: "dropin", price: 20 }] },
+        scheduleRules: { promotions: [{
+          id: "heritage-october", label: "Heritage pin benefit", active: true,
+          pricing: { kind: "fixed", amountCents: 1500 },
+          window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+          audience: "heritage_pin_delivered", channels: ["public_booking", "profile"],
+        }] },
+      },
     })
-    const response = channel === "profile" ? await runWithTrustedCheckoutChannel("profile", () => POST(request)) : await POST(request)
+    mockFindHeritagePinEntitlement.mockResolvedValueOnce({ status: "delivered", sourcePurchaseId: "pin_purchase_1" })
+
+    const { POST } = await import("@/app/api/checkout/session/route")
+    const { runWithTrustedCheckoutChannel } = await import("@/lib/checkout/trusted-checkout-channel")
+    const response = await runWithTrustedCheckoutChannel("profile", () => POST(new Request("http://localhost/api/checkout/session", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    })))
 
     expect(response.status).toBe(200)
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
@@ -378,7 +410,7 @@ describe("checkout session route", () => {
   })
 
   it("uses authoritative kiosk current-course date/time in checkout session metadata", async () => {
-    mockValidate.mockResolvedValueOnce({
+    mockValidate.mockResolvedValue({
       courseSlug: "salsa-timba-ny",
       courseTitle: "Salsa timba in New York",
       amountInt: 2000,
