@@ -3,6 +3,8 @@ package com.pli.kiosk.android
 import android.app.Application
 import android.os.Handler
 import com.stripe.stripeterminal.TerminalApplicationDelegate
+import java.security.SecureRandom
+import java.util.Base64
 import java.util.concurrent.Executors
 
 /** Server calls are serialized off the UI thread; tests inject the direct executor explicitly. */
@@ -207,6 +209,20 @@ class ProductionOperatorRuntime(
     private fun requireNative(): NativeCollectionRuntime = requireNotNull(native) { "Signed ticket binding is required" }
 }
 
+/** One admitted bridge owns its opaque-operation registry and its context-local permission edge. */
+internal class PreparedBridgeContext(
+    val bridge: SecureWebBridge,
+    internal val operations: PreparedBridgeOperations,
+    private val permissionOwner: (android.app.Activity) -> Unit = {},
+) {
+    internal val lifecycleOwner: PreparedBridgeOperations get() = operations
+    internal fun attachPermissionOwner(activity: android.app.Activity) = permissionOwner(activity)
+}
+
+/** Generates a request-independent, 32-byte URL-safe opaque operation reference. */
+internal fun newPreparedBridgeOperationReference(): String = ByteArray(32).also(SecureRandom()::nextBytes)
+    .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
+
 /**
  * Process-level composition point. It initializes Stripe Terminal only for an explicitly enabled,
  * approved-origin build with the original durable session/attempt context. A configured build with
@@ -294,6 +310,92 @@ class KioskApplication : Application() {
         )
     }
 
+    /**
+     * BuildConfig-gated factory for the later Web host. Construction allocates no native runtime;
+     * every admitted operation creates and owns its one runtime/bootstrap pair.
+     */
+    internal fun createPreparedBridgeContext(admission: SecureWebAdmission): PreparedBridgeContext? {
+        val configuration = runCatching(NativeCollectionConfiguration::fromBuildConfig).getOrNull() ?: return null
+        if (!configuration.collectionEnabled || configuration.approvedOrigin != admission.origin) return null
+        return runCatching {
+            val origin = ApprovedOrigin(configuration.approvedOrigin)
+            val clock = System::currentTimeMillis
+            val store = EncryptedStateStore(this)
+            val transport = StaffSessionTransport(origin, clock)
+            val purchaseApi = StaffSessionPurchaseApi(transport)
+            val coordinator = PurchaseCoordinator(origin, store, purchaseApi, clock, purchaseApi)
+            val executor = AndroidOperatorBackgroundExecutor()
+            val permissions = AndroidBluetoothPermissions()
+            val runtimeFactory = NativeCollectionRuntimeFactory { preparedAttempt ->
+                val latest = store.read()
+                val session = requireNotNull(latest.session) { "Original staff session is unavailable" }
+                val retained = requireNotNull(latest.attempt) { "Prepared attempt is unavailable" }
+                require(session.expiresAt > clock() && session.origin == origin.value) { "Original staff session changed" }
+                require(preparedAttempt.mode == AttemptMode.PREPARED && !preparedAttempt.resolved &&
+                    retained.mode == AttemptMode.PREPARED && !retained.resolved &&
+                    retained.ticket == preparedAttempt.ticket &&
+                    retained.sessionAssociation == preparedAttempt.sessionAssociation &&
+                    retained.origin == preparedAttempt.origin &&
+                    retained.sessionAssociation == session.association && retained.origin == session.origin
+                ) { "Prepared attempt binding changed" }
+                val ticket = requireNotNull(preparedAttempt.ticket) { "Prepared attempt has no ticket" }
+                require(ticket.readerId == PROVISIONED_READER_ID) { "Prepared ticket reader is not provisioned" }
+                val terminal = StripeTerminalSdkAdapter(this, ticket.readerId, ticket.locationId)
+                NativeCollectionRuntime(
+                    configuration, session, ticket, terminal, permissions,
+                    StaffSessionConnectionTokenSource(transport), PurchasePaymentRecovery(purchaseApi), clock,
+                    provisionedReaderId = PROVISIONED_READER_ID,
+                    deadlineScheduler = AndroidCollectionDeadlineScheduler(),
+                    backgroundExecutor = NativeBackgroundExecutor { task -> executor.execute(task) },
+                    authority = {
+                        val current = store.read()
+                        val currentSession = current.session
+                        val currentAttempt = current.attempt
+                        val valid = currentSession == session && currentSession.expiresAt > clock() &&
+                            currentAttempt?.mode == AttemptMode.PREPARED && currentAttempt?.resolved == false &&
+                            currentAttempt.ticket == ticket && currentAttempt.sessionAssociation == session.association &&
+                            currentAttempt.origin == session.origin
+                        NativeCollectionAuthority(
+                            if (valid) currentSession else null,
+                            if (valid) currentAttempt?.ticket else null,
+                            terminal.observedReaderId(),
+                        )
+                    },
+                )
+            }
+            preparePreparedBridgeContext(
+                configuration, admission,
+                workflowFactory = {
+                    ProductionPreparedBridgeWorkflow(
+                        coordinator, executor, runtimeFactory,
+                        PinnedReaderBootstrapRuntimeFactory { _, runtime -> NativeCollectionBootstrapRuntime(runtime, permissions) },
+                        PROVISIONED_READER_ID, clock,
+                    )
+                },
+                permissionOwner = permissions::attach,
+            )
+        }.getOrNull()
+    }
+
+    /** Test seam for the BuildConfig gate and real factory's bridge-only composition. */
+    internal fun preparePreparedBridgeContext(
+        configuration: NativeCollectionConfiguration,
+        admission: SecureWebAdmission,
+        workflowFactory: () -> PreparedBridgeWorkflow,
+        operationReferenceGenerator: () -> String = ::newPreparedBridgeOperationReference,
+        permissionOwner: (android.app.Activity) -> Unit = {},
+    ): PreparedBridgeContext? {
+        if (!configuration.collectionEnabled || configuration.approvedOrigin != admission.origin) return null
+        return runCatching {
+            val operations = PreparedBridgeOperations(workflowFactory())
+            PreparedBridgeContext(
+                SecureWebBridge(operations.bridgeOperations()) { _, _ -> operationReferenceGenerator() },
+                operations,
+                permissionOwner,
+            )
+        }.getOrNull()
+    }
+
     /** Session capture remains available for the web PaymentElement even when collection is disabled. */
     internal fun createWebSessionReadiness(admission: SecureWebAdmission): WebSessionReadiness {
         val origin = ApprovedOrigin(admission.origin)
@@ -325,5 +427,9 @@ class KioskApplication : Application() {
         native.initialize()
         val source = (selection as? PurchaseCoordinator)?.let { coordinator -> { coordinator.startCollection() } }
         return ProductionOperatorRuntime(native, selection, source, loginSource)
+    }
+
+    private companion object {
+        const val PROVISIONED_READER_ID = "tmr_GrudQifObHAVgT"
     }
 }

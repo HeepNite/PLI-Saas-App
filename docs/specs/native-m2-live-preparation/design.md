@@ -38,6 +38,10 @@ The prepared workflow owns each launch's runtime, bootstrap, and state subscript
 
 The bootstrap runtime factory receives the exact collection runtime created for its prepared attempt; mutable factory captures and parallel Terminal state are structurally unavailable. Terminal publication removes workflow ownership and unsubscribes before invoking the external completion callback. A narrow per-publication failure marker preserves the original callback throwable through queued or direct execution without converting it into a second rejection, while unrelated setup/scheduling failures remain fail-closed. Application and WebView composition remain separate.
 
+## W3o2b fail-closed application bridge context
+
+`KioskApplication` can construct one bridge context only when the native collection build gate is enabled and the requested admission origin exactly matches the configured HTTPS origin. The context owns its prepared operation registry, secure random operation-reference generator, workflow, background executor, and permission adapter without attaching to a WebView or starting network/device work. Every admitted attempt re-reads the encrypted session and durable prepared attempt, requires their exact unresolved association and the provisioned LIVE reader `tmr_GrudQifObHAVgT`, then creates one collection runtime whose bootstrap adapter receives that exact runtime and context-local permission edge. Host readiness, attachment, and lifecycle delivery remain W3o2c.
+
 ## Why an additive schema record is unavoidable
 
 A random opaque reference cannot be verified or consumed exactly once from the existing signed ticket because that ticket is client-readable and carries identifiers. `PreparedCheckoutContext` is an account-verification snapshot, not a one-use payment capability, and its lookup is intentionally non-consuming. `Purchase` has no field that can atomically bind a random reference digest, expiry, caller terminal/session, and consumption state without overloading payment status or mutable JSON.
