@@ -62,7 +62,6 @@ export async function handOffPreparedPurchase(preparedPurchaseReference: string,
   return new Promise((resolve) => {
     const previous = target.onmessage
     let settled = false
-    let timer: ReturnType<typeof setTimeout>
     const finish = (state: NativeState) => {
       if (settled) return
       settled = true
@@ -77,7 +76,7 @@ export async function handOffPreparedPurchase(preparedPurchaseReference: string,
       } catch { finish("uncertain") }
     }
     try { target.onmessage = onmessage } catch { /* postMessage remains an admitted attempt */ }
-    timer = setTimeout(() => finish("uncertain"), timeoutMs)
+    const timer = setTimeout(() => finish("uncertain"), timeoutMs)
     try { target.postMessage(message) } catch { finish("uncertain") }
   })
 }
