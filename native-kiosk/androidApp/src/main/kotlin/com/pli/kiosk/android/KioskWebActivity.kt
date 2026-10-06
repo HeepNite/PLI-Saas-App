@@ -76,7 +76,9 @@ internal class KioskWebHostLifecycle(
 
     fun onNavigation(url: String?, isRedirect: Boolean, isMainFrame: Boolean): Boolean {
         val blocked = admission.shouldOverrideNavigation(url, isRedirect, isMainFrame)
-        if (blocked) invalidate(KioskWebHostContext::onSessionInvalidated)
+        if (blocked || isMainFrame && (context != null || host != null)) {
+            invalidate(KioskWebHostContext::onSessionInvalidated)
+        }
         return blocked
     }
 

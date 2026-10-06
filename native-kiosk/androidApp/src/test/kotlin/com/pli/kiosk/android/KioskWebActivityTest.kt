@@ -85,6 +85,7 @@ class KioskWebActivityTest {
 
         assertInvalidates("context.session") { onNavigation("https://foreign.invalid", false, true) }
         assertInvalidates("context.session") { onNavigation(terminal, true, true) }
+        assertInvalidates("context.session") { onNavigation(terminal, false, true) }
         assertInvalidates("context.background") { onApplicationBackgrounded() }
         assertInvalidates("context.session") { onSessionInvalidated() }
         assertInvalidates("context.reader") { onReaderInvalidated() }
