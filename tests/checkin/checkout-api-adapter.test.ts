@@ -3,6 +3,7 @@ import {
   requestCheckoutCashApi,
   requestCheckoutFinalizeApi,
   requestCheckoutIntentApi,
+  requestCheckoutQuoteApi,
   requestCheckoutSessionApi,
   requestCheckoutSessionStatusApi,
   requestDropInCheckInApi,
@@ -21,6 +22,66 @@ describe("checkout/checkin api adapters", () => {
     kioskSessionToken: "kiosk_tok_123",
     nested: { keep: true },
   }
+
+  it("requests an anonymous authoritative public quote without authorization", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ amountCents: 1500, currency: "usd", promotionLabel: "Heritage pin benefit" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    const { data } = await requestCheckoutQuoteApi({ payload, fetchImpl })
+
+    const [url, init] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/public/checkout/quote")
+    expect(init).toEqual({
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    expect(data).toEqual({ amountCents: 1500, currency: "usd", promotionLabel: "Heritage pin benefit" })
+  })
+
+  it("requests an authenticated authoritative public quote with authorization", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ error: "Quote unavailable" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    const { data } = await requestCheckoutQuoteApi({ token: "token_abc", payload, fetchImpl })
+
+    const [url, init] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/public/checkout/quote")
+    expect(init).toMatchObject({
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer token_abc",
+      },
+      body: JSON.stringify(payload),
+    })
+    expect(data).toEqual({ error: "Quote unavailable" })
+  })
+
+  it("uses the public endpoint for checkout intent when explicitly requested", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    await requestCheckoutIntentApi({ token: "token_abc", payload, fetchImpl, endpoint: "/api/public/checkout/intent" })
+
+    const [url, init] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/public/checkout/intent")
+    expect(init.headers).toMatchObject({ Authorization: "Bearer token_abc" })
+  })
 
   it("uses the correct request contract for checkout intent", async () => {
     const fetchImpl = vi.fn(async () => {
@@ -65,6 +126,35 @@ describe("checkout/checkin api adapters", () => {
       body: JSON.stringify(payload),
     })
     expect(data).toEqual({ ok: true })
+  })
+
+  it("preserves the profile checkout-session endpoint", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    await requestCheckoutSessionApi({ token: "token_abc", payload, fetchImpl, endpoint: "/api/profile/checkout/session" })
+
+    const [url] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/profile/checkout/session")
+  })
+
+  it("uses the public endpoint for checkout session when explicitly requested", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    await requestCheckoutSessionApi({ token: "token_abc", payload, fetchImpl, endpoint: "/api/public/checkout/session" })
+
+    const [url, init] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/public/checkout/session")
+    expect(init.headers).toMatchObject({ Authorization: "Bearer token_abc" })
   })
 
   it("uses the correct request contract for checkout session status", async () => {
