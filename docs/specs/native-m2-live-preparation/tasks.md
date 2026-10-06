@@ -72,6 +72,8 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 
 **W3o1 complete:** Work-unit `5d453380` plus correction `c9ea12ac` make workflow-local handles own each runtime, bootstrap, and observer. Permission and lifecycle events cannot cross workflow ownership; invalidation poisons bridge references and removes ownership before runtime/bootstrap callbacks. The correction serializes prepared admission, collection preparation/runtime start, and recovery against ownership removal, covered by deterministic admission and collection latch races. Corrected focused tests pass 16/16 and the full Android suite passes 160/160. Native review `review-1fff863a9ea57c94` approved the corrected candidate and acknowledgement burned authority. Terminal callback cleanup is a non-blocking W3o2 follow-up; host/build/device wiring remains outside this slice.
 
+**W3o2a implemented (`a97803d1`):** The bootstrap factory receives the exact collection runtime for its prepared attempt. Terminal publication removes ownership and unsubscribes before callback; queued and direct execution preserve the original callback throwable while unrelated failures still reject. Focused tests pass 20/20 and the full Android suite passes 164/164. Production application/WebView wiring remains outside this slice; native review is pending.
+
 ## 5. Physical and deployment gate
 
 **Scope:** Obtain separate approval and perform any Vercel deployment, APK installation, reader provisioning or operation, and LIVE validation.
