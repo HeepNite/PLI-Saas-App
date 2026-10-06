@@ -76,6 +76,7 @@ class SecureWebBridge(
     @Synchronized
     fun dispatch(raw: String): SecureBridgeResponse {
         if (invalidated) return failure(null, SecureBridgeError.STALE_CONTEXT)
+        if (raw.length > MAX_REQUEST_BYTES) return failure(null, SecureBridgeError.REQUEST_TOO_LARGE)
         val bytes = raw.toByteArray(Charsets.UTF_8)
         if (bytes.size > MAX_REQUEST_BYTES) return failure(null, SecureBridgeError.REQUEST_TOO_LARGE)
         val envelope = parse(raw) ?: return failure(null, SecureBridgeError.MALFORMED_REQUEST)

@@ -33,7 +33,7 @@ class SecureWebBridgeTest {
         )
 
         cases.forEach { assertEquals(SecureBridgeError.MALFORMED_REQUEST, bridge.dispatch(it).error) }
-        assertEquals(SecureBridgeError.REQUEST_TOO_LARGE, bridge.dispatch("x".repeat(16 * 1024 + 1)).error)
+        listOf(16 * 1024 + 1, 16 * 1024 * 64).forEach { assertEquals(SecureBridgeError.REQUEST_TOO_LARGE, bridge.dispatch("x".repeat(it)).error) }
     }
 
     @Test
