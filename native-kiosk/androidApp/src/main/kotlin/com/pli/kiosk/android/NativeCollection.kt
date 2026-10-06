@@ -39,6 +39,7 @@ class AndroidBluetoothPermissions(private var activity: android.app.Activity? = 
 data class BluetoothDiscoveryRequest(val timeoutMs: Int, val simulated: Boolean)
 data class BluetoothConnectionRequest(val locationId: String, val autoReconnectOnUnexpectedDisconnect: Boolean)
 fun interface NativeCancelable { fun cancel() }
+fun interface NativeStateSubscription { fun unsubscribe() }
 /** Stripe 5.6 retrieve/connect provide no cancellation handle. This is deliberately not a fake cancel. */
 object NonCancellableTerminalOperation : NativeCancelable { override fun cancel() = Unit }
 
@@ -135,6 +136,8 @@ class NativeCollectionRuntime(
     private var manualReconnectRequired = false
     private var discoveryListener: ((List<ConnectedReader>) -> Unit)? = null
     private var stateListener: (() -> Unit)? = null
+    private val stateObservers = linkedMapOf<Long, () -> Unit>()
+    private var nextStateObserverId = 0L
     var state: NativeCollectionState = NativeCollectionState.SESSION_READY; private set
     var discoveredReaders: List<ConnectedReader> = emptyList(); private set
     val clientSecretRetained get() = false
@@ -153,6 +156,12 @@ class NativeCollectionRuntime(
     @Synchronized fun attachPermissionOwner(activity: android.app.Activity) { (permissions as? AndroidBluetoothPermissions)?.attach(activity) }
     @Synchronized fun setDiscoveryListener(listener: (List<ConnectedReader>) -> Unit) { discoveryListener = listener; listener(discoveredReaders) }
     @Synchronized fun setStateListener(listener: () -> Unit) { stateListener = listener; listener() }
+    @Synchronized fun observeState(observer: () -> Unit): NativeStateSubscription {
+        val id = ++nextStateObserverId
+        stateObservers[id] = observer
+        observer()
+        return NativeStateSubscription { synchronized(this) { stateObservers.remove(id) } }
+    }
 
     @Synchronized fun discover() {
         check(configuration.collectionEnabled && initialized) { "Native collection is disabled or uninitialized" }
@@ -327,7 +336,10 @@ class NativeCollectionRuntime(
         }
     }
     private fun transition(next: NativeCollectionState) { state = next; notifyState() }
-    private fun notifyState() { stateListener?.invoke() }
+    private fun notifyState() {
+        stateListener?.invoke()
+        stateObservers.values.toList().forEach { it() }
+    }
     private fun requireReadyForReaderWork() { check(configuration.collectionEnabled && initialized) { "Native collection is disabled or uninitialized" }; validateOriginalContext() }
     private fun hasCurrentAuthority(): Boolean {
         val current = authority?.invoke()

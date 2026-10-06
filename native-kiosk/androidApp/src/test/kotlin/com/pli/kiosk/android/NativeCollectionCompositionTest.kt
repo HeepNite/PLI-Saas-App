@@ -31,6 +31,31 @@ class NativeCollectionCompositionTest {
         assertFailsWith<IllegalStateException> { runtime.discover() }
     }
 
+    @Test fun stateObserversReceiveCurrentAndTransitionsWithoutReplacingTheStateListener() {
+        val terminal = FakeTerminal().apply { discovered = listOf(reader) }
+        lateinit var runtime: NativeCollectionRuntime
+        val listenerStates = mutableListOf<NativeCollectionState>()
+        val observerStates = mutableListOf<NativeCollectionState>()
+        runtime = runtime(terminal = terminal)
+
+        runtime.setStateListener { listenerStates += runtime.state }
+        val subscription = runtime.observeState { observerStates += runtime.state }
+        runtime.initialize()
+        subscription.unsubscribe()
+        runtime.discover()
+
+        assertEquals(
+            listOf(
+                NativeCollectionState.SESSION_READY,
+                NativeCollectionState.SESSION_READY,
+                NativeCollectionState.DISCOVERING,
+                NativeCollectionState.READERS_AVAILABLE,
+            ),
+            listenerStates,
+        )
+        assertEquals(listOf(NativeCollectionState.SESSION_READY, NativeCollectionState.SESSION_READY), observerStates)
+    }
+
     @Test fun initializeOnceAndTokenProviderUsesOnlyOriginalSessionConnectionTokenAction() {
         val terminal = FakeTerminal()
         val tokens = FakeConnectionTokens()
