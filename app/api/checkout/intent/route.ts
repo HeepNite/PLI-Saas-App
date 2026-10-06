@@ -13,6 +13,11 @@ import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import type { CoursePromotionChannel } from "@/lib/promotions/course-promotions"
+import { prisma } from "@/lib/prisma"
+import { getTrustedCheckoutChannel } from "@/lib/checkout/trusted-checkout-channel"
+import { resolveCoursePromotionCheckoutPricing } from "@/lib/checkout/course-promotion-pricing"
+import { enforcePublicBookingPolicy } from "@/lib/checkout/public-booking-policy"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -157,14 +162,15 @@ export async function POST(req: Request) {
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
 
-  const validation = await validateCheckoutPayload(body, { prepareOnly })
-  if (isApiError(validation)) {
-    return toErrorResponse(validation)
+  const initialValidation = await validateCheckoutPayload(body, { prepareOnly })
+  if (isApiError(initialValidation)) {
+    return toErrorResponse(initialValidation)
   }
-  const effectiveSession = resolveKioskEffectiveSessionDateTime({
-    photoContext,
-    validation,
-  })
+  const trustedChannel = getTrustedCheckoutChannel()
+  if (trustedChannel === "public_booking") {
+    const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
+    if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
+  }
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -179,14 +185,14 @@ export async function POST(req: Request) {
       photoContext,
       allowExistingAccountLookup: prepareOnly || photoContext === FLOW_CONTEXT.KIOSK_TERMINAL,
       kioskSessionToken,
-      serviceId: validation.serviceId,
+      serviceId: initialValidation.serviceId,
       // NOTE: deferUserCreation is intentionally FALSE for kiosk new-student prepareOnly.
       // EmbeddedSignIn uses signIn.create({ strategy: "phone_code" }) which requires an
       // existing Clerk user. Without creating the Clerk user here, SMS verification cannot
       // work for truly new students. The staff-session isolation guard in lib/checkout.ts
       // ensures the new user uses the STUDENT's identity, not the staff's.
       deferUserCreation: false,
-      validation,
+      validation: initialValidation,
     }
   )
   if (isApiError(preparation)) {
@@ -210,6 +216,20 @@ export async function POST(req: Request) {
     })
   }
 
+  const validation = await validateCheckoutPayload(body)
+  if (isApiError(validation)) {
+    return toErrorResponse(validation)
+  }
+  const publicBookingPolicy = trustedChannel === "public_booking"
+    ? enforcePublicBookingPolicy(validation)
+    : null
+  if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
+  const currency = publicBookingPolicy?.currency ?? validation.currency
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
+
   const newStudentError = await enforceNewStudentRules({
     serviceId: validation.serviceId,
     safeParticipants: validation.safeParticipants,
@@ -223,17 +243,57 @@ export async function POST(req: Request) {
     return toErrorResponse(newStudentError)
   }
 
-  const metadata = buildCheckoutIntentMetadata({
-    effectiveSession,
-    firstName,
-    identity,
-    lastName,
-    name,
-    phone,
-    photoContext,
-    resolvedUserId,
-    validation,
-  })
+  const promotionChannel: CoursePromotionChannel | null = photoContext === FLOW_CONTEXT.KIOSK_TERMINAL && terminalAuth
+    ? "trusted_kiosk"
+    : trustedChannel === "public_booking"
+      ? trustedChannel
+      : null
+  const authoritativePromotions = validation.course && typeof validation.course.scheduleRules === "object" && validation.course.scheduleRules
+    ? (validation.course.scheduleRules as Record<string, unknown>).promotions
+    : []
+  const promotionPricing = promotionChannel
+    ? await resolveCoursePromotionCheckoutPricing({
+        db: prisma,
+        trustedChannel: promotionChannel,
+        authoritativePromotions,
+        authoritativeCourse: validation.course,
+        classDate: effectiveSession.date || validation.date,
+        classTime: effectiveSession.time || validation.time,
+        amountCents: validation.amountInt,
+        regularPriceCents: Math.round(
+          (validation.course?.enrollment?.services?.find((service) => service.id === "dropin")?.price ?? 0) * 100,
+        ),
+        checkoutShape: {
+          serviceId: validation.serviceId,
+          safeParticipants: validation.safeParticipants,
+          packageId: validation.packageId,
+          coupon: validation.coupon,
+          addons: validation.addons,
+          consecutivePriceCents: validation.consecutivePriceCents,
+          consecutiveAddOnOnly: validation.consecutiveAddOnOnly,
+        },
+        resolvedIdentity: {
+          clerkId: resolvedUserId,
+          email: identity.resolvedEmail,
+          phone: identity.phoneNormalized,
+        },
+      })
+    : { effectiveAmountCents: validation.amountInt, promotionMetadata: {} }
+
+  const metadata = {
+    ...buildCheckoutIntentMetadata({
+      effectiveSession,
+      firstName,
+      identity,
+      lastName,
+      name,
+      phone,
+      photoContext,
+      resolvedUserId,
+      validation,
+    }),
+    ...promotionPricing.promotionMetadata,
+  }
 
   const shouldDelegateTerminalPaymentIntent =
     photoContext === FLOW_CONTEXT.KIOSK_TERMINAL &&
@@ -246,15 +306,15 @@ export async function POST(req: Request) {
 
     if (shouldDelegateTerminalPaymentIntent && preparedContextId) {
       const idempotencyKey = buildDelegatedTerminalPaymentIntentIdempotencyKey({
-        amountInt: validation.amountInt,
-        currency: validation.currency,
+        amountInt: promotionPricing.effectiveAmountCents,
+        currency,
         preparedContextId,
       })
       const requestId = req.headers.get("x-request-id")?.trim() || idempotencyKey
       const gatewayResult = await createNestGatewayTerminalPaymentIntent({
         payload: {
-          amount: validation.amountInt,
-          currency: validation.currency,
+          amount: promotionPricing.effectiveAmountCents,
+          currency,
           receiptEmail: identity.resolvedEmail,
           idempotencyKey,
           metadata,
@@ -266,8 +326,8 @@ export async function POST(req: Request) {
         response = NextResponse.json({ clientSecret: gatewayResult.clientSecret, account })
       } else if (gatewayResult.source === "fallback") {
         response = await createLocalPaymentIntent({
-          amount: validation.amountInt,
-          currency: validation.currency,
+          amount: promotionPricing.effectiveAmountCents,
+          currency,
           metadata,
           receiptEmail: identity.resolvedEmail,
         })
@@ -293,8 +353,8 @@ export async function POST(req: Request) {
       }
     } else {
       response = await createLocalPaymentIntent({
-        amount: validation.amountInt,
-        currency: validation.currency,
+        amount: promotionPricing.effectiveAmountCents,
+        currency,
         metadata,
         receiptEmail: identity.resolvedEmail,
       })
