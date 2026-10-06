@@ -781,6 +781,9 @@ export default function EnrollModal({
     completeDropInCheckInAfterCardPayment,
     handleSubmit: handleSubmitInternal,
     resetKioskQrCheckout,
+    publicQuote,
+    publicQuoteLoading,
+    publicQuoteError,
   } = useEnrollPaymentActions({
     course,
     service,
@@ -836,6 +839,12 @@ export default function EnrollModal({
     setResumeContactFlowAfterSignIn,
     t,
   })
+
+  const isPublicQuoteBooking =
+    bookingSource === "public_booking" &&
+    !isKioskTerminalFlow &&
+    !isProfileBookingFlow &&
+    !isCheckInExistingFlow
 
   const handleSubmit = async (e?: React.FormEvent) => {
     await handleSubmitInternal(e, { validateBeforeSubmit })
@@ -1430,6 +1439,7 @@ export default function EnrollModal({
                   isNewStudent={isNewStudent}
                   isCheckInExistingFlow={isCheckInExistingFlow}
                   isProfileBookingFlow={isProfileBookingFlow}
+                  isOrdinaryPublicBooking={isPublicQuoteBooking}
                   skipContactStep={skipContactStep}
                   availableServices={availableServices}
                   hasNewStudentService={hasNewStudentService}
@@ -1489,6 +1499,10 @@ export default function EnrollModal({
                   addonsOpts={addonsOpts}
                   paymentMethod={paymentMethod}
                   setPaymentMethod={setPaymentMethod}
+                  isPublicQuoteBooking={isPublicQuoteBooking}
+                  publicQuote={publicQuote}
+                  publicQuoteLoading={publicQuoteLoading}
+                  publicQuoteError={publicQuoteError}
                   paymentMethodLabel={paymentMethodLabel}
                   formatPackageMeta={formatPackageMeta}
                   activeNumericField={activeNumericField}
