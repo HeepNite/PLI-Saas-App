@@ -61,6 +61,12 @@ export async function POST(req: Request) {
     kioskSessionToken,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
+  if (photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL) {
+    return NextResponse.json(
+      { error: "Cash payment is available only from a studio terminal." },
+      { status: 403 },
+    )
+  }
 
   const cashNote = normalizeCashNote((body as Record<string, unknown>)?.cashNote)
   const requestContext = body as Record<string, unknown>
