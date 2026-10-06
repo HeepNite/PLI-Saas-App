@@ -76,6 +76,8 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 
 **W3o2b complete (`afb96b83`):** `KioskApplication` now composes a build-gated, exact-origin prepared bridge context with encrypted-state revalidation, the provisioned LIVE reader, secure opaque operation references, one workflow-local background/permission context, and the exact runtime passed into its bootstrap adapter. It performs no WebView attachment or construction-time network/device work. Focused tests pass 4/4 and the full Android suite passes 168/168. Native review `review-025a7c675cf9d8c7` approved the candidate and acknowledgement burned authority; probabilistic opacity assertion and direct production-factory coverage remain non-blocking follow-ups.
 
+**W3o2c implemented; review pending:** `KioskWebActivity` attaches the native message host only after exact terminal completion, successful native session capture, and fresh encrypted-session revalidation. Main-frame loss, background, session/reader invalidation, destruction, and failed attachment remove or poison ownership before lifecycle forwarding; resume and late callbacks cannot reattach, while subframes remain untouched. Focused tests pass 14/14 and the full Android suite passes 174/174. Native review remains required before APK work.
+
 ## 5. Physical and deployment gate
 
 **Scope:** Obtain separate approval and perform any Vercel deployment, APK installation, reader provisioning or operation, and LIVE validation.

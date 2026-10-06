@@ -49,6 +49,24 @@ class WebSessionReadinessTest {
     }
 
     @Test
+    fun currentSessionRevalidatesTheCapturedEncryptedSessionBeforeHostUse() {
+        val clock = MutableClock(1_000_000L)
+        val store = MemoryStore()
+        val readiness = readiness(store, clock) { cookie }
+
+        assertTrue(readiness.capture(terminal, terminal))
+        val captured = requireNotNull(store.state.session)
+        assertEquals(captured, readiness.currentSession())
+
+        store.state = DurableState()
+        assertNull(readiness.currentSession())
+        store.state = DurableState(session = captured.copy(cookie = "changed"))
+        assertNull(readiness.currentSession())
+        store.state = DurableState(session = captured.copy(expiresAt = clock.now))
+        assertNull(readiness.currentSession())
+    }
+
+    @Test
     fun duplicateCookieCompletionRetainsFreshMatchingSessionWithoutExtendingItsTtl() {
         val clock = MutableClock(1_000_000L)
         val store = MemoryStore()
