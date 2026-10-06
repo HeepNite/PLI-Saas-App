@@ -72,3 +72,7 @@ Make ordinary public booking show and charge the server-authoritative reusable c
 - User screenshots: eligible October class showed promotion label but US$20 through the payment summary.
 - Read-only demo verification: exactly one matching user, one valid delivered Heritage entitlement, no email/phone conflict.
 - Code trace: normal public card uses checkout intent; promotion evaluation exists only in checkout session; UI total is client-derived.
+- Draft PR chain: `#613` → `#614` → `#615` → `#616` → `#617` → `#618` → `#619` → `#620` → `#621`.
+- Remote verification: all PRs are open drafts, preserve exact linear bases, link approved issue `#539`, carry exactly one matching `type:*` label, and remain below 400 changed lines (77, 284, 152, 383, 258, 147, 354, 349, 74).
+- Publication boundary: branches and draft PRs only; `codex/develop` remains at `483f0d9e`, no PR is merged, and no deploy or remote data/payment mutation occurred.
+- CI snapshot after creation: no failures; CodeQL remained pending across the code slices, with the root slice also awaiting typecheck, lint, and tests.
