@@ -145,21 +145,21 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
-    fun productionWorkflowDoesNotAdmitAfterPendingCallbackInvalidatesOwnership() {
-        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+    fun productionWorkflowQueuesConcurrentTerminalAfterBlockedPendingDelivery() {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1); val terminalPublished = CountDownLatch(1)
         val fixture = productionWorkflow(); val results = mutableListOf<PreparedRecoveryState>()
         fixture.workflow.launch("operation", preparedReference()) { state ->
             results += state
             if (state == PreparedRecoveryState.PENDING) { entered.countDown(); release.await() }
         }
-        val worker = Thread { fixture.queued.runNext() }.also { it.start() }; assertTrue(entered.await(1, TimeUnit.SECONDS))
-        val invalidated = CountDownLatch(1)
-        Thread { fixture.workflow.onSessionInvalidated(); invalidated.countDown() }.start()
-        assertFalse(invalidated.await(100, TimeUnit.MILLISECONDS))
-        release.countDown(); assertTrue(invalidated.await(1, TimeUnit.SECONDS))
-        worker.join()
+        val worker = Thread { fixture.queued.runNext() }.also { it.start() }
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+        val terminal = Thread { fixture.workflow.onSessionInvalidated(); terminalPublished.countDown() }.also { it.start() }
+        assertTrue(terminalPublished.await(1, TimeUnit.SECONDS))
+        assertEquals(listOf(PreparedRecoveryState.PENDING), results)
 
-        assertTrue(fixture.prepared.references.isEmpty())
+        release.countDown(); worker.join(1_000); terminal.join(1_000)
+        assertFalse(worker.isAlive); assertFalse(terminal.isAlive)
         assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
     }
 

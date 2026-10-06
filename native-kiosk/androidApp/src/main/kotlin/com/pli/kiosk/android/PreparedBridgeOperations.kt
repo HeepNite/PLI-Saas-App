@@ -189,22 +189,42 @@ class ProductionPreparedBridgeWorkflow(
     private class TerminalCompletionFailure(val original: Throwable) : Error(original)
     private class Publication(private val completion: (PreparedRecoveryState) -> Unit, private val onTerminal: () -> Unit) {
         private var state: PreparedRecoveryState? = null
+        private val deliveries = mutableListOf<PreparedRecoveryState>()
+        private var deliveryInProgress = false
         private var paidRecoveryClaimed = false
         private var terminalCompletionFailure: Throwable? = null
         fun publish(next: PreparedRecoveryState) {
-            val terminal = synchronized(this) {
-                if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || state == next) null
-                else { state = next; next != PreparedRecoveryState.PENDING }
-            } ?: return
-            if (terminal) {
-                onTerminal()
-                try {
-                    completion(next)
-                } catch (failure: Throwable) {
-                    synchronized(this) { terminalCompletionFailure = failure }
-                    throw TerminalCompletionFailure(failure)
+            val drain = synchronized(this) {
+                if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || state == next) false
+                else {
+                    state = next
+                    deliveries += next
+                    if (deliveryInProgress) false else { deliveryInProgress = true; true }
                 }
-            } else synchronized(this) { completion(next) }
+            }
+            if (drain) drainDeliveries()
+        }
+        private fun drainDeliveries() {
+            try {
+                while (true) {
+                    val next = synchronized(this) { if (deliveries.isEmpty()) null else deliveries.removeAt(0) } ?: return
+                    if (next != PreparedRecoveryState.PENDING) onTerminal()
+                    try {
+                        completion(next)
+                    } catch (failure: Throwable) {
+                        if (next != PreparedRecoveryState.PENDING) {
+                            synchronized(this) { terminalCompletionFailure = failure }
+                            throw TerminalCompletionFailure(failure)
+                        }
+                        throw failure
+                    }
+                }
+            } finally {
+                val resume = synchronized(this) {
+                    if (deliveries.isEmpty()) { deliveryInProgress = false; false } else true
+                }
+                if (resume) drainDeliveries()
+            }
         }
         fun rethrowTerminalCompletionFailure() {
             synchronized(this) { terminalCompletionFailure }?.let { throw it }
