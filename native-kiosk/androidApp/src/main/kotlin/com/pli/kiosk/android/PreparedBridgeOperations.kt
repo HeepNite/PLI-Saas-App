@@ -19,9 +19,17 @@ fun interface PreparedBridgeWorkflow {
 fun interface NativeCollectionRuntimeFactory { fun create(preparedAttempt: AttemptState): NativeCollectionRuntime }
 fun interface PinnedReaderBootstrapRuntimeFactory { fun create(preparedAttempt: AttemptState): PinnedReaderBootstrapRuntime }
 
+/** Lifecycle routing seam for a prepared workflow; the bridge registry remains its only host owner. */
+interface PreparedBridgeLifecycle {
+    fun onBluetoothPermissionResult(granted: Boolean)
+    fun onApplicationBackgrounded()
+    fun onSessionInvalidated()
+    fun onReaderInvalidated()
+}
+
 /**
- * Native-only prepared admission. This is deliberately not attached to a WebView host yet.
- * Every server call runs through [backgroundExecutor]; JS receives only coarse completion states.
+ * Native-only prepared admission. Each launch owns its runtime, bootstrap, and state subscription
+ * here, rather than relying on mutable factory captures or process-global routing.
  */
 class ProductionPreparedBridgeWorkflow(
     private val coordinator: PurchaseCoordinator,
@@ -30,76 +38,129 @@ class ProductionPreparedBridgeWorkflow(
     private val bootstrapRuntimeFactory: PinnedReaderBootstrapRuntimeFactory,
     private val provisionedReaderId: String,
     private val clock: () -> Long = System::currentTimeMillis,
-) : PreparedBridgeWorkflow {
+) : PreparedBridgeWorkflow, PreparedBridgeLifecycle {
+    private val handles = mutableMapOf<String, Handle>()
+
     override fun launch(operationReference: String, preparedPurchaseReference: String, completion: (PreparedRecoveryState) -> Unit) {
-        val publication = Publication(completion)
+        lateinit var handle: Handle
+        val publication = Publication(completion) { close(handle) }
+        handle = Handle(operationReference, publication)
+        synchronized(this) { handles[operationReference] = handle }
         try {
             backgroundExecutor.execute {
+                if (!active(handle)) return@execute
                 publication.publish(PreparedRecoveryState.PENDING)
                 try {
                     require(coordinator.startPrepared(preparedPurchaseReference) == Outcome.PENDING)
+                    if (!active(handle)) return@execute
                     val attempt = coordinator.retainedPreparedAttemptForNativeRuntime()
                     val runtime = nativeRuntimeFactory.create(attempt)
-                    runtime.setStateListener { onRuntimeState(runtime, publication) }
+                    attachRuntime(handle, runtime)
+                    if (!active(handle)) return@execute
+                    val subscription = runtime.observeState { onRuntimeState(handle, runtime) }
+                    attachSubscription(handle, subscription)
                     runtime.initialize()
-                    PinnedReaderBootstrap(
+                    if (!active(handle)) return@execute
+                    val bootstrap = PinnedReaderBootstrap(
                         attempt, provisionedReaderId, bootstrapRuntimeFactory.create(attempt), clock,
                         onReady = {
-                            try {
+                            if (active(handle)) try {
                                 val start = coordinator.startCollection()
-                                runtime.start(start.attempt, start.clientSecret)
-                            } catch (_: Exception) {
-                                publication.reject()
-                            }
+                                if (active(handle)) runtime.start(start.attempt, start.clientSecret)
+                            } catch (_: Exception) { publication.reject() }
                         },
                         onRecoveryRequired = publication::reject,
-                    ).start()
-                } catch (_: Exception) {
-                    publication.reject()
-                }
+                    )
+                    attachBootstrap(handle, bootstrap)
+                    if (active(handle)) bootstrap.start()
+                } catch (_: Exception) { publication.reject() }
             }
-        } catch (_: Exception) {
-            publication.reject()
-        }
+        } catch (_: Exception) { publication.reject() }
     }
 
-    private fun onRuntimeState(runtime: NativeCollectionRuntime, publication: Publication) {
+    override fun onBluetoothPermissionResult(granted: Boolean) = activeHandles().forEach { handle ->
+        handle.bootstrap?.takeIf { it.state == PinnedReaderBootstrap.State.PERMISSION_REQUIRED }
+            ?.onBluetoothPermissionResult(granted)
+    }
+    override fun onApplicationBackgrounded() = invalidateHandles { it.onApplicationBackgrounded() }
+    override fun onSessionInvalidated() = invalidateHandles { it.onSessionInvalidated() }
+    override fun onReaderInvalidated() = invalidateHandles { it.onReaderInvalidated() }
+
+    private fun onRuntimeState(handle: Handle, runtime: NativeCollectionRuntime) {
+        if (!active(handle)) return
         try {
             when (runtime.state) {
-                NativeCollectionState.PAID -> if (publication.claimPaidRecovery()) {
-                    backgroundExecutor.execute {
-                        try {
-                            if (coordinator.recoverKnownAttempt() == Outcome.PAID) publication.publish(PreparedRecoveryState.PAID)
-                            else publication.reject()
-                        } catch (_: Exception) {
-                            publication.reject()
-                        }
-                    }
+                NativeCollectionState.PAID -> if (handle.publication.claimPaidRecovery()) backgroundExecutor.execute {
+                    if (!active(handle)) return@execute
+                    try {
+                        if (coordinator.recoverKnownAttempt() == Outcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
+                        else handle.publication.reject()
+                    } catch (_: Exception) { handle.publication.reject() }
                 }
                 NativeCollectionState.MANUAL_RECONCILIATION,
                 NativeCollectionState.UNRESOLVED,
-                NativeCollectionState.RECONNECT_REQUIRED -> publication.reject()
-                else -> publication.publish(PreparedRecoveryState.PENDING)
+                NativeCollectionState.RECONNECT_REQUIRED -> handle.publication.reject()
+                else -> handle.publication.publish(PreparedRecoveryState.PENDING)
             }
-        } catch (_: Exception) {
-            publication.reject()
-        }
+        } catch (_: Exception) { handle.publication.reject() }
     }
 
-    private class Publication(private val completion: (PreparedRecoveryState) -> Unit) {
+    private fun invalidateHandles(invalidateRuntime: (NativeCollectionRuntime) -> Unit) = activeHandles().forEach { handle ->
+        val resources = synchronized(this) {
+            if (handles[handle.reference] !== handle) null else {
+                handles.remove(handle.reference)
+                handle.closed = true
+                Resources(handle.subscription, handle.bootstrap, handle.runtime)
+            }
+        } ?: return@forEach
+        resources.subscription?.unsubscribe()
+        handle.publication.reject()
+        resources.bootstrap?.invalidate()
+        resources.runtime?.let(invalidateRuntime)
+    }
+
+    private fun activeHandles() = synchronized(this) { handles.values.toList() }
+    private fun active(handle: Handle) = synchronized(this) { handles[handle.reference] === handle && !handle.closed }
+    private fun attachRuntime(handle: Handle, runtime: NativeCollectionRuntime) = synchronized(this) {
+        if (active(handle)) handle.runtime = runtime
+    }
+    private fun attachBootstrap(handle: Handle, bootstrap: PinnedReaderBootstrap) = synchronized(this) {
+        if (active(handle)) handle.bootstrap = bootstrap else bootstrap.invalidate()
+    }
+    private fun attachSubscription(handle: Handle, subscription: NativeStateSubscription) = synchronized(this) {
+        if (active(handle)) handle.subscription = subscription else subscription.unsubscribe()
+    }
+    private fun close(handle: Handle) {
+        val subscription = synchronized(this) {
+            if (handles[handle.reference] !== handle) null else {
+                handles.remove(handle.reference); handle.closed = true; handle.subscription
+            }
+        }
+        subscription?.unsubscribe()
+    }
+
+    private class Handle(val reference: String, val publication: Publication) {
+        var runtime: NativeCollectionRuntime? = null
+        var bootstrap: PinnedReaderBootstrap? = null
+        var subscription: NativeStateSubscription? = null
+        var closed = false
+    }
+    private data class Resources(
+        val subscription: NativeStateSubscription?, val bootstrap: PinnedReaderBootstrap?, val runtime: NativeCollectionRuntime?,
+    )
+    private class Publication(private val completion: (PreparedRecoveryState) -> Unit, private val onTerminal: () -> Unit) {
         private var state: PreparedRecoveryState? = null
         private var paidRecoveryClaimed = false
-
         @Synchronized fun publish(next: PreparedRecoveryState) {
             if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || state == next) return
-            state = next
-            completion(next)
+            state = next; completion(next)
+            if (next != PreparedRecoveryState.PENDING) onTerminal()
         }
         @Synchronized fun reject() = publish(PreparedRecoveryState.REJECTED)
         @Synchronized fun claimPaidRecovery(): Boolean {
-            if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || paidRecoveryClaimed) return false
-            paidRecoveryClaimed = true
-            return true
+            val available = state != PreparedRecoveryState.PAID && state != PreparedRecoveryState.REJECTED && !paidRecoveryClaimed
+            if (available) paidRecoveryClaimed = true
+            return available
         }
     }
 }
@@ -161,6 +222,11 @@ class PreparedBridgeOperations(
         invalidated = true
         operations.clear()
     }
+
+    fun onBluetoothPermissionResult(granted: Boolean) = (workflow as? PreparedBridgeLifecycle)?.onBluetoothPermissionResult(granted) ?: Unit
+    fun onApplicationBackgrounded() { invalidate(); (workflow as? PreparedBridgeLifecycle)?.onApplicationBackgrounded() }
+    fun onSessionInvalidated() { invalidate(); (workflow as? PreparedBridgeLifecycle)?.onSessionInvalidated() }
+    fun onReaderInvalidated() { invalidate(); (workflow as? PreparedBridgeLifecycle)?.onReaderInvalidated() }
 
     @Synchronized
     private fun complete(operationReference: String, entry: Entry, completion: PreparedRecoveryState) {

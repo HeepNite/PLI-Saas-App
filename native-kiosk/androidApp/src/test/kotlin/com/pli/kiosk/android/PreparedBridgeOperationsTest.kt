@@ -120,6 +120,50 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun lifecycleRegistryInvalidatesBeforeForwardingAndPermissionDoesNotInvalidate() {
+        lateinit var operations: PreparedBridgeOperations
+        lateinit var callback: (PreparedRecoveryState) -> Unit
+        val events = mutableListOf<String>()
+        val workflow = object : PreparedBridgeWorkflow, PreparedBridgeLifecycle {
+            override fun launch(operationReference: String, preparedPurchaseReference: String, completion: (PreparedRecoveryState) -> Unit) { callback = completion }
+            override fun onBluetoothPermissionResult(granted: Boolean) { events += "permission:$granted" }
+            override fun onApplicationBackgrounded() { events += "background:${operations.poll("operation")}" }
+            override fun onSessionInvalidated() = Unit
+            override fun onReaderInvalidated() = Unit
+        }
+        operations = PreparedBridgeOperations(workflow)
+        operations.start("operation", preparedReference())
+        operations.onBluetoothPermissionResult(true)
+        operations.onApplicationBackgrounded()
+        callback(PreparedRecoveryState.PAID)
+
+        assertEquals(listOf("permission:true", "background:REJECTED"), events)
+        assertEquals(SecureBridgeState.REJECTED, operations.poll("operation"))
+    }
+
+    @Test
+    fun productionLifecycleRoutesOnlyItsBlockedBootstrapAndPoisonsLateReadyCallbacks() {
+        val denied = productionWorkflow(bootstrapPermissionGranted = false)
+        val deniedResults = mutableListOf<PreparedRecoveryState>()
+        denied.workflow.launch("denied", preparedReference(), deniedResults::add)
+        denied.queued.runAll(); denied.workflow.onBluetoothPermissionResult(false)
+
+        listOf<(ProductionPreparedBridgeWorkflow) -> Unit>(
+            { it.onApplicationBackgrounded() }, { it.onSessionInvalidated() }, { it.onReaderInvalidated() },
+        ).forEachIndexed { index, invalidate ->
+            val fixture = productionWorkflow(bootstrapPermissionGranted = false, deferBootstrapConnection = true)
+            val results = mutableListOf<PreparedRecoveryState>()
+            fixture.workflow.launch("operation-$index", preparedReference(('B'.code + index).toChar()), results::add)
+            fixture.queued.runAll(); fixture.workflow.onBluetoothPermissionResult(true); fixture.workflow.onBluetoothPermissionResult(false)
+            assertEquals(listOf(PreparedRecoveryState.PENDING), results)
+            invalidate(fixture.workflow); fixture.bootstrap.completeConnection(); fixture.queued.runAll()
+            assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+            assertEquals(null, fixture.terminal.secret)
+        }
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), deniedResults)
+    }
+
+    @Test
     fun productionWorkflowSchedulesExactAdmissionAndRejectsBeforeBootstrapOnFactoryFailure() {
         val queued = QueuedExecutor()
         val ticket = AttemptTicket("ticket", 2_000L, "tmr_exact", Approved.LOCATION)
@@ -207,6 +251,7 @@ class PreparedBridgeOperationsTest {
         beforeConfirm: (NativeCollectionRuntime) -> Unit = {},
         failCollection: Boolean = false,
         deferBootstrapConnection: Boolean = false,
+        bootstrapPermissionGranted: Boolean = true,
     ): WorkflowFixture {
         val fixture = WorkflowFixture(failCollection)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
@@ -228,7 +273,7 @@ class PreparedBridgeOperationsTest {
                 ).also { fixture.runtime = it }
             },
             PinnedReaderBootstrapRuntimeFactory {
-                ReadyBootstrapRuntime(reader(fixture.ticket), deferBootstrapConnection) {
+                ReadyBootstrapRuntime(reader(fixture.ticket), deferBootstrapConnection, bootstrapPermissionGranted) {
                     fixture.runtime.discover()
                     fixture.terminal.readers?.invoke(listOf(reader(fixture.ticket)))
                     fixture.runtime.selectReader(reader(fixture.ticket))
@@ -289,12 +334,13 @@ class PreparedBridgeOperationsTest {
     private class ReadyBootstrapRuntime(
         private val reader: ConnectedReader,
         private val deferConnection: Boolean = false,
+        private val permissionGranted: Boolean = true,
         private val beforeReady: () -> Unit,
     ) : PinnedReaderBootstrapRuntime {
         private var onConnected: (() -> Unit)? = null
         fun completeConnection() = onConnected?.invoke()
-        override fun hasBluetoothPermission() = true
-        override fun requestBluetoothPermission() = error("permission request")
+        override fun hasBluetoothPermission() = permissionGranted
+        override fun requestBluetoothPermission() = Unit
         override fun discover(onReaders: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit) = onReaders(listOf(reader))
         override fun connect(reader: ConnectedReader, onConnected: (ConnectedReader) -> Unit, onDisconnected: () -> Unit, onFailure: () -> Unit) {
             beforeReady(); if (deferConnection) this.onConnected = { onConnected(reader) } else onConnected(reader)

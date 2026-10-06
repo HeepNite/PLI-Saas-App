@@ -4,6 +4,7 @@ import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class NativeCollectionCompositionTest {
@@ -54,6 +55,17 @@ class NativeCollectionCompositionTest {
             listenerStates,
         )
         assertEquals(listOf(NativeCollectionState.SESSION_READY, NativeCollectionState.SESSION_READY), observerStates)
+    }
+
+    @Test fun throwingImmediateObserverIsRemovedBeforeItsThrowableEscapes() {
+        val runtime = runtime()
+        var callbacks = 0
+        val failure = AssertionError("observer failed")
+
+        assertSame(failure, assertFailsWith<AssertionError> { runtime.observeState { callbacks++; throw failure } })
+        runtime.initialize()
+
+        assertEquals(1, callbacks)
     }
 
     @Test fun initializeOnceAndTokenProviderUsesOnlyOriginalSessionConnectionTokenAction() {

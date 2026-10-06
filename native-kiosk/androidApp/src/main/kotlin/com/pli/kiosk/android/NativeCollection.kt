@@ -159,7 +159,12 @@ class NativeCollectionRuntime(
     @Synchronized fun observeState(observer: () -> Unit): NativeStateSubscription {
         val id = ++nextStateObserverId
         stateObservers[id] = observer
-        observer()
+        try {
+            observer()
+        } catch (error: Throwable) {
+            stateObservers.remove(id)
+            throw error
+        }
         return NativeStateSubscription { synchronized(this) { stateObservers.remove(id) } }
     }
 

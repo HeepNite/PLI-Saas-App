@@ -30,6 +30,10 @@ A fakeable Android-only callback seam accepts one unresolved `PREPARED` ticket w
 
 `NativeCollectionBootstrapRuntime` adapts permission, discovery, exact-reader selection, and connection to the same initialized `NativeCollectionRuntime` that later performs collection. It never creates a second Terminal path and never auto-reconnects. Operation-scoped state observation is additive and explicitly unsubscribable, preserving the existing owner listener while mapping only `CONNECTED`, pre-connection failure, and post-connection disconnect into the bootstrap callbacks. Production workflow, permission-result routing, lifecycle invalidation, and WebView attachment remain later composition work.
 
+## W3o1 operation-scoped lifecycle routing
+
+The prepared workflow owns each launch's runtime, bootstrap, and state subscription in one workflow-local handle. Permission results reach only a currently permission-blocked bootstrap. Background, session, and reader invalidation remove ownership and unsubscribe before rejecting and invalidating the bootstrap/runtime, so late callbacks cannot restore bridge state or claim `PAID`. The bridge registry poisons its public references before forwarding lifecycle events. Immediate observer registration also removes itself before rethrowing any callback `Throwable`. Android host attachment remains separate.
+
 ## Why an additive schema record is unavoidable
 
 A random opaque reference cannot be verified or consumed exactly once from the existing signed ticket because that ticket is client-readable and carries identifiers. `PreparedCheckoutContext` is an account-verification snapshot, not a one-use payment capability, and its lookup is intentionally non-consuming. `Purchase` has no field that can atomically bind a random reference digest, expiry, caller terminal/session, and consumption state without overloading payment status or mutable JSON.
