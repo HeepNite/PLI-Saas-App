@@ -5,6 +5,7 @@ import java.util.concurrent.TimeUnit
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class PreparedBridgeOperationsTest {
@@ -216,7 +217,7 @@ class PreparedBridgeOperationsTest {
             coordinator,
             queued,
             NativeCollectionRuntimeFactory { throw IllegalStateException("runtime factory failed") },
-            PinnedReaderBootstrapRuntimeFactory { bootstrapFactories++; error("must not bootstrap") },
+            PinnedReaderBootstrapRuntimeFactory { _, _ -> bootstrapFactories++; error("must not bootstrap") },
             ticket.readerId,
             clock = { 1_000L },
         )
@@ -229,6 +230,17 @@ class PreparedBridgeOperationsTest {
         assertEquals(listOf(preparedReference()), prepared.references)
         assertEquals(0, bootstrapFactories)
         assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+    }
+
+    @Test
+    fun productionWorkflowPassesExactAttemptAndRuntimeToBootstrapFactory() {
+        val fixture = productionWorkflow()
+
+        fixture.workflow.launch("operation", preparedReference()) {}
+        fixture.queued.runAll()
+
+        assertTrue(fixture.bootstrapAttempt === fixture.runtimeAttempt)
+        assertTrue(fixture.bootstrapRuntime === fixture.runtime)
     }
 
     @Test
@@ -253,6 +265,68 @@ class PreparedBridgeOperationsTest {
         fixture.workflow.launch("operation", preparedReference()) { results += it }; fixture.queued.runAll()
         repeat(2) { fixture.bootstrap.completeConnection() }
         assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+    }
+
+    @Test
+    fun productionWorkflowCleansTerminalHandleBeforeThrowingCompletionCanReenterLifecycle() {
+        val fixture = productionWorkflow()
+        val results = mutableListOf<PreparedRecoveryState>()
+        val completionFailure = IllegalStateException("completion failed")
+
+        fixture.workflow.launch("operation", preparedReference()) { state ->
+            results += state
+            if (state == PreparedRecoveryState.PAID) {
+                fixture.workflow.onApplicationBackgrounded()
+                throw completionFailure
+            }
+        }
+
+        val failure = assertFailsWith<IllegalStateException> { fixture.queued.runAll() }
+
+        assertTrue(failure === completionFailure)
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.PAID), results)
+        assertEquals(NativeCollectionState.PAID, fixture.runtime.state)
+        fixture.workflow.onSessionInvalidated()
+        fixture.workflow.onBluetoothPermissionResult(false)
+        assertEquals(NativeCollectionState.PAID, fixture.runtime.state)
+    }
+
+    @Test
+    fun productionWorkflowCleansRejectedHandleBeforeThrowingCompletionCanReenterLifecycle() {
+        val fixture = productionWorkflow(bootstrapPermissionGranted = false)
+        val results = mutableListOf<PreparedRecoveryState>()
+        val completionFailure = IllegalStateException("completion failed")
+
+        fixture.workflow.launch("operation", preparedReference()) { state ->
+            results += state
+            if (state == PreparedRecoveryState.REJECTED) {
+                fixture.workflow.onSessionInvalidated()
+                throw completionFailure
+            }
+        }
+        fixture.queued.runAll()
+
+        val failure = assertFailsWith<IllegalStateException> { fixture.runtime.onReaderDisconnected() }
+
+        assertTrue(failure === completionFailure)
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+        assertEquals(0, fixture.bootstrap.discoverCalls)
+        fixture.workflow.onBluetoothPermissionResult(true)
+        assertEquals(0, fixture.bootstrap.discoverCalls)
+    }
+
+    @Test
+    fun productionWorkflowPropagatesTerminalCompletionFailureThroughSynchronousRuntimeStart() {
+        val fixture = productionWorkflow(backgroundExecutor = DirectExecutor())
+        val completionFailure = IllegalStateException("completion failed")
+        val failure = assertFailsWith<IllegalStateException> {
+            fixture.workflow.launch("operation", preparedReference()) { state ->
+                if (state == PreparedRecoveryState.PAID) throw completionFailure
+            }
+        }
+
+        assertTrue(failure === completionFailure)
+        assertEquals(NativeCollectionState.PAID, fixture.runtime.state)
     }
 
     @Test
@@ -294,13 +368,15 @@ class PreparedBridgeOperationsTest {
         deferBootstrapConnection: Boolean = false,
         bootstrapPermissionGranted: Boolean = true,
         beforeCollection: () -> Unit = {},
+        backgroundExecutor: OperatorBackgroundExecutor? = null,
     ): WorkflowFixture {
         val fixture = WorkflowFixture(failCollection, beforeCollection)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
         fixture.workflow = ProductionPreparedBridgeWorkflow(
-            coordinator(fixture.prepared), fixture.queued,
+            coordinator(fixture.prepared), backgroundExecutor ?: fixture.queued,
             NativeCollectionRuntimeFactory { attempt ->
                 assertEquals(AttemptMode.PREPARED, attempt.mode)
+                fixture.runtimeAttempt = attempt
                 NativeCollectionRuntime(
                     NativeCollectionConfiguration("https://approved.invalid", true), session(), requireNotNull(attempt.ticket), fixture.terminal,
                     GrantedPermissions(), object : ConnectionTokenSource {
@@ -314,7 +390,9 @@ class PreparedBridgeOperationsTest {
                     }, { 1_000L },
                 ).also { fixture.runtime = it }
             },
-            PinnedReaderBootstrapRuntimeFactory {
+            PinnedReaderBootstrapRuntimeFactory { attempt, runtime ->
+                fixture.bootstrapAttempt = attempt
+                fixture.bootstrapRuntime = runtime
                 ReadyBootstrapRuntime(reader(fixture.ticket), deferBootstrapConnection, bootstrapPermissionGranted) {
                     fixture.runtime.discover()
                     fixture.terminal.readers?.invoke(listOf(reader(fixture.ticket)))
@@ -341,6 +419,9 @@ class PreparedBridgeOperationsTest {
         val terminal = RecordingTerminal()
         lateinit var bootstrap: ReadyBootstrapRuntime
         lateinit var runtime: NativeCollectionRuntime
+        lateinit var runtimeAttempt: AttemptState
+        lateinit var bootstrapAttempt: AttemptState
+        lateinit var bootstrapRuntime: NativeCollectionRuntime
         lateinit var workflow: ProductionPreparedBridgeWorkflow
     }
     private class QueuedExecutor : OperatorBackgroundExecutor {
@@ -348,6 +429,9 @@ class PreparedBridgeOperationsTest {
         override fun execute(task: () -> Unit) { tasks += task }
         fun runNext() { if (tasks.isNotEmpty()) tasks.removeAt(0).invoke() }
         fun runAll() { while (tasks.isNotEmpty()) runNext() }
+    }
+    private class DirectExecutor : OperatorBackgroundExecutor {
+        override fun execute(task: () -> Unit) = task()
     }
     private class MemoryStore(private var state: DurableState) : StateStore {
         override fun read() = state
@@ -387,10 +471,14 @@ class PreparedBridgeOperationsTest {
         private val beforeReady: () -> Unit,
     ) : PinnedReaderBootstrapRuntime {
         private var onConnected: (() -> Unit)? = null
+        var discoverCalls = 0
         fun completeConnection() = onConnected?.invoke()
         override fun hasBluetoothPermission() = permissionGranted
         override fun requestBluetoothPermission() = Unit
-        override fun discover(onReaders: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit) = onReaders(listOf(reader))
+        override fun discover(onReaders: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit) {
+            discoverCalls++
+            onReaders(listOf(reader))
+        }
         override fun connect(reader: ConnectedReader, onConnected: (ConnectedReader) -> Unit, onDisconnected: () -> Unit, onFailure: () -> Unit) {
             beforeReady(); if (deferConnection) this.onConnected = { onConnected(reader) } else onConnected(reader)
         }

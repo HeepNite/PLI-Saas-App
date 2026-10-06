@@ -17,7 +17,9 @@ fun interface PreparedBridgeWorkflow {
 
 /** Narrow construction seams; the workflow itself owns the concrete native orchestration. */
 fun interface NativeCollectionRuntimeFactory { fun create(preparedAttempt: AttemptState): NativeCollectionRuntime }
-fun interface PinnedReaderBootstrapRuntimeFactory { fun create(preparedAttempt: AttemptState): PinnedReaderBootstrapRuntime }
+fun interface PinnedReaderBootstrapRuntimeFactory {
+    fun create(preparedAttempt: AttemptState, runtime: NativeCollectionRuntime): PinnedReaderBootstrapRuntime
+}
 
 /** Lifecycle routing seam for a prepared workflow; the bridge registry remains its only host owner. */
 interface PreparedBridgeLifecycle {
@@ -48,7 +50,8 @@ class ProductionPreparedBridgeWorkflow(
         synchronized(this) { handles[operationReference] = handle }
         try {
             backgroundExecutor.execute {
-                if (!active(handle)) return@execute
+                try {
+                    if (!active(handle)) return@execute
                 publication.publish(PreparedRecoveryState.PENDING)
                 try {
                     require(withActive(handle) { coordinator.startPrepared(preparedPurchaseReference) } == Outcome.PENDING)
@@ -57,54 +60,77 @@ class ProductionPreparedBridgeWorkflow(
                     val runtime = nativeRuntimeFactory.create(attempt)
                     attachRuntime(handle, runtime)
                     if (!active(handle)) return@execute
-                    val subscription = runtime.observeState { onRuntimeState(handle, runtime) }
+                    val subscription = runtime.observeState {
+                        try {
+                            onRuntimeState(handle, runtime)
+                        } catch (failure: TerminalCompletionFailure) {
+                            throw failure.original
+                        }
+                    }
                     attachSubscription(handle, subscription)
                     runtime.initialize()
                     if (!active(handle)) return@execute
                     val bootstrap = PinnedReaderBootstrap(
-                        attempt, provisionedReaderId, bootstrapRuntimeFactory.create(attempt), clock,
+                        attempt, provisionedReaderId, bootstrapRuntimeFactory.create(attempt, runtime), clock,
                         onReady = {
                             try {
                                 withActive(handle) {
                                     val start = coordinator.startCollection()
                                     if (active(handle)) runtime.start(start.attempt, start.clientSecret)
                                 }
-                            } catch (_: Exception) { publication.reject() }
+                            } catch (failure: Exception) { publication.rejectUnlessTerminalCompletionFailure(failure) }
                         },
                         onRecoveryRequired = publication::reject,
                     )
                     attachBootstrap(handle, bootstrap)
                     if (active(handle)) bootstrap.start()
-                } catch (_: Exception) { publication.reject() }
+                    publication.rethrowTerminalCompletionFailure()
+                } catch (failure: Exception) { publication.rejectUnlessTerminalCompletionFailure(failure) }
+                } catch (failure: TerminalCompletionFailure) {
+                    throw failure.original
+                }
             }
-        } catch (_: Exception) { publication.reject() }
+        } catch (failure: Exception) { publication.rejectUnlessTerminalCompletionFailure(failure) }
     }
 
-    override fun onBluetoothPermissionResult(granted: Boolean) = activeHandles().forEach { handle ->
-        handle.bootstrap?.takeIf { it.state == PinnedReaderBootstrap.State.PERMISSION_REQUIRED }
-            ?.onBluetoothPermissionResult(granted)
+    override fun onBluetoothPermissionResult(granted: Boolean) = unwrapTerminalCompletionFailure {
+        activeHandles().forEach { handle ->
+            handle.bootstrap?.takeIf { it.state == PinnedReaderBootstrap.State.PERMISSION_REQUIRED }
+                ?.onBluetoothPermissionResult(granted)
+            handle.publication.rethrowTerminalCompletionFailure()
+        }
     }
-    override fun onApplicationBackgrounded() = invalidateHandles { it.onApplicationBackgrounded() }
-    override fun onSessionInvalidated() = invalidateHandles { it.onSessionInvalidated() }
-    override fun onReaderInvalidated() = invalidateHandles { it.onReaderInvalidated() }
+    override fun onApplicationBackgrounded() = unwrapTerminalCompletionFailure { invalidateHandles { it.onApplicationBackgrounded() } }
+    override fun onSessionInvalidated() = unwrapTerminalCompletionFailure { invalidateHandles { it.onSessionInvalidated() } }
+    override fun onReaderInvalidated() = unwrapTerminalCompletionFailure { invalidateHandles { it.onReaderInvalidated() } }
 
     private fun onRuntimeState(handle: Handle, runtime: NativeCollectionRuntime) {
         if (!active(handle)) return
-        try {
-            when (runtime.state) {
-                NativeCollectionState.PAID -> if (handle.publication.claimPaidRecovery()) backgroundExecutor.execute {
-                    if (!active(handle)) return@execute
-                    try {
-                        if (withActive(handle) { coordinator.recoverKnownAttempt() } == Outcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
-                        else handle.publication.reject()
-                    } catch (_: Exception) { handle.publication.reject() }
-                }
-                NativeCollectionState.MANUAL_RECONCILIATION,
-                NativeCollectionState.UNRESOLVED,
-                NativeCollectionState.RECONNECT_REQUIRED -> handle.publication.reject()
-                else -> handle.publication.publish(PreparedRecoveryState.PENDING)
+        when (runtime.state) {
+            NativeCollectionState.PAID -> if (handle.publication.claimPaidRecovery()) {
+                try {
+                    backgroundExecutor.execute {
+                        try {
+                            if (!active(handle)) return@execute
+                            val recovered = try {
+                                withActive(handle) { coordinator.recoverKnownAttempt() }
+                            } catch (_: Exception) {
+                                handle.publication.reject()
+                                return@execute
+                            }
+                            if (recovered == Outcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
+                            else handle.publication.reject()
+                        } catch (failure: TerminalCompletionFailure) {
+                            throw failure.original
+                        }
+                    }
+                } catch (failure: Exception) { handle.publication.rejectUnlessTerminalCompletionFailure(failure) }
             }
-        } catch (_: Exception) { handle.publication.reject() }
+            NativeCollectionState.MANUAL_RECONCILIATION,
+            NativeCollectionState.UNRESOLVED,
+            NativeCollectionState.RECONNECT_REQUIRED -> handle.publication.reject()
+            else -> handle.publication.publish(PreparedRecoveryState.PENDING)
+        }
     }
 
     private fun invalidateHandles(invalidateRuntime: (NativeCollectionRuntime) -> Unit) = activeHandles().forEach { handle ->
@@ -121,6 +147,13 @@ class ProductionPreparedBridgeWorkflow(
         resources.runtime?.let(invalidateRuntime)
     }
 
+    private inline fun unwrapTerminalCompletionFailure(action: () -> Unit) {
+        try {
+            action()
+        } catch (failure: TerminalCompletionFailure) {
+            throw failure.original
+        }
+    }
     private fun activeHandles() = synchronized(this) { handles.values.toList() }
     private fun active(handle: Handle) = synchronized(this) { handles[handle.reference] === handle && !handle.closed }
     private inline fun <T> withActive(handle: Handle, action: () -> T): T? = synchronized(this) {
@@ -153,15 +186,34 @@ class ProductionPreparedBridgeWorkflow(
     private data class Resources(
         val subscription: NativeStateSubscription?, val bootstrap: PinnedReaderBootstrap?, val runtime: NativeCollectionRuntime?,
     )
+    private class TerminalCompletionFailure(val original: Throwable) : Error(original)
     private class Publication(private val completion: (PreparedRecoveryState) -> Unit, private val onTerminal: () -> Unit) {
         private var state: PreparedRecoveryState? = null
         private var paidRecoveryClaimed = false
-        @Synchronized fun publish(next: PreparedRecoveryState) {
-            if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || state == next) return
-            state = next; completion(next)
-            if (next != PreparedRecoveryState.PENDING) onTerminal()
+        private var terminalCompletionFailure: Throwable? = null
+        fun publish(next: PreparedRecoveryState) {
+            val terminal = synchronized(this) {
+                if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || state == next) null
+                else { state = next; next != PreparedRecoveryState.PENDING }
+            } ?: return
+            if (terminal) {
+                onTerminal()
+                try {
+                    completion(next)
+                } catch (failure: Throwable) {
+                    synchronized(this) { terminalCompletionFailure = failure }
+                    throw TerminalCompletionFailure(failure)
+                }
+            } else synchronized(this) { completion(next) }
         }
-        @Synchronized fun reject() = publish(PreparedRecoveryState.REJECTED)
+        fun rethrowTerminalCompletionFailure() {
+            synchronized(this) { terminalCompletionFailure }?.let { throw it }
+        }
+        fun rejectUnlessTerminalCompletionFailure(failure: Throwable) {
+            if (synchronized(this) { terminalCompletionFailure === failure }) throw failure
+            reject()
+        }
+        fun reject() = publish(PreparedRecoveryState.REJECTED)
         @Synchronized fun claimPaidRecovery(): Boolean {
             val available = state != PreparedRecoveryState.PAID && state != PreparedRecoveryState.REJECTED && !paidRecoveryClaimed
             if (available) paidRecoveryClaimed = true
