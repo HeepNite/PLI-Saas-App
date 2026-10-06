@@ -6,6 +6,7 @@ const mockResolveCheckoutPreparation = vi.fn()
 const mockEnforceNewStudent = vi.fn()
 const mockCreatePaymentIntent = vi.fn()
 const mockClearPreparedCheckout = vi.fn()
+const mockFindHeritagePinEntitlement = vi.fn()
 
 const ENV_KEYS = [
   "NEST_GATEWAY_ENABLED",
@@ -51,6 +52,10 @@ vi.mock("@/lib/checkout/validation", () => ({
   validateCheckoutPayload: (...args: unknown[]) => mockValidate(...args),
 }))
 
+vi.mock("@/lib/campaigns/heritage-pin-entitlement", () => ({
+  findHeritagePinEntitlementForIdentity: (...args: unknown[]) => mockFindHeritagePinEntitlement(...args),
+}))
+
 vi.mock("stripe", () => ({
   default: class Stripe {
     paymentIntents = {
@@ -74,6 +79,8 @@ describe("checkout intent route", () => {
     mockEnforceNewStudent.mockReset()
     mockCreatePaymentIntent.mockReset()
     mockClearPreparedCheckout.mockReset()
+    mockFindHeritagePinEntitlement.mockReset()
+    mockFindHeritagePinEntitlement.mockResolvedValue(null)
 
     mockValidate.mockReturnValue({
       courseSlug: "salsa-femenina-matutina",
@@ -134,6 +141,7 @@ describe("checkout intent route", () => {
   afterEach(() => {
     restoreEnv()
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   it("returns client secret for valid request", async () => {
@@ -153,8 +161,74 @@ describe("checkout intent route", () => {
     expect(mockCreatePaymentIntent).toHaveBeenCalledTimes(1)
   })
 
-  it("uses authoritative kiosk current-course date/time in payment intent metadata", async () => {
+  it("does not grant promotion authority to a direct intent request that claims public booking", async () => {
     mockValidate.mockReturnValueOnce({
+      courseSlug: "bachata-beginners", courseTitle: "Bachata Beginners", amountInt: 2000, currency: "usd",
+      date: "2026-10-08", time: "21:10", packageId: "", serviceId: "dropin", addons: [], safeParticipants: 1,
+      coupon: "", pkg: null, packageTotalCredits: null, packageIsUnlimited: false, packageCadence: "",
+      packageMakeUps: 0, packageValidDays: 180, consecutivePriceCents: null, consecutiveAddOnOnly: false,
+      course: {
+        enrollment: { services: [{ id: "dropin", price: 20 }] },
+        scheduleRules: { promotions: [{
+          id: "heritage-october", label: "Heritage pin benefit", active: true,
+          pricing: { kind: "fixed", amountCents: 1500 },
+          window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+          audience: "heritage_pin_delivered", channels: ["public_booking"],
+        }] },
+      },
+    })
+    mockFindHeritagePinEntitlement.mockResolvedValueOnce({ status: "delivered" })
+
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const response = await POST(createRouteRequest({ bookingSource: "public_booking" }))
+
+    expect(response.status).toBe(200)
+    expect(mockCreatePaymentIntent).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 2000,
+      metadata: expect.not.objectContaining({ coursePromotionId: expect.any(String) }),
+    }))
+    expect(mockFindHeritagePinEntitlement).not.toHaveBeenCalled()
+  })
+
+  it("applies an eligible trusted-kiosk promotion using terminal-authorized date/time", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
+    mockValidate.mockReturnValue({
+      courseSlug: "bachata-beginners", courseTitle: "Bachata Beginners", amountInt: 2000, currency: "usd",
+      date: "2026-11-05", time: "18:00", packageId: "", serviceId: "dropin", addons: [], safeParticipants: 1,
+      coupon: "", pkg: null, packageTotalCredits: null, packageIsUnlimited: false, packageCadence: "",
+      packageMakeUps: 0, packageValidDays: 180, consecutivePriceCents: null, consecutiveAddOnOnly: false,
+      kioskCurrentCourseDate: "2026-10-08", kioskCurrentCourseTime: "21:10",
+      course: {
+        schedule: { availableWeekdays: [3], availableTimes: ["21:10"] },
+        enrollment: { services: [{ id: "dropin", price: 20 }] },
+        scheduleRules: { promotions: [{
+          id: "heritage-october", label: "Heritage pin benefit", active: true,
+          pricing: { kind: "fixed", amountCents: 1500 },
+          window: { basis: "class_date", startDate: "2026-10-01", endDate: "2026-10-31" },
+          audience: "heritage_pin_delivered", channels: ["trusted_kiosk"],
+        }] },
+      },
+    })
+    mockFindHeritagePinEntitlement.mockResolvedValueOnce({ status: "delivered" })
+
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const response = await POST(createRouteRequest({ photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" }))
+
+    expect(response.status).toBe(200)
+    expect(mockCreatePaymentIntent).toHaveBeenCalledWith(expect.objectContaining({
+      amount: 1500,
+      metadata: expect.objectContaining({
+        coursePromotionId: "heritage-october",
+        coursePromotionPriceCents: "1500",
+        date: "2026-10-08",
+        time: "21:10",
+      }),
+    }))
+  })
+
+  it("uses authoritative kiosk current-course date/time in payment intent metadata", async () => {
+    mockValidate.mockReturnValue({
       courseSlug: "salsa-timba-ny",
       courseTitle: "Salsa timba in New York",
       amountInt: 2000,
