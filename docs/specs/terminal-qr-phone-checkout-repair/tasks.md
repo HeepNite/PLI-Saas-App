@@ -2,7 +2,7 @@
 
 ## Status
 
-The focused implementation and local validation are complete in work-unit commit `9b5e1fea`. Production deployment and provider/device wallet eligibility remain separate gates.
+The focused implementation and local validation are complete in work-unit commit `9b5e1fea`. Native review `review-1579e4a5f837d5ac` approved the candidate and acknowledgement burned authority. Production deployment and provider/device wallet eligibility remain separate gates.
 
 ## 1. Specification and plan — complete
 

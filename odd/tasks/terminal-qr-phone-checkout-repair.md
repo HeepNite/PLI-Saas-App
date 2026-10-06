@@ -14,7 +14,7 @@ Preserve the existing `/staff/terminal` landing QR and `/checkin` phone journey,
 ## Tasks
 - [completed] T1 — Create and reconcile the active requirements, analysis, resolution, design, and test-first implementation plan for the authorized minimal repair.
 - [completed] T2 — Added focused QR-phone hosted-checkout payload/redirect-state coverage and the single-heading rendering assertion; removed only the duplicated outer `Current Course` heading after the assertion demonstrated it.
-- [completed] T3 — Work-unit commit `9b5e1fea`; independent verification passed 81/81 focused tests, TypeScript, markdown structure, and scoped diff checks. Deployment and provider/device wallet eligibility remain separate gates.
+- [completed] T3 — Work-unit commit `9b5e1fea`; independent verification passed 81/81 focused tests, TypeScript, markdown structure, and scoped diff checks. Native review `review-1579e4a5f837d5ac` approved the candidate and acknowledgement burned authority. Deployment and provider/device wallet eligibility remain separate gates.
 
 ## Evidence
 - Existing focused payment/check-in suite: 124/124 passing before changes.
