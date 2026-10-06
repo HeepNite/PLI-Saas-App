@@ -51,7 +51,7 @@ class ProductionPreparedBridgeWorkflow(
                 if (!active(handle)) return@execute
                 publication.publish(PreparedRecoveryState.PENDING)
                 try {
-                    require(coordinator.startPrepared(preparedPurchaseReference) == Outcome.PENDING)
+                    require(withActive(handle) { coordinator.startPrepared(preparedPurchaseReference) } == Outcome.PENDING)
                     if (!active(handle)) return@execute
                     val attempt = coordinator.retainedPreparedAttemptForNativeRuntime()
                     val runtime = nativeRuntimeFactory.create(attempt)
@@ -64,9 +64,11 @@ class ProductionPreparedBridgeWorkflow(
                     val bootstrap = PinnedReaderBootstrap(
                         attempt, provisionedReaderId, bootstrapRuntimeFactory.create(attempt), clock,
                         onReady = {
-                            if (active(handle)) try {
-                                val start = coordinator.startCollection()
-                                if (active(handle)) runtime.start(start.attempt, start.clientSecret)
+                            try {
+                                withActive(handle) {
+                                    val start = coordinator.startCollection()
+                                    if (active(handle)) runtime.start(start.attempt, start.clientSecret)
+                                }
                             } catch (_: Exception) { publication.reject() }
                         },
                         onRecoveryRequired = publication::reject,
@@ -93,7 +95,7 @@ class ProductionPreparedBridgeWorkflow(
                 NativeCollectionState.PAID -> if (handle.publication.claimPaidRecovery()) backgroundExecutor.execute {
                     if (!active(handle)) return@execute
                     try {
-                        if (coordinator.recoverKnownAttempt() == Outcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
+                        if (withActive(handle) { coordinator.recoverKnownAttempt() } == Outcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
                         else handle.publication.reject()
                     } catch (_: Exception) { handle.publication.reject() }
                 }
@@ -121,6 +123,9 @@ class ProductionPreparedBridgeWorkflow(
 
     private fun activeHandles() = synchronized(this) { handles.values.toList() }
     private fun active(handle: Handle) = synchronized(this) { handles[handle.reference] === handle && !handle.closed }
+    private inline fun <T> withActive(handle: Handle, action: () -> T): T? = synchronized(this) {
+        if (handles[handle.reference] === handle && !handle.closed) action() else null
+    }
     private fun attachRuntime(handle: Handle, runtime: NativeCollectionRuntime) = synchronized(this) {
         if (active(handle)) handle.runtime = runtime
     }

@@ -1,5 +1,7 @@
 package com.pli.kiosk.android
 
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -142,6 +144,45 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun productionWorkflowDoesNotAdmitAfterPendingCallbackInvalidatesOwnership() {
+        val entered = CountDownLatch(1); val release = CountDownLatch(1)
+        val fixture = productionWorkflow(); val results = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation", preparedReference()) { state ->
+            results += state
+            if (state == PreparedRecoveryState.PENDING) { entered.countDown(); release.await() }
+        }
+        val worker = Thread { fixture.queued.runNext() }.also { it.start() }; assertTrue(entered.await(1, TimeUnit.SECONDS))
+        val invalidated = CountDownLatch(1)
+        Thread { fixture.workflow.onSessionInvalidated(); invalidated.countDown() }.start()
+        assertFalse(invalidated.await(100, TimeUnit.MILLISECONDS))
+        release.countDown(); assertTrue(invalidated.await(1, TimeUnit.SECONDS))
+        worker.join()
+
+        assertTrue(fixture.prepared.references.isEmpty())
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+    }
+
+    @Test
+    fun productionWorkflowKeepsOwnershipWhileCollectionPreparationBegins() {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val fixture = productionWorkflow(beforeCollection = { entered.countDown(); release.await() })
+        val results = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        val worker = Thread { fixture.queued.runNext() }.also { it.start() }
+        assertTrue(entered.await(1, TimeUnit.SECONDS))
+
+        val invalidated = CountDownLatch(1)
+        Thread { fixture.workflow.onSessionInvalidated(); invalidated.countDown() }.start()
+        assertFalse(invalidated.await(100, TimeUnit.MILLISECONDS))
+        release.countDown()
+        assertTrue(invalidated.await(1, TimeUnit.SECONDS))
+        worker.join()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+    }
+
+    @Test
     fun productionLifecycleRoutesOnlyItsBlockedBootstrapAndPoisonsLateReadyCallbacks() {
         val denied = productionWorkflow(bootstrapPermissionGranted = false)
         val deniedResults = mutableListOf<PreparedRecoveryState>()
@@ -252,8 +293,9 @@ class PreparedBridgeOperationsTest {
         failCollection: Boolean = false,
         deferBootstrapConnection: Boolean = false,
         bootstrapPermissionGranted: Boolean = true,
+        beforeCollection: () -> Unit = {},
     ): WorkflowFixture {
-        val fixture = WorkflowFixture(failCollection)
+        val fixture = WorkflowFixture(failCollection, beforeCollection)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
         fixture.workflow = ProductionPreparedBridgeWorkflow(
             coordinator(fixture.prepared), fixture.queued,
@@ -292,10 +334,10 @@ class PreparedBridgeOperationsTest {
     private fun session() = StaffSession("https://approved.invalid", "association", "cookie", 2_000L)
     private fun reader(ticket: AttemptTicket) = ConnectedReader(ticket.readerId, Approved.M2_SERIAL, "stripe_m2", ticket.locationId)
 
-    private class WorkflowFixture(failCollection: Boolean = false) {
+    private class WorkflowFixture(failCollection: Boolean = false, beforeCollection: () -> Unit = {}) {
         val ticket = AttemptTicket("ticket", 2_000L, "tmr_exact", Approved.LOCATION)
         val queued = QueuedExecutor()
-        val prepared = RecordingPreparedApi(ticket, failCollection)
+        val prepared = RecordingPreparedApi(ticket, failCollection, beforeCollection)
         val terminal = RecordingTerminal()
         lateinit var bootstrap: ReadyBootstrapRuntime
         lateinit var runtime: NativeCollectionRuntime
@@ -304,7 +346,8 @@ class PreparedBridgeOperationsTest {
     private class QueuedExecutor : OperatorBackgroundExecutor {
         private val tasks = mutableListOf<() -> Unit>()
         override fun execute(task: () -> Unit) { tasks += task }
-        fun runAll() { while (tasks.isNotEmpty()) tasks.removeAt(0).invoke() }
+        fun runNext() { if (tasks.isNotEmpty()) tasks.removeAt(0).invoke() }
+        fun runAll() { while (tasks.isNotEmpty()) runNext() }
     }
     private class MemoryStore(private var state: DurableState) : StateStore {
         override fun read() = state
@@ -317,13 +360,19 @@ class PreparedBridgeOperationsTest {
         override fun prepare(session: StaffSession, ticket: AttemptTicket) = error("legacy prepare")
         override fun recover(session: StaffSession, ticket: AttemptTicket, id: String) = error("legacy recover")
     }
-    private class RecordingPreparedApi(private val ticket: AttemptTicket, private val failCollection: Boolean = false) : PreparedPurchaseApi {
+    private class RecordingPreparedApi(
+        private val ticket: AttemptTicket,
+        private val failCollection: Boolean = false,
+        private val beforeCollection: () -> Unit = {},
+    ) : PreparedPurchaseApi {
         val references = mutableListOf<String>()
         val paymentIds = mutableListOf<String?>()
         val recoveries = mutableListOf<String>()
         override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket = ticket.also { references += preparedPurchaseReference }
         override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?) =
-            if (failCollection) error("collection failed") else PaymentResult("pi_exact", "requires_payment_method", false, "secret_exact").also { paymentIds += paymentIntentId }
+            beforeCollection().let {
+                if (failCollection) error("collection failed") else PaymentResult("pi_exact", "requires_payment_method", false, "secret_exact").also { paymentIds += paymentIntentId }
+            }
         override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
             PaymentResult("pi_exact", "succeeded", true).also { recoveries += paymentIntentId }
     }
