@@ -23,6 +23,21 @@ const defaultContact = (): EnrollmentContact => ({
 
 const noCoupon = (): Coupon => null as unknown as Coupon
 
+const flushEffects = async () => {
+  await act(async () => {
+    await Promise.resolve()
+    await Promise.resolve()
+  })
+}
+
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve
+  })
+  return { promise, resolve }
+}
+
 const defaultCourse = () => ({
   slug: "bjj-fundamentals",
   title: "BJJ Fundamentals",
@@ -528,6 +543,113 @@ describe("useEnrollPaymentActions", () => {
   })
 
   // ---------------------------------------------------------------------
+  // authoritative public quote
+  // ---------------------------------------------------------------------
+  describe("authoritative public quote", () => {
+    it("does not request a quote off the payments step or for non-public bookings", async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+
+      await renderHook(defaultInput({ bookingSource: "public_booking", step: 0 }))
+      await flushEffects()
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      await renderHook(defaultInput())
+      await flushEffects()
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it("quotes anonymously, then refreshes with a signed-in Clerk token", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ amountCents: 1500, currency: "usd" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const getToken = vi.fn(async () => "fresh-clerk-token")
+      const { getResult, rerender } = await renderHook(defaultInput({ bookingSource: "public_booking", getToken }))
+      await flushEffects()
+
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/public/checkout/quote")
+      expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBeUndefined()
+      expect(getResult().publicQuote).toEqual({ amountCents: 1500, currency: "usd" })
+
+      await rerender(defaultInput({ bookingSource: "public_booking", isSignedIn: true, getToken }))
+      await flushEffects()
+      expect(getToken).toHaveBeenCalledWith({ skipCache: true })
+      expect((fetchMock.mock.calls[1][1].headers as Record<string, string>).Authorization).toBe("Bearer fresh-clerk-token")
+    })
+
+    it("clears and refetches the quote when checkout payload inputs change", async () => {
+      const nextQuote = deferred<Response>()
+      let quoteRequests = 0
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(() => {
+        quoteRequests += 1
+        return quoteRequests === 1
+          ? Promise.resolve(jsonResponse({ amountCents: 1500, currency: "usd" }))
+          : nextQuote.promise
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const input = defaultInput({ bookingSource: "public_booking", service: "regular" })
+      const { getResult, rerender } = await renderHook(input)
+      await flushEffects()
+      expect(getResult().publicQuoteLoading).toBe(false)
+
+      await rerender({ ...input, service: "new-student" })
+      expect(getResult().publicQuote).toBeNull()
+      expect(getResult().publicQuoteLoading).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toMatchObject({ serviceId: "new-student" })
+      await act(async () => nextQuote.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
+    })
+
+    it("keeps the latest quote when an earlier request resolves last", async () => {
+      const first = deferred<Response>()
+      const second = deferred<Response>()
+      const fetchMock = vi.fn(() => fetchMock.mock.calls.length === 1 ? first.promise : second.promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const input = defaultInput({ bookingSource: "public_booking", date: "2026-07-10" })
+      const { getResult, rerender } = await renderHook(input)
+
+      await rerender({ ...input, date: "2026-07-11" })
+      await act(async () => second.resolve(jsonResponse({ amountCents: 1700, currency: "usd" })))
+      expect(getResult().publicQuote).toEqual({ amountCents: 1700, currency: "usd" })
+
+      await act(async () => first.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
+      expect(getResult().publicQuote).toEqual({ amountCents: 1700, currency: "usd" })
+    })
+
+    it("exposes a generic quote error and blocks public card submission while loading or errored", async () => {
+      const pending = deferred<Response>()
+      const fetchMock = vi.fn(() => pending.promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const setFormError = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ bookingSource: "public_booking", setFormError }))
+
+      await getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(setFormError).toHaveBeenCalled()
+
+      await act(async () => pending.resolve(jsonResponse({ error: "sensitive server failure" }, { status: 400, ok: false })))
+      expect(getResult().publicQuoteError).toBe("We couldn't refresh the current price. Please try again.")
+      await getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("submits only after a successful quote, retaining local amount and the public intent endpoint", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => (
+        url === "/api/public/checkout/quote"
+          ? jsonResponse({ amountCents: 1500, currency: "usd" })
+          : jsonResponse({ clientSecret: "secret_abc" })
+      ))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({ bookingSource: "public_booking", total: 49.99 }))
+      await flushEffects()
+
+      await getResult().handleSubmit()
+      const [url, request] = fetchMock.mock.calls[1]
+      expect(url).toBe("/api/public/checkout/intent")
+      expect(JSON.parse(request.body as string)).toMatchObject({ amount: 4999, bookingSource: "public_booking" })
+    })
+  })
+
+  // ---------------------------------------------------------------------
   // handleSubmit — public existing-customer package path
   // ---------------------------------------------------------------------
   describe("handleSubmit — public package reservation", () => {
@@ -568,7 +690,12 @@ describe("useEnrollPaymentActions", () => {
       vi.stubGlobal("fetch", fetchMock)
       const setProcessing = vi.fn()
       const { getResult } = await renderHook(
-        defaultInput({ paymentMethod: "stripe", isKioskTerminalFlow: true, setProcessing })
+        defaultInput({
+          bookingSource: "public_booking",
+          paymentMethod: "stripe",
+          isKioskTerminalFlow: true,
+          setProcessing,
+        })
       )
 
       await getResult().handleSubmit()
@@ -638,10 +765,102 @@ describe("useEnrollPaymentActions", () => {
   })
 
   // ---------------------------------------------------------------------
+  // handleSubmit — hosted Stripe session paths
+  // ---------------------------------------------------------------------
+  describe("handleSubmit — hosted Stripe session paths", () => {
+    it("uses the public session endpoint for public mobile/check-in bookings", async () => {
+      const fetchMock = vi.fn(async (url: string) => (
+        url === "/api/public/checkout/quote"
+          ? jsonResponse({ amountCents: 1500, currency: "usd" })
+          : jsonResponse({ error: "declined" }, { status: 400, ok: false })
+      ))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        isCheckInFlow: true,
+      }))
+      await flushEffects()
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/public/checkout/session", expect.anything())
+    })
+
+    it("keeps non-public mobile/check-in bookings on the default session endpoint", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ error: "declined" }, { status: 400, ok: false }))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+    })
+
+    it("retries public mobile/check-in bookings through the public session endpoint", async () => {
+      let sessionRequests = 0
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => {
+        if (url === "/api/public/checkout/quote") return jsonResponse({ amountCents: 1500, currency: "usd" })
+        sessionRequests += 1
+        return sessionRequests === 1
+          ? jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })
+          : jsonResponse({ error: "declined" }, { status: 400, ok: false })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const getToken = vi.fn(async () => "refreshed-token")
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        isCheckInFlow: true,
+        isSignedIn: true,
+        getToken,
+      }))
+      await flushEffects()
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        "/api/public/checkout/quote",
+        "/api/public/checkout/session",
+        "/api/public/checkout/session",
+      ])
+      expect(getToken).toHaveBeenCalledTimes(3)
+    })
+
+    it("keeps profile bookings on the profile session endpoint", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ error: "declined" }, { status: 400, ok: false }))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({ isProfileBookingFlow: true }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/profile/checkout/session", expect.anything())
+    })
+  })
+
+  // ---------------------------------------------------------------------
   // handleSubmit — regular stripe (card intent) path
   // ---------------------------------------------------------------------
   describe("handleSubmit — regular stripe intent path", () => {
-    it("requests a checkout intent and opens the stripe modal with the client secret on success", async () => {
+    it("uses the public intent endpoint while retaining the regular client amount in its payload", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => (
+        url === "/api/public/checkout/quote"
+          ? jsonResponse({ amountCents: 1500, currency: "usd" })
+          : jsonResponse({ clientSecret: "secret_abc" })
+      ))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        total: 49.99,
+      }))
+      await flushEffects()
+
+      await getResult().handleSubmit()
+
+      const [url, request] = fetchMock.mock.calls[1]
+      expect(url).toBe("/api/public/checkout/intent")
+      expect(JSON.parse(request.body as string)).toMatchObject({ amount: 4999, bookingSource: "public_booking" })
+    })
+
+    it("requests the default checkout intent and opens the stripe modal with the client secret on success", async () => {
       const fetchMock = vi.fn(async () => jsonResponse({ clientSecret: "secret_abc" }))
       vi.stubGlobal("fetch", fetchMock)
       const setStripeClientSecret = vi.fn()
@@ -673,23 +892,34 @@ describe("useEnrollPaymentActions", () => {
       expect(body.packageId).toBe("")
     })
 
-    it("retries once with a refreshed token on 409 ACCOUNT_EXISTS while signed in", async () => {
-      let call = 0
-      vi.stubGlobal(
-        "fetch",
-        vi.fn(async () => {
-          call += 1
-          if (call === 1) return jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })
-          return jsonResponse({ clientSecret: "secret_retry" })
-        })
-      )
+    it("retries public card bookings through the public intent endpoint with a refreshed token", async () => {
+      let intentRequests = 0
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => {
+        if (url === "/api/public/checkout/quote") return jsonResponse({ amountCents: 1500, currency: "usd" })
+        intentRequests += 1
+        return intentRequests === 1
+          ? jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })
+          : jsonResponse({ clientSecret: "secret_retry" })
+      })
+      vi.stubGlobal("fetch", fetchMock)
       const getToken = vi.fn(async () => "tok")
       const setStripeClientSecret = vi.fn()
-      const { getResult } = await renderHook(defaultInput({ isSignedIn: true, getToken, setStripeClientSecret }))
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        isSignedIn: true,
+        getToken,
+        setStripeClientSecret,
+      }))
+      await flushEffects()
 
       await getResult().handleSubmit()
 
-      expect(getToken).toHaveBeenCalledTimes(2)
+      expect(getToken).toHaveBeenCalledTimes(3)
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+        "/api/public/checkout/quote",
+        "/api/public/checkout/intent",
+        "/api/public/checkout/intent",
+      ])
       expect(setStripeClientSecret).toHaveBeenCalledWith("secret_retry")
     })
 
