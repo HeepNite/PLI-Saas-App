@@ -66,6 +66,8 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 
 **W3l committed:** Request-bound prepared bridge operations are work-unit commit `a12d472d`. They reject generated-reference collisions before insertion/launch, preserve every accepted reservation, and launch server recovery with both exact operation and prepared-purchase references. Only the bound injected authoritative completion may report `PAID`; polling stays coarse. Duplicate caching retains only SHA-256 request digests plus responses. They compose no host, provider, reader, coordinator, SDK, or collection behavior. Correction commit `5ce1a06f` binds every reported state to the exact owned reference and omits references for unknown/stale/collision rejection. Native review `review-66c0936676aba504` approved the corrected candidate and acknowledgement burned authority.
 
+**W3m local implementation:** A detached production-shaped prepared workflow schedules exact-reference admission on the injected worker, binds one internal prepared attempt to one collection runtime and pinned bootstrap, and publishes only coarse terminal-safe recovery states. Runtime `PAID` requires a second fresh durable coordinator recovery; bootstrap/runtime failures, `UNRESOLVED`, `RECONNECT_REQUIRED`, and manual reconciliation reject. Host attachment, SDK/device/network execution, deployment, flags, and commits remain out of scope.
+
 ## 5. Physical and deployment gate
 
 **Scope:** Obtain separate approval and perform any Vercel deployment, APK installation, reader provisioning or operation, and LIVE validation.

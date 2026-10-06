@@ -165,6 +165,17 @@ class PurchaseCoordinator private constructor(
         requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
     }
 
+    /** Internal composition only; this exposes no ticket beyond native code. */
+    internal fun retainedPreparedAttemptForNativeRuntime(): AttemptState = exclusive {
+        val state = load()
+        val session = originalSession(state)
+        val attempt = requireNotNull(state.attempt) { "No retained attempt exists" }
+        validateBinding(session, attempt)
+        require(attempt.mode == AttemptMode.PREPARED && !attempt.resolved) { "No unresolved prepared attempt exists" }
+        requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
+        attempt
+    }
+
     internal fun hasKnownPaymentIntent(): Boolean = exclusive {
         load().attempt?.paymentIntentId != null
     }

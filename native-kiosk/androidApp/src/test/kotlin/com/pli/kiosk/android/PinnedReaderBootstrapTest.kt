@@ -158,6 +158,16 @@ class PinnedReaderBootstrapTest {
         assertEquals(0, runtime.discoveryCalls)
     }
 
+    @Test fun `recovery callback is one shot for bootstrap failure`() {
+        val runtime = FakeRuntime()
+        var recoveries = 0
+        val bootstrap = PinnedReaderBootstrap(prepared, "tmr_exact", runtime, { 999 }, { recoveries++ }) {}
+        bootstrap.start()
+        runtime.failDiscovery()
+        bootstrap.invalidate()
+        assertEquals(1, recoveries)
+    }
+
     @Test fun `permission grant retries discovery once and denial is terminal`() {
         val granted = FakeRuntime(permissionGranted = false)
         val bootstrap = bootstrap(granted)

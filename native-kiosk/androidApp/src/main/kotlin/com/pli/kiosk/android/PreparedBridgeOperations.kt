@@ -15,6 +15,91 @@ fun interface PreparedBridgeWorkflow {
     )
 }
 
+/** Narrow construction seams; the workflow itself owns the concrete native orchestration. */
+fun interface NativeCollectionRuntimeFactory { fun create(preparedAttempt: AttemptState): NativeCollectionRuntime }
+fun interface PinnedReaderBootstrapRuntimeFactory { fun create(preparedAttempt: AttemptState): PinnedReaderBootstrapRuntime }
+
+/**
+ * Native-only prepared admission. This is deliberately not attached to a WebView host yet.
+ * Every server call runs through [backgroundExecutor]; JS receives only coarse completion states.
+ */
+class ProductionPreparedBridgeWorkflow(
+    private val coordinator: PurchaseCoordinator,
+    private val backgroundExecutor: OperatorBackgroundExecutor,
+    private val nativeRuntimeFactory: NativeCollectionRuntimeFactory,
+    private val bootstrapRuntimeFactory: PinnedReaderBootstrapRuntimeFactory,
+    private val provisionedReaderId: String,
+    private val clock: () -> Long = System::currentTimeMillis,
+) : PreparedBridgeWorkflow {
+    override fun launch(operationReference: String, preparedPurchaseReference: String, completion: (PreparedRecoveryState) -> Unit) {
+        val publication = Publication(completion)
+        try {
+            backgroundExecutor.execute {
+                publication.publish(PreparedRecoveryState.PENDING)
+                try {
+                    require(coordinator.startPrepared(preparedPurchaseReference) == Outcome.PENDING)
+                    val attempt = coordinator.retainedPreparedAttemptForNativeRuntime()
+                    val runtime = nativeRuntimeFactory.create(attempt)
+                    runtime.setStateListener { onRuntimeState(runtime, publication) }
+                    runtime.initialize()
+                    PinnedReaderBootstrap(
+                        attempt, provisionedReaderId, bootstrapRuntimeFactory.create(attempt), clock,
+                        onReady = {
+                            val start = coordinator.startCollection()
+                            runtime.start(start.attempt, start.clientSecret)
+                        },
+                        onRecoveryRequired = publication::reject,
+                    ).start()
+                } catch (_: Exception) {
+                    publication.reject()
+                }
+            }
+        } catch (_: Exception) {
+            publication.reject()
+        }
+    }
+
+    private fun onRuntimeState(runtime: NativeCollectionRuntime, publication: Publication) {
+        try {
+            when (runtime.state) {
+                NativeCollectionState.PAID -> if (publication.claimPaidRecovery()) {
+                    backgroundExecutor.execute {
+                        try {
+                            if (coordinator.recoverKnownAttempt() == Outcome.PAID) publication.publish(PreparedRecoveryState.PAID)
+                            else publication.reject()
+                        } catch (_: Exception) {
+                            publication.reject()
+                        }
+                    }
+                }
+                NativeCollectionState.MANUAL_RECONCILIATION,
+                NativeCollectionState.UNRESOLVED,
+                NativeCollectionState.RECONNECT_REQUIRED -> publication.reject()
+                else -> publication.publish(PreparedRecoveryState.PENDING)
+            }
+        } catch (_: Exception) {
+            publication.reject()
+        }
+    }
+
+    private class Publication(private val completion: (PreparedRecoveryState) -> Unit) {
+        private var state: PreparedRecoveryState? = null
+        private var paidRecoveryClaimed = false
+
+        @Synchronized fun publish(next: PreparedRecoveryState) {
+            if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || state == next) return
+            state = next
+            completion(next)
+        }
+        @Synchronized fun reject() = publish(PreparedRecoveryState.REJECTED)
+        @Synchronized fun claimPaidRecovery(): Boolean {
+            if (state == PreparedRecoveryState.PAID || state == PreparedRecoveryState.REJECTED || paidRecoveryClaimed) return false
+            paidRecoveryClaimed = true
+            return true
+        }
+    }
+}
+
 /**
  * Bounded, synchronized ownership registry for one bridge context. It stores only opaque operation
  * references and coarse state; invalidation poisons every captured completion callback.
@@ -75,7 +160,7 @@ class PreparedBridgeOperations(
 
     @Synchronized
     private fun complete(operationReference: String, entry: Entry, completion: PreparedRecoveryState) {
-        if (!invalidated && operations[operationReference] === entry) entry.state = when (completion) {
+        if (!invalidated && operations[operationReference] === entry && entry.state == SecureBridgeState.PENDING) entry.state = when (completion) {
             PreparedRecoveryState.PENDING -> SecureBridgeState.PENDING
             PreparedRecoveryState.PAID -> SecureBridgeState.PAID
             PreparedRecoveryState.REJECTED -> SecureBridgeState.REJECTED

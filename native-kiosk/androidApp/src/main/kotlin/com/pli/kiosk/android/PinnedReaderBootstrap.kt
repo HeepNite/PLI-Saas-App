@@ -22,6 +22,7 @@ class PinnedReaderBootstrap(
     private val provisionedReaderId: String,
     private val runtime: PinnedReaderBootstrapRuntime,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val onRecoveryRequired: () -> Unit = {},
     private val onReady: () -> Unit,
 ) {
     private val ticket = requireNotNull(preparedAttempt.ticket) { "Prepared operation has no ticket" }
@@ -50,7 +51,7 @@ class PinnedReaderBootstrap(
         }
         if (!runtime.hasBluetoothPermission()) {
             state = State.PERMISSION_REQUIRED
-            runtime.requestBluetoothPermission()
+            try { runtime.requestBluetoothPermission() } catch (_: Exception) { recoveryRequired() }
         } else beginDiscovery()
     }
 
@@ -71,7 +72,7 @@ class PinnedReaderBootstrap(
             return
         }
         state = State.DISCOVERING
-        runtime.discover(::onReaders, ::recoveryRequired)
+        try { runtime.discover(::onReaders, ::recoveryRequired) } catch (_: Exception) { recoveryRequired() }
     }
 
     @Synchronized private fun onReaders(readers: List<ConnectedReader>) {
@@ -83,7 +84,7 @@ class PinnedReaderBootstrap(
                     selected = matches.single()
                     acceptedReaders = readers.toList()
                     state = State.CONNECTING
-                    runtime.connect(selected!!, ::onConnected, ::onDisconnected, ::recoveryRequired)
+                    try { runtime.connect(selected!!, ::onConnected, ::onDisconnected, ::recoveryRequired) } catch (_: Exception) { recoveryRequired() }
                 }
             }
             State.CONNECTING, State.READY -> {
@@ -128,5 +129,6 @@ class PinnedReaderBootstrap(
         selected = null
         acceptedReaders = null
         state = State.RECOVERY_REQUIRED
+        try { onRecoveryRequired() } catch (_: Exception) { Unit }
     }
 }
