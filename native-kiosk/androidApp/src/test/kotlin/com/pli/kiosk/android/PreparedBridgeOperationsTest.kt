@@ -163,6 +163,14 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun productionWorkflowRejectsAsyncCollectionStartFailureWithoutResurrection() {
+        val fixture = productionWorkflow(failCollection = true, deferBootstrapConnection = true); val results = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation", preparedReference()) { results += it }; fixture.queued.runAll()
+        repeat(2) { fixture.bootstrap.completeConnection() }
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+    }
+
+    @Test
     fun productionWorkflowRejectsUnresolvedAndCannotResurrectItAfterPaidRecovery() {
         var paid = false
         val fixture = productionWorkflow(recoveredPaid = { paid })
@@ -182,7 +190,7 @@ class PreparedBridgeOperationsTest {
     @Test
     fun productionWorkflowRejectsReconnectRequiredAndCannotResurrectItAfterPaidRecovery() {
         var paid = false
-        val fixture = productionWorkflow({ paid }) { it.onReaderDisconnected() }
+        val fixture = productionWorkflow(recoveredPaid = { paid }, beforeConfirm = { it.onReaderDisconnected() })
         val results = mutableListOf<PreparedRecoveryState>()
 
         fixture.workflow.launch("operation", preparedReference()) { results += it }
@@ -197,8 +205,10 @@ class PreparedBridgeOperationsTest {
     private fun productionWorkflow(
         recoveredPaid: () -> Boolean = { true },
         beforeConfirm: (NativeCollectionRuntime) -> Unit = {},
+        failCollection: Boolean = false,
+        deferBootstrapConnection: Boolean = false,
     ): WorkflowFixture {
-        val fixture = WorkflowFixture()
+        val fixture = WorkflowFixture(failCollection)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
         fixture.workflow = ProductionPreparedBridgeWorkflow(
             coordinator(fixture.prepared), fixture.queued,
@@ -218,13 +228,13 @@ class PreparedBridgeOperationsTest {
                 ).also { fixture.runtime = it }
             },
             PinnedReaderBootstrapRuntimeFactory {
-                ReadyBootstrapRuntime(reader(fixture.ticket)) {
+                ReadyBootstrapRuntime(reader(fixture.ticket), deferBootstrapConnection) {
                     fixture.runtime.discover()
                     fixture.terminal.readers?.invoke(listOf(reader(fixture.ticket)))
                     fixture.runtime.selectReader(reader(fixture.ticket))
                     fixture.runtime.connectSelectedReader()
                     fixture.terminal.connected?.invoke()
-                }
+                }.also { fixture.bootstrap = it }
             },
             fixture.ticket.readerId, clock = { 1_000L },
         )
@@ -237,11 +247,12 @@ class PreparedBridgeOperationsTest {
     private fun session() = StaffSession("https://approved.invalid", "association", "cookie", 2_000L)
     private fun reader(ticket: AttemptTicket) = ConnectedReader(ticket.readerId, Approved.M2_SERIAL, "stripe_m2", ticket.locationId)
 
-    private class WorkflowFixture {
+    private class WorkflowFixture(failCollection: Boolean = false) {
         val ticket = AttemptTicket("ticket", 2_000L, "tmr_exact", Approved.LOCATION)
         val queued = QueuedExecutor()
-        val prepared = RecordingPreparedApi(ticket)
+        val prepared = RecordingPreparedApi(ticket, failCollection)
         val terminal = RecordingTerminal()
+        lateinit var bootstrap: ReadyBootstrapRuntime
         lateinit var runtime: NativeCollectionRuntime
         lateinit var workflow: ProductionPreparedBridgeWorkflow
     }
@@ -261,13 +272,13 @@ class PreparedBridgeOperationsTest {
         override fun prepare(session: StaffSession, ticket: AttemptTicket) = error("legacy prepare")
         override fun recover(session: StaffSession, ticket: AttemptTicket, id: String) = error("legacy recover")
     }
-    private class RecordingPreparedApi(private val ticket: AttemptTicket) : PreparedPurchaseApi {
+    private class RecordingPreparedApi(private val ticket: AttemptTicket, private val failCollection: Boolean = false) : PreparedPurchaseApi {
         val references = mutableListOf<String>()
         val paymentIds = mutableListOf<String?>()
         val recoveries = mutableListOf<String>()
         override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket = ticket.also { references += preparedPurchaseReference }
         override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?) =
-            PaymentResult("pi_exact", "requires_payment_method", false, "secret_exact").also { paymentIds += paymentIntentId }
+            if (failCollection) error("collection failed") else PaymentResult("pi_exact", "requires_payment_method", false, "secret_exact").also { paymentIds += paymentIntentId }
         override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
             PaymentResult("pi_exact", "succeeded", true).also { recoveries += paymentIntentId }
     }
@@ -277,13 +288,16 @@ class PreparedBridgeOperationsTest {
     }
     private class ReadyBootstrapRuntime(
         private val reader: ConnectedReader,
+        private val deferConnection: Boolean = false,
         private val beforeReady: () -> Unit,
     ) : PinnedReaderBootstrapRuntime {
+        private var onConnected: (() -> Unit)? = null
+        fun completeConnection() = onConnected?.invoke()
         override fun hasBluetoothPermission() = true
         override fun requestBluetoothPermission() = error("permission request")
         override fun discover(onReaders: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit) = onReaders(listOf(reader))
         override fun connect(reader: ConnectedReader, onConnected: (ConnectedReader) -> Unit, onDisconnected: () -> Unit, onFailure: () -> Unit) {
-            beforeReady(); onConnected(reader)
+            beforeReady(); if (deferConnection) this.onConnected = { onConnected(reader) } else onConnected(reader)
         }
     }
     private class RecordingTerminal : NativeTerminalAdapter {

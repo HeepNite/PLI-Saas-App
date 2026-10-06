@@ -45,8 +45,12 @@ class ProductionPreparedBridgeWorkflow(
                     PinnedReaderBootstrap(
                         attempt, provisionedReaderId, bootstrapRuntimeFactory.create(attempt), clock,
                         onReady = {
-                            val start = coordinator.startCollection()
-                            runtime.start(start.attempt, start.clientSecret)
+                            try {
+                                val start = coordinator.startCollection()
+                                runtime.start(start.attempt, start.clientSecret)
+                            } catch (_: Exception) {
+                                publication.reject()
+                            }
                         },
                         onRecoveryRequired = publication::reject,
                     ).start()
