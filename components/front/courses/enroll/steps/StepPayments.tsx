@@ -11,6 +11,7 @@ import { formatFriendlyDateTime } from "@/components/front/courses/utils/datetim
 type StepPaymentsProps = {
   isCheckInFlow: boolean
   isKioskTerminalFlow: boolean
+  isOrdinaryPublicBooking?: boolean
   course: CourseEnrollmentData
   pkg: string
   service: string
@@ -35,12 +36,17 @@ type StepPaymentsProps = {
   addonsOpts: EnrollmentOption[]
   paymentMethod: PaymentMethod
   setPaymentMethod: (value: React.SetStateAction<PaymentMethod>) => void
+  isPublicQuoteBooking?: boolean
+  publicQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
+  publicQuoteLoading?: boolean
+  publicQuoteError?: string | null
   t: (key: I18nKey) => string
 }
 
 export default function StepPayments({
   isCheckInFlow,
   isKioskTerminalFlow,
+  isOrdinaryPublicBooking = false,
   course,
   pkg,
   service,
@@ -65,13 +71,40 @@ export default function StepPayments({
   addonsOpts,
   paymentMethod,
   setPaymentMethod,
+  isPublicQuoteBooking = false,
+  publicQuote = null,
+  publicQuoteLoading = false,
+  publicQuoteError = null,
   t,
 }: StepPaymentsProps) {
   const mobileQrCheckin = isCheckInFlow && !isKioskTerminalFlow
+  const publicQuoteDisplay = !isPublicQuoteBooking
+    ? "local"
+    : publicQuoteLoading
+      ? "loading"
+      : publicQuoteError || !publicQuote
+        ? "unavailable"
+        : "ready"
+  const formatQuoteAmount = (amountCents: number, currency: string) => {
+    try {
+      return new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: currency.toUpperCase(),
+      }).format(amountCents / 100)
+    } catch {
+      return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`
+    }
+  }
+  const quoteAmount = publicQuote ? formatQuoteAmount(publicQuote.amountCents, publicQuote.currency) : null
+  const promotionSavingsCents = publicQuote
+    ? Math.max(0, Math.round(total * 100) - publicQuote.amountCents)
+    : 0
 
   React.useEffect(() => {
-    if (mobileQrCheckin && paymentMethod !== "stripe") setPaymentMethod("stripe")
-  }, [mobileQrCheckin, paymentMethod, setPaymentMethod])
+    if ((mobileQrCheckin || isOrdinaryPublicBooking) && paymentMethod !== "stripe") {
+      setPaymentMethod("stripe")
+    }
+  }, [isOrdinaryPublicBooking, mobileQrCheckin, paymentMethod, setPaymentMethod])
 
   return (
     <div className="space-y-4">
@@ -129,8 +162,21 @@ export default function StepPayments({
                   </>
                 )}
               </div>
-              <span className="shrink-0 text-sm font-semibold text-white">${subtotal.toFixed(2)}</span>
+              <span className="shrink-0 text-sm font-semibold text-white" aria-live={isPublicQuoteBooking ? "polite" : undefined}>
+                {publicQuoteDisplay === "ready" ? quoteAmount : publicQuoteDisplay === "local" ? `$${subtotal.toFixed(2)}` : publicQuoteDisplay === "loading" ? "Updating price" : "Price unavailable"}
+              </span>
             </div>
+            {publicQuoteDisplay === "ready" && publicQuote?.promotionLabel && (
+              <div className="mt-2 text-xs text-emerald-300" aria-live="polite">
+                Applied promotion: {publicQuote.promotionLabel}
+              </div>
+            )}
+            {publicQuoteDisplay === "ready" && promotionSavingsCents > 0 && publicQuote && (
+              <div className="mt-2 flex items-center justify-between gap-3 text-xs text-emerald-300" aria-label={`Promotion adjustment. You save ${formatQuoteAmount(promotionSavingsCents, publicQuote.currency)}.`}>
+                <span>Promotion adjustment</span>
+                <span>You save {formatQuoteAmount(promotionSavingsCents, publicQuote.currency)}</span>
+              </div>
+            )}
             {consecutiveAccepted && effectiveConsecutiveOffer && (
               <div className="mt-2 flex items-start justify-between gap-3 rounded-md border border-emerald-500/20 bg-emerald-500/5 px-3 py-2">
                 <div className="min-w-0">
@@ -183,9 +229,11 @@ export default function StepPayments({
             )}
           </div>
 
-          <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm">
-            <span className="font-medium">{t("payments_totalAmount")}</span>
-            <span className="font-semibold">${total.toFixed(2)}</span>
+          <div className="flex items-center justify-between border-t border-white/10 pt-3 text-sm" aria-live={isPublicQuoteBooking ? "polite" : undefined}>
+            <span className="font-medium">{publicQuoteDisplay === "ready" ? "Final total" : t("payments_totalAmount")}</span>
+            <span className="font-semibold">
+              {publicQuoteDisplay === "ready" ? quoteAmount : publicQuoteDisplay === "local" ? `$${total.toFixed(2)}` : publicQuoteDisplay === "loading" ? "Updating price" : "Price unavailable"}
+            </span>
           </div>
         </div>
       </div>
@@ -193,7 +241,7 @@ export default function StepPayments({
       <div>
         <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
         <div className={`grid gap-3 ${mobileQrCheckin ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
-          {!mobileQrCheckin ? (
+          {!mobileQrCheckin && !isOrdinaryPublicBooking ? (
             <button
               type="button"
               disabled={kioskQrCheckoutLocked}
