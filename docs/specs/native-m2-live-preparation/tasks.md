@@ -70,6 +70,8 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 
 **W3n complete (`70a761e2`):** `NativeCollectionBootstrapRuntime` drives permission, discovery, exact-reader selection, and connection through the same collection runtime. Additive unsubscribable state observers preserve existing runtime listeners. The 291-line work unit passes 12/12 focused and 155/155 full Android tests. Native review `review-aa0df1f78100939f` approved it and acknowledgement burned authority; observer cleanup when an immediate callback itself throws remains a non-blocking follow-up. Production workflow, permission-result routing, lifecycle composition, WebView attachment, and device execution remain outside this slice.
 
+**W3o1 implemented (`5d453380`):** Workflow-local handles own each runtime, bootstrap, and observer. Permission and lifecycle events cannot cross workflow ownership; invalidation poisons bridge references and removes ownership before runtime/bootstrap callbacks, and immediate observer failures clean themselves up for every `Throwable`. Focused lifecycle suites pass 38/38 and the full Android suite passes 158/158. Host/build/device wiring remains outside this slice; native review is pending.
+
 ## 5. Physical and deployment gate
 
 **Scope:** Obtain separate approval and perform any Vercel deployment, APK installation, reader provisioning or operation, and LIVE validation.
