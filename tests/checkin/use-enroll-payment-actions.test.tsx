@@ -629,17 +629,37 @@ describe("useEnrollPaymentActions", () => {
       expect(setShowStripeModal).toHaveBeenCalledWith(true)
     })
 
-    it("keeps non-terminal check-in on hosted checkout", async () => {
-      const fetchMock = vi.fn(async () => jsonResponse({ url: "https://checkout.stripe.test/session" }))
+    it("keeps QR-phone check-in on hosted checkout with its payload and redirect attempt", async () => {
+      const hostedUrl = "https://checkout.stripe.test/session"
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ url: hostedUrl }))
       vi.stubGlobal("fetch", fetchMock)
+      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+      const setProcessing = vi.fn()
       const { getResult } = await renderHook(
-        defaultInput({ isCheckInFlow: true, isKioskTerminalFlow: false })
+        defaultInput({
+          isCheckInFlow: true,
+          isKioskTerminalFlow: false,
+          photoFlowContext: "qr_phone",
+          setProcessing,
+        })
       )
 
       await getResult().handleSubmit()
 
       expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
       expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
+      const sessionInit = fetchMock.mock.calls[0]?.[1]
+      expect(sessionInit).toBeDefined()
+      if (!sessionInit) throw new Error("Expected checkout-session request options")
+      expect(JSON.parse(sessionInit.body as string)).toMatchObject({
+        photoContext: "qr_phone",
+        checkInBooking: true,
+      })
+      // jsdom does not expose cross-origin Location writes. A returned hosted URL
+      // must therefore leave submission in its redirect state without alerting.
+      expect(alertSpy).not.toHaveBeenCalled()
+      expect(setProcessing).toHaveBeenCalledWith(true)
+      expect(setProcessing).not.toHaveBeenCalledWith(false)
     })
 
     it("sends the exact cents amount and service/package ids in the intent payload", async () => {
