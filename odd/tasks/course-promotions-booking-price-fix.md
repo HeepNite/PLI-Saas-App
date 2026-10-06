@@ -57,6 +57,11 @@ Make ordinary public booking show and charge the server-authoritative reusable c
   - Native review: all seven source-mutating slices approved, acknowledged, and burned: `review-3efb8eae02ddaa89`, `review-d7706021faac412f`, `review-fdd4ce0a2f91c98d`, `review-f8aca6b146e07a64`, `review-5d95da5e672a5602`, `review-02d81e2e6c2ab2e9`, and `review-ab8043728269fff0`.
   - Review advisories: non-blocking follow-ups only—trusted public channel proof, final validation snapshot consistency, test environment isolation, canonical regular quote proof, invalid quote response validation/retry, quote-summary reconciliation, and explicit cash-contract rollout.
   - Delivery note: eight sequential work-unit commits were independently verified at 77, 284, 152, 383, 258, 147, 354, and 349 changed lines; every prospective slice remains below the 400-line PR budget.
+- [ ] 5. Integrate the verified draft chain into `codex/develop` without deploying.
+  - Status: in progress
+  - Authorization: user selected full sequential integration after all nine draft PRs reported clean and green.
+  - Method: mark ready, retarget each immediate slice to `codex/develop`, revalidate its focused diff and required checks, then merge in order `#613` through `#621`.
+  - Boundary: no deployment, Stripe operation, catalog mutation, or database mutation.
 
 ## Constraints
 
@@ -64,7 +69,7 @@ Make ordinary public booking show and charge the server-authoritative reusable c
 - Branch: `fix/course-promotions-public-booking-pricing`.
 - Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-booking-price-fix`.
 - Keep every prospective PR below 400 changed lines, link `#539`, and use exactly one `type:*` label.
-- No push, PR, merge, deploy, Stripe creation, payment completion, catalog mutation, or database mutation without separate authorization.
+- Push, PR creation, and sequential merge of `#613`–`#621` are authorized; deploy, Stripe creation, payment completion, catalog mutation, and database mutation still require separate authorization.
 - `Postgres-g1Qy` remains the only demo database if a later read-only live check is required; the other `Postgres` service is forbidden.
 
 ## Evidence
@@ -75,4 +80,4 @@ Make ordinary public booking show and charge the server-authoritative reusable c
 - Draft PR chain: `#613` → `#614` → `#615` → `#616` → `#617` → `#618` → `#619` → `#620` → `#621`.
 - Remote verification: all PRs are open drafts, preserve exact linear bases, link approved issue `#539`, carry exactly one matching `type:*` label, and remain below 400 changed lines (77, 284, 152, 383, 258, 147, 354, 349, 74).
 - Publication boundary: branches and draft PRs only; `codex/develop` remains at `483f0d9e`, no PR is merged, and no deploy or remote data/payment mutation occurred.
-- CI snapshot after creation: no failures; CodeQL remained pending across the code slices, with the root slice also awaiting typecheck, lint, and tests.
+- CI pre-integration snapshot: every PR reported `CLEAN`; `#613` had 9/9 successful checks and `#614`–`#621` each had 4/4 successful checks, with no pending or failed checks.
