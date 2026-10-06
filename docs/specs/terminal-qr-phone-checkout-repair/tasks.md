@@ -2,7 +2,7 @@
 
 ## Status
 
-The focused implementation and local validation are complete in 238 changed lines. Production deployment and provider/device wallet eligibility remain separate gates.
+The focused implementation and local validation are complete in work-unit commit `9b5e1fea`. Production deployment and provider/device wallet eligibility remain separate gates.
 
 ## 1. Specification and plan — complete
 
