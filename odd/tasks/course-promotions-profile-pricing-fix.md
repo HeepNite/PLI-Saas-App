@@ -42,12 +42,16 @@ Make authenticated `/client-profile` booking display the server-authoritative re
   - GREEN: adapter tests passed 20/20 and payment-action tests passed 67/67; typecheck and `git diff --check` passed.
   - Evidence: profile quote loads on the Packages step with a fresh Clerk token, clears for package/ineligible shapes, re-requests on Drop-in, ignores stale/unmounted completions, and never enters the profile session payload.
   - Native review: approved, acknowledged, and burned as `review-8b911f70d14a3bc5` with no advisory findings.
-- [ ] 4. Display the profile Drop-in quote in Package, Summary, and Payment while preserving package precedence.
-  - Status: in progress
+- [x] 4. Display the profile Drop-in quote in Package, Summary, and Payment while preserving package precedence.
+  - Status: complete
   - Method: test-first (RED → GREEN → refactor)
-  - Verification: focused presentation/channel tests, package regression, typecheck
+  - Commit: `7caa1b09`
+  - RED: seven focused cases failed because the profile eligibility/display state was not threaded to Package, Summary, or Payment.
+  - GREEN: five focused UI/action suites passed 105/105; typecheck and `git diff --check` passed.
+  - Evidence: required profile quote renders the authoritative amount on Drop-in, Summary, and Payment; loading/error suppress local `$20`; package selection retains package prices; public and profile session payload behavior remains unchanged.
+  - Native review: approved, acknowledged, and burned as `review-854b643e26864d10`; special-flow Drop-in precedence was an informational advisory only.
 - [ ] 5. Run final regression, native review for source slices, and prepare bounded delivery candidates.
-  - Status: pending
+  - Status: in progress
   - Verification: focused suites, typecheck, scoped lint, production build, `git diff --check`
 
 ## Constraints
