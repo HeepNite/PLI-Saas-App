@@ -45,9 +45,9 @@ Let staff configure reusable course promotions in the course wizard while keepin
 7. A percentage discount MUST use the authoritative regular drop-in price as its base and round to the nearest cent.
 8. Fixed or calculated paid prices MUST satisfy the payment processor minimum; this version does not create free checkouts.
 9. Equal-price ties SHOULD preserve the existing non-promotional price reason rather than claiming an unnecessary promotion.
-10. Ordinary public booking MUST obtain a read-only authoritative quote before displaying a final price. `everyone` promotions MAY quote anonymously; a restricted final price requires exact authenticated identity and entitlement validation. Profile retains its existing authenticated authoritative checkout-session path and does not receive a new quote.
-11. The ordinary-public-booking quote MUST NOT create a Stripe intent or session, purchase, reservation, or payment state.
-12. Final PaymentIntent creation MUST re-evaluate authoritative course, date, identity, entitlement, package, and booking-shape state; it MUST NOT trust a client quote or amount.
+10. Ordinary public booking MUST obtain a read-only authoritative quote before displaying a final price. `everyone` promotions MAY quote anonymously; a restricted final price requires exact authenticated identity and entitlement validation. On `/client-profile`, an eligible authenticated user MUST receive a separate, read-only authoritative promotion quote before Continue/payment on the selected Drop-in, Summary, and Payment surfaces. That profile quote requires the authenticated Clerk identity; submitted contact fields MUST NOT establish eligibility.
+11. Ordinary-public-booking and profile quotes MUST NOT create a Stripe intent or session, purchase, reservation, or payment state. The profile quote MUST validate authoritative occurrence, profile channel, checkout shape, authenticated identity/entitlement, and package precedence; explicit package selection MUST suppress its Drop-in quote without changing package option or pricing data.
+12. Final PaymentIntent creation and the trusted `/api/profile/checkout/session` MUST independently re-evaluate authoritative course, date, identity, entitlement, package, and booking-shape state; they MUST NOT trust a client quote or amount, and the fresh result wins.
 13. Checkout metadata MUST record the applied promotion identifier, label, price, pricing mode, audience, and date basis without trusting client metadata.
 14. Trusted public-booking quote, PaymentIntent, and checkout-session contexts MUST accept only USD, use lowercase `usd` server-side, and reject malformed currency, non-real `YYYY-MM-DD`, invalid `HH:mm`, or date/time values absent from the refreshed authoritative schedule before creating payment state.
 
@@ -66,7 +66,7 @@ Let staff configure reusable course promotions in the course wizard while keepin
 
 1. Public booking and profile class selection SHOULD show the public promotion label when an active promotion may apply to that occurrence and channel.
 2. Restricted promotions MUST NOT display an unconditional promotional price before identity and entitlement validation.
-3. In ordinary public booking, an `everyone` final promotional price MAY appear after the payment-free authoritative quote; a restricted final promotional price requires server-side exact-identity and eligibility resolution through that quote. Profile retains its existing authenticated authoritative checkout-session path.
+3. In ordinary public booking, an `everyone` final promotional price MAY appear after the payment-free authoritative quote; a restricted final promotional price requires server-side exact-identity and eligibility resolution through that quote. On `/client-profile`, the selected Drop-in, Summary, and Payment surfaces MAY show a final promotional price only from the payment-free, read-only profile quote for the authenticated Clerk identity.
 4. Inactive, expired, future, malformed, or channel-inapplicable promotions MUST NOT be advertised as currently available.
 5. Ordinary remote public booking MUST hide cash and the server MUST reject remote public cash attempts; trusted kiosk cash remains available under its existing authority.
 
@@ -89,12 +89,12 @@ Let staff configure reusable course promotions in the course wizard while keepin
 - [ ] Package booking remains first priority.
 - [ ] Checkout applies exactly one lowest authorized price and records server-generated metadata.
 - [ ] An anonymous caller receives an authoritative `everyone` public quote without identity or entitlement.
-- [ ] An eligible exact-identity holder with a delivered Heritage pin receives a US$15 authoritative price for either configured October class: through the payment-free quote in ordinary public booking and through profile's existing authenticated authoritative checkout-session path.
+- [ ] An eligible exact-identity holder with a delivered Heritage pin receives a US$15 authoritative price for either configured October class: through the payment-free quote in ordinary public booking and through the payment-free, read-only profile quote before Continue/payment on `/client-profile` Drop-in, Summary, and Payment surfaces.
 - [ ] Pending, missing, or identity-mismatched Heritage entitlements receive no Heritage price, without exposing account or delivered-pin lookup details in the public quote.
 - [ ] The Heritage price is unavailable outside its October class-date window.
 - [ ] An applicable package takes precedence over the Heritage price, and no promotion stacks with packages, coupons, addons, or consecutive offers.
-- [ ] The ordinary-public-booking quote creates no Stripe intent or session, purchase, reservation, or payment state; profile retains its existing authenticated authoritative checkout-session path.
-- [ ] PaymentIntent creation freshly revalidates entitlement, promotion, date, package, and booking shape after a quote; if any changes, the fresh authoritative result wins over the quote.
+- [ ] Ordinary-public-booking and profile quotes create no Stripe intent or session, purchase, reservation, or payment state. The profile quote validates authoritative occurrence, channel, checkout shape, authenticated identity/entitlement, and package precedence; explicit package selection suppresses its Drop-in quote without changing package option or pricing data.
+- [ ] PaymentIntent creation and the trusted `/api/profile/checkout/session` freshly revalidate entitlement, promotion, date, package, and booking shape after a quote; if any changes, the fresh authoritative result wins over the quote. A quote is display state only and never payment authority.
 - [ ] Ordinary remote public cash is hidden in the UI and rejected server-side, while trusted kiosk cash remains available under its existing authority.
 - [ ] Client payload changes cannot forge audience, channel, dates, amount, quote, or cash authority.
 - [ ] Existing first-class, package, coupon, addon, consecutive, cash, and identity boundaries remain intact.
