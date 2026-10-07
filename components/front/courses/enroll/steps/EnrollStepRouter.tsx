@@ -94,6 +94,10 @@ type EnrollStepRouterProps = {
   publicQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   publicQuoteLoading?: boolean
   publicQuoteError?: string | null
+  profileQuoteRequired?: boolean
+  profileQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
+  profileQuoteLoading?: boolean
+  profileQuoteError?: string | null
   paymentMethodLabel: string
   formatPackageMeta: (option?: EnrollmentOption | null) => string | undefined
   activeNumericField: ActiveNumericField
@@ -217,6 +221,10 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           to12h={props.to12h}
           time={props.time}
           formatPackageMeta={props.formatPackageMeta}
+          profileQuoteRequired={props.profileQuoteRequired}
+          profileQuote={props.profileQuote}
+          profileQuoteLoading={props.profileQuoteLoading}
+          profileQuoteError={props.profileQuoteError}
         />
       )}
 
@@ -275,10 +283,10 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           addonsOpts={props.addonsOpts}
           paymentMethod={props.paymentMethod}
           setPaymentMethod={props.setPaymentMethod}
-          isPublicQuoteBooking={props.isPublicQuoteBooking}
-          publicQuote={props.publicQuote}
-          publicQuoteLoading={props.publicQuoteLoading}
-          publicQuoteError={props.publicQuoteError}
+          isPublicQuoteBooking={props.isPublicQuoteBooking || props.profileQuoteRequired}
+          publicQuote={props.profileQuoteRequired ? props.profileQuote : props.publicQuote}
+          publicQuoteLoading={props.profileQuoteRequired ? props.profileQuoteLoading : props.publicQuoteLoading}
+          publicQuoteError={props.profileQuoteRequired ? props.profileQuoteError : props.publicQuoteError}
           t={props.t}
         />
       )}

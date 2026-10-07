@@ -42,13 +42,25 @@ Make authenticated `/client-profile` booking display the server-authoritative re
   - GREEN: adapter tests passed 20/20 and payment-action tests passed 67/67; typecheck and `git diff --check` passed.
   - Evidence: profile quote loads on the Packages step with a fresh Clerk token, clears for package/ineligible shapes, re-requests on Drop-in, ignores stale/unmounted completions, and never enters the profile session payload.
   - Native review: approved, acknowledged, and burned as `review-8b911f70d14a3bc5` with no advisory findings.
-- [ ] 4. Display the profile Drop-in quote in Package, Summary, and Payment while preserving package precedence.
-  - Status: in progress
+- [x] 4. Display the profile Drop-in quote in Package, Summary, and Payment while preserving package precedence.
+  - Status: complete
   - Method: test-first (RED → GREEN → refactor)
-  - Verification: focused presentation/channel tests, package regression, typecheck
-- [ ] 5. Run final regression, native review for source slices, and prepare bounded delivery candidates.
-  - Status: pending
-  - Verification: focused suites, typecheck, scoped lint, production build, `git diff --check`
+  - Commit: `7caa1b09`
+  - RED: seven focused cases failed because the profile eligibility/display state was not threaded to Package, Summary, or Payment.
+  - GREEN: five focused UI/action suites passed 105/105; typecheck and `git diff --check` passed.
+  - Evidence: required profile quote renders the authoritative amount on Drop-in, Summary, and Payment; loading/error suppress local `$20`; package selection retains package prices; public and profile session payload behavior remains unchanged.
+  - Native review: approved, acknowledged, and burned as `review-854b643e26864d10`; special-flow Drop-in precedence was an informational advisory only.
+- [x] 5. Run final regression, native review for source slices, and prepare bounded delivery candidates.
+  - Status: complete
+  - Verification: 11 focused files and 166/166 tests passed; typecheck passed; scoped ESLint had 0 errors and 9 pre-existing warnings; production build passed with 123/123 static pages; `git diff --check` passed.
+  - Boundaries: spec 107 lines, profile quote route 169, quote state 226, profile display 180; every source work unit remains below 400 changed lines.
+  - Native review: all source slices approved, acknowledged, and burned as `review-c0d5f0cb8cae2267`, `review-8b911f70d14a3bc5`, and `review-854b643e26864d10`.
+  - Worktree note: unrelated generated `.atl/skill-registry.md` drift remains unstaged and excluded.
+- [ ] 6. Publish and sequentially integrate the bounded fix into `codex/develop`, then verify the automatic dev Preview.
+  - Status: in progress
+  - Authorization: user selected publish, integrate, and update dev after local verification completed.
+  - Method: create reviewable PR slices below 400 lines, wait for required checks, merge with ancestry-preserving merge commits, and verify the final `dev.palladiumlatin.art` deployment identity.
+  - Boundary: no Stripe operation, payment completion, catalog mutation, or database mutation.
 
 ## Constraints
 
@@ -56,7 +68,7 @@ Make authenticated `/client-profile` booking display the server-authoritative re
 - Branch: `fix/course-promotions-profile-pricing`.
 - Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-profile-pricing-fix`.
 - Keep every work unit and prospective PR below 400 changed lines, link approved issue `#539`, and use exactly one `type:*` label.
-- No push, PR, merge, manual deploy, Stripe creation, payment completion, catalog mutation, or database mutation without separate authorization.
+- Push, bounded PR creation, sequential merge, and the resulting automatic dev Preview are authorized; manual deploy, Stripe creation, payment completion, catalog mutation, and database mutation remain unauthorized.
 - `Postgres-g1Qy` is the only permitted demo database for any later read-only check; the other `Postgres` service is forbidden.
 
 ## Evidence

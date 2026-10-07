@@ -784,6 +784,10 @@ export default function EnrollModal({
     publicQuote,
     publicQuoteLoading,
     publicQuoteError,
+    isProfileQuoteRequired,
+    profileQuote,
+    profileQuoteLoading,
+    profileQuoteError,
   } = useEnrollPaymentActions({
     course,
     service,
@@ -1351,6 +1355,10 @@ export default function EnrollModal({
               summaryDateTimeValue={summaryDateTimeValue}
               summaryGridClass={summaryGridClass}
               total={total}
+              profileQuoteRequired={isProfileQuoteRequired}
+              profileQuote={profileQuote}
+              profileQuoteLoading={profileQuoteLoading}
+              profileQuoteError={profileQuoteError}
               googleCalHref={googleCalHref}
               icsDataUri={icsDataUri}
               eventDates={Boolean(eventDates)}
@@ -1503,6 +1511,10 @@ export default function EnrollModal({
                   publicQuote={publicQuote}
                   publicQuoteLoading={publicQuoteLoading}
                   publicQuoteError={publicQuoteError}
+                  profileQuoteRequired={isProfileQuoteRequired}
+                  profileQuote={profileQuote}
+                  profileQuoteLoading={profileQuoteLoading}
+                  profileQuoteError={profileQuoteError}
                   paymentMethodLabel={paymentMethodLabel}
                   formatPackageMeta={formatPackageMeta}
                   activeNumericField={activeNumericField}

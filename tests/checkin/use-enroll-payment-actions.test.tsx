@@ -670,6 +670,7 @@ describe("useEnrollPaymentActions", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/profile/checkout/quote", expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer fresh-clerk-token" }),
       }))
+      expect(getResult().isProfileQuoteRequired).toBe(true)
       expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
     })
 
@@ -686,6 +687,7 @@ describe("useEnrollPaymentActions", () => {
       await flushEffects()
 
       expect(fetchMock).not.toHaveBeenCalled()
+      expect(getResult().isProfileQuoteRequired).toBe(false)
       expect(getResult().profileQuote).toBeNull()
     })
 
@@ -699,12 +701,14 @@ describe("useEnrollPaymentActions", () => {
 
       await rerender({ ...input, pkg: "ten-class-package" })
       await flushEffects()
+      expect(getResult().isProfileQuoteRequired).toBe(false)
       expect(getResult().profileQuote).toBeNull()
       expect(fetchMock).toHaveBeenCalledTimes(1)
 
       await rerender({ ...input, pkg: "" })
       await flushEffects()
       expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(getResult().isProfileQuoteRequired).toBe(true)
       expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
     })
 

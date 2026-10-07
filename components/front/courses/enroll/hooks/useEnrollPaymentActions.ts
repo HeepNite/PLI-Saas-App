@@ -891,6 +891,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     publicQuote,
     publicQuoteLoading,
     publicQuoteError,
+    isProfileQuoteRequired: isProfileQuoteEligible,
     profileQuote,
     profileQuoteLoading,
     profileQuoteError,

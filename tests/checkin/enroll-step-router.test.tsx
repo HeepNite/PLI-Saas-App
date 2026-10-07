@@ -202,6 +202,38 @@ describe("EnrollStepRouter — per-step render", () => {
     expect(html).toContain("Drop-in")
   })
 
+  it("threads an authoritative profile quote to the Drop-in package card", () => {
+    const html = renderToStaticMarkup(
+      <EnrollStepRouter
+        {...buildProps({
+          activeStepKey: "packages",
+          profileQuoteRequired: true,
+          profileQuote: { amountCents: 1500, currency: "usd" },
+        })}
+      />
+    )
+
+    expect(html).toContain("$15.00")
+    expect(html).not.toContain("$20")
+  })
+
+  it("threads an authoritative profile quote, label, and savings to Payment", () => {
+    const html = renderToStaticMarkup(
+      <EnrollStepRouter
+        {...buildProps({
+          activeStepKey: "payments",
+          profileQuoteRequired: true,
+          profileQuote: { amountCents: 1500, currency: "usd", promotionLabel: "Heritage pin benefit" },
+        })}
+      />
+    )
+
+    expect(html).toContain("Final total")
+    expect(html).toContain("$15.00")
+    expect(html).toContain("Applied promotion: Heritage pin benefit")
+    expect(html).toContain("You save $5.00")
+  })
+
   it("renders the consecutive step with offer data without throwing", () => {
     const offer = {
       linkedCourseSlug: "bachata-fusion",

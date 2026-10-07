@@ -112,6 +112,21 @@ describe("EnrollSidebar — booking summary", () => {
     expect(html).toContain("add it to your calendar")
     expect(html).not.toContain("sm:grid-cols-2 sm:gap-4")
   })
+
+  it("uses required profile quote states in the Summary before Continue", () => {
+    const ready = renderToStaticMarkup(
+      <EnrollSidebar {...baseProps} profileQuoteRequired profileQuote={{ amountCents: 1500, currency: "usd" }} />
+    )
+    const loading = renderToStaticMarkup(<EnrollSidebar {...baseProps} profileQuoteRequired profileQuoteLoading />)
+    const unavailable = renderToStaticMarkup(<EnrollSidebar {...baseProps} profileQuoteRequired profileQuoteError="failed" />)
+
+    expect(ready).toContain("$15.00")
+    expect(ready).not.toContain("$20.00")
+    expect(loading).toContain("Updating price")
+    expect(loading).not.toContain("$20.00")
+    expect(unavailable).toContain("Price unavailable")
+    expect(unavailable).not.toContain("$20.00")
+  })
 })
 
 describe("EnrollSidebar — success / calendar links", () => {
