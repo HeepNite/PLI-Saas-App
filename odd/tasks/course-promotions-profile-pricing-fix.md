@@ -56,6 +56,11 @@ Make authenticated `/client-profile` booking display the server-authoritative re
   - Boundaries: spec 107 lines, profile quote route 169, quote state 226, profile display 180; every source work unit remains below 400 changed lines.
   - Native review: all source slices approved, acknowledged, and burned as `review-c0d5f0cb8cae2267`, `review-8b911f70d14a3bc5`, and `review-854b643e26864d10`.
   - Worktree note: unrelated generated `.atl/skill-registry.md` drift remains unstaged and excluded.
+- [ ] 6. Publish and sequentially integrate the bounded fix into `codex/develop`, then verify the automatic dev Preview.
+  - Status: in progress
+  - Authorization: user selected publish, integrate, and update dev after local verification completed.
+  - Method: create reviewable PR slices below 400 lines, wait for required checks, merge with ancestry-preserving merge commits, and verify the final `dev.palladiumlatin.art` deployment identity.
+  - Boundary: no Stripe operation, payment completion, catalog mutation, or database mutation.
 
 ## Constraints
 
@@ -63,7 +68,7 @@ Make authenticated `/client-profile` booking display the server-authoritative re
 - Branch: `fix/course-promotions-profile-pricing`.
 - Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-profile-pricing-fix`.
 - Keep every work unit and prospective PR below 400 changed lines, link approved issue `#539`, and use exactly one `type:*` label.
-- No push, PR, merge, manual deploy, Stripe creation, payment completion, catalog mutation, or database mutation without separate authorization.
+- Push, bounded PR creation, sequential merge, and the resulting automatic dev Preview are authorized; manual deploy, Stripe creation, payment completion, catalog mutation, and database mutation remain unauthorized.
 - `Postgres-g1Qy` is the only permitted demo database for any later read-only check; the other `Postgres` service is forbidden.
 
 ## Evidence
