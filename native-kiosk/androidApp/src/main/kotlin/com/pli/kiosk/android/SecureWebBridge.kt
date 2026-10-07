@@ -24,6 +24,7 @@ data class SecureBridgeResponse(
     val operationRef: String? = null,
     val state: SecureBridgeState? = null,
     val error: SecureBridgeError? = null,
+    val operation: String? = null,
 )
 
 internal data class SecureBridgeOperationResult(val operationRef: String?, val state: SecureBridgeState)
@@ -83,11 +84,11 @@ class SecureWebBridge(
         val requestDigest = MessageDigest.getInstance("SHA-256").digest(bytes)
         responses[envelope.requestId]?.let { cached ->
             return if (MessageDigest.isEqual(cached.digest, requestDigest)) cached.response
-            else failure(envelope.requestId, SecureBridgeError.REQUEST_ID_CONFLICT)
+            else failure(envelope.requestId, SecureBridgeError.REQUEST_ID_CONFLICT, envelope.operation)
         }
-        if (responses.size >= 256) return failure(envelope.requestId, SecureBridgeError.RESPONSE_CACHE_EXHAUSTED)
+        if (responses.size >= 256) return failure(envelope.requestId, SecureBridgeError.RESPONSE_CACHE_EXHAUSTED, envelope.operation)
         val response = when {
-            envelope.version != VERSION.toString() -> failure(envelope.requestId, SecureBridgeError.UNSUPPORTED_VERSION)
+            envelope.version != VERSION.toString() -> failure(envelope.requestId, SecureBridgeError.UNSUPPORTED_VERSION, envelope.operation)
             else -> dispatch(envelope)
         }
         responses[envelope.requestId] = CachedResponse(requestDigest, response)
@@ -102,16 +103,16 @@ class SecureWebBridge(
 
     private fun dispatch(envelope: Envelope): SecureBridgeResponse {
         val operation = registry[envelope.operation]
-            ?: return failure(envelope.requestId, SecureBridgeError.UNKNOWN_OPERATION)
+            ?: return failure(envelope.requestId, SecureBridgeError.UNKNOWN_OPERATION, envelope.operation)
         val fields = fields(envelope.payload, operation.payload)
-            ?: return failure(envelope.requestId, SecureBridgeError.INVALID_PAYLOAD)
+            ?: return failure(envelope.requestId, SecureBridgeError.INVALID_PAYLOAD, envelope.operation)
         return try {
             val reference = operationRefFactory(envelope.requestId, envelope.operation)
             if (!bounded(reference, MAX_OPERATION_REF_CHARS)) throw IllegalStateException()
             val result = operation.handle(envelope.requestId, reference, fields)
-            SecureBridgeResponse(envelope.requestId, result.operationRef, result.state)
+            SecureBridgeResponse(envelope.requestId, result.operationRef, result.state, operation = envelope.operation)
         } catch (_: Exception) {
-            failure(envelope.requestId, SecureBridgeError.INTERNAL_ERROR)
+            failure(envelope.requestId, SecureBridgeError.INTERNAL_ERROR, envelope.operation)
         }
     }
 
@@ -130,7 +131,8 @@ class SecureWebBridge(
         }
     }
 
-    private fun failure(requestId: String?, error: SecureBridgeError) = SecureBridgeResponse(requestId, error = error)
+    private fun failure(requestId: String?, error: SecureBridgeError, operation: String? = null) =
+        SecureBridgeResponse(requestId, error = error, operation = operation)
 
     private data class Envelope(val version: String, val operation: String, val requestId: String, val payload: Map<String, String?>)
     /** Retains only a fixed SHA-256 digest, never raw request/capability bytes. */

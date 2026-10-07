@@ -25,6 +25,9 @@ internal interface KioskWebHostContext {
     fun invalidate()
 }
 
+/** A terminal completion can request one reload so AndroidX injects the already attached listener. */
+internal enum class KioskWebPageResult { IGNORED, RELOAD_REQUIRED, BRIDGE_ACTIVE, REJECTED }
+
 /**
  * Pure admission/lifecycle policy. A terminal controller never creates a replacement bridge;
  * navigation or lifecycle replacement requires a newly-created Activity instead.
@@ -38,47 +41,57 @@ internal class KioskWebHostLifecycle(
 ) {
     private var context: KioskWebHostContext? = null
     private var host: KioskWebHost? = null
+    private var awaitingReload = false
+    private var awaitingSession: StaffSession? = null
+    private var active = false
     private var terminal = false
 
     fun onResume() = Unit
 
-    fun onPageFinished(completedUrl: String?, currentTopLevelUrl: String?): Boolean {
-        if (terminal) return false
-        if (context != null || host != null) {
+    fun onPageFinished(completedUrl: String?, currentTopLevelUrl: String?): KioskWebPageResult {
+        if (terminal) return KioskWebPageResult.REJECTED
+        val exactCompletion = KioskWebActivity.isExactTerminalCompletion(admission, completedUrl, currentTopLevelUrl)
+        if (active || awaitingReload && !exactCompletion) {
             invalidate(KioskWebHostContext::onSessionInvalidated)
-            return false
+            return KioskWebPageResult.REJECTED
         }
-        if (!KioskWebActivity.isExactTerminalCompletion(admission, completedUrl, currentTopLevelUrl)) return false
-        if (!captureSession(completedUrl, currentTopLevelUrl) || currentSession() == null) return false
+        if (awaitingReload) {
+            if (!runCatching { awaitingSession != null && captureSession(completedUrl, currentTopLevelUrl) &&
+                    currentSession() == awaitingSession }.getOrDefault(false)) {
+                invalidate(KioskWebHostContext::onSessionInvalidated)
+                return KioskWebPageResult.REJECTED
+            }
+            awaitingReload = false
+            awaitingSession = null
+            active = true
+            return KioskWebPageResult.BRIDGE_ACTIVE
+        }
+        if (!exactCompletion) return KioskWebPageResult.IGNORED
+        if (!captureSession(completedUrl, currentTopLevelUrl)) return KioskWebPageResult.IGNORED
+        val session = currentSession() ?: return KioskWebPageResult.IGNORED
         val created = runCatching(createContext).getOrNull() ?: return failClosed()
         context = created
         return try {
             created.attachPermissionOwner()
             val createdHost = createHost(created)
             host = createdHost
-            if (createdHost.attach()) true
-            else {
-                created.invalidate()
-                context = null
-                host = null
-                terminal = true
-                false
+            if (createdHost.attach()) {
+                awaitingReload = true
+                awaitingSession = session
+                KioskWebPageResult.RELOAD_REQUIRED
+            } else {
+                runCatching { createdHost.invalidate() }
+                failClosed(created)
             }
         } catch (_: Throwable) {
             runCatching { host?.invalidate() }
-            runCatching { created.invalidate() }
-            context = null
-            host = null
-            terminal = true
-            false
+            failClosed(created)
         }
     }
 
     fun onNavigation(url: String?, isRedirect: Boolean, isMainFrame: Boolean): Boolean {
         val blocked = admission.shouldOverrideNavigation(url, isRedirect, isMainFrame)
-        if (blocked || isMainFrame && (context != null || host != null)) {
-            invalidate(KioskWebHostContext::onSessionInvalidated)
-        }
+        if (blocked || isMainFrame && active) invalidate(KioskWebHostContext::onSessionInvalidated)
         return blocked
     }
 
@@ -91,14 +104,23 @@ internal class KioskWebHostLifecycle(
     fun onReaderInvalidated() = invalidate(KioskWebHostContext::onReaderInvalidated)
     fun onDestroy() = invalidate(KioskWebHostContext::invalidate)
 
-    private fun failClosed(): Boolean {
+    private fun failClosed(created: KioskWebHostContext? = null): KioskWebPageResult {
         terminal = true
-        return false
+        awaitingReload = false
+        awaitingSession = null
+        active = false
+        context = null
+        host = null
+        runCatching { created?.invalidate() }
+        return KioskWebPageResult.REJECTED
     }
 
     private fun invalidate(event: KioskWebHostContext.() -> Unit) {
         if (terminal) return
         terminal = true
+        awaitingReload = false
+        awaitingSession = null
+        active = false
         val ownedHost = host
         val ownedContext = context
         host = null
@@ -158,7 +180,7 @@ class KioskWebActivity : Activity() {
                 lifecycle?.onNavigation(request.url.toString(), request.isRedirect, request.isForMainFrame) ?: true
 
             override fun onPageFinished(view: WebView, url: String?) {
-                lifecycle?.onPageFinished(url, view.url)
+                if (lifecycle?.onPageFinished(url, view.url) == KioskWebPageResult.RELOAD_REQUIRED) view.reload()
             }
         }
         view.webChromeClient = object : WebChromeClient() {

@@ -32,24 +32,25 @@ class KioskWebActivityTest {
         val fixture = Fixture({ captureSucceeds }, { current })
 
         fixture.controller.onResume()
-        assertFalse(fixture.controller.onPageFinished("$terminal?next=1", terminal))
+        assertEquals(KioskWebPageResult.IGNORED, fixture.controller.onPageFinished("$terminal?next=1", terminal))
         assertEquals(0, fixture.captures)
         assertEquals(0, fixture.contextCreations)
 
-        assertFalse(fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.IGNORED, fixture.controller.onPageFinished(terminal, terminal))
         assertEquals(1, fixture.captures)
         assertEquals(0, fixture.contextCreations)
 
         captureSucceeds = true
         current = null
-        assertFalse(fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.IGNORED, fixture.controller.onPageFinished(terminal, terminal))
         assertEquals(2, fixture.captures)
         assertEquals(0, fixture.contextCreations)
 
         current = session
-        assertTrue(fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.RELOAD_REQUIRED, fixture.controller.onPageFinished(terminal, terminal))
         assertEquals(1, fixture.contextCreations)
         assertEquals(1, fixture.host.attachments)
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, fixture.controller.onPageFinished(terminal, terminal))
         fixture.controller.onResume()
         assertEquals(1, fixture.contextCreations)
     }
@@ -57,14 +58,14 @@ class KioskWebActivityTest {
     @Test
     fun declinedContextOrHostAttachmentFailsClosedAndPoisonsCreatedContext() {
         val declined = Fixture(contextAvailable = false)
-        assertFalse(declined.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.REJECTED, declined.controller.onPageFinished(terminal, terminal))
         assertEquals(1, declined.contextCreations)
         assertTrue(declined.events.isEmpty())
 
         val failedAttach = Fixture(hostAttaches = false)
-        assertFalse(failedAttach.controller.onPageFinished(terminal, terminal))
-        assertEquals(listOf("host.attach", "context.invalidate"), failedAttach.events)
-        assertFalse(failedAttach.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.REJECTED, failedAttach.controller.onPageFinished(terminal, terminal))
+        assertEquals(listOf("host.attach", "host.invalidate", "context.invalidate"), failedAttach.events)
+        assertEquals(KioskWebPageResult.REJECTED, failedAttach.controller.onPageFinished(terminal, terminal))
         assertEquals(1, failedAttach.contextCreations)
     }
 
@@ -72,10 +73,35 @@ class KioskWebActivityTest {
     fun throwingHostAttachmentFailsClosedAndCleansBothOwners() {
         val fixture = Fixture(hostThrows = true)
 
-        assertFalse(fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.REJECTED, fixture.controller.onPageFinished(terminal, terminal))
         assertEquals(listOf("host.attach", "host.invalidate", "context.invalidate"), fixture.events)
-        assertFalse(fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.REJECTED, fixture.controller.onPageFinished(terminal, terminal))
     }
+
+    @Test
+    fun reloadIsSingleUseAndUnexpectedAwaitedOrDuplicateCompletionFailsClosed() {
+        val awaitingReload = Fixture()
+        assertEquals(KioskWebPageResult.RELOAD_REQUIRED, awaitingReload.controller.onPageFinished(terminal, terminal))
+        assertFalse(awaitingReload.controller.onNavigation(terminal, false, true))
+        awaitingReload.events.clear()
+        assertEquals(KioskWebPageResult.REJECTED, awaitingReload.controller.onPageFinished("$terminal?next=1", terminal))
+        assertEquals(listOf("host.invalidate", "context.session"), awaitingReload.events)
+
+        val active = attachedFixture()
+        assertEquals(KioskWebPageResult.REJECTED, active.controller.onPageFinished(terminal, terminal))
+        assertEquals(listOf("host.invalidate", "context.session"), active.events)
+    }
+
+    @Test
+    fun reloadRequiresTheCapturedSessionToStillOwnTheContext() =
+        listOf<StaffSession?>(null, StaffSession(origin, "changed", "cookie", Long.MAX_VALUE)).forEach { reloadedSession ->
+            var current: StaffSession? = session
+            val fixture = Fixture(currentSession = { current })
+            assertEquals(KioskWebPageResult.RELOAD_REQUIRED, fixture.controller.onPageFinished(terminal, terminal))
+            current = reloadedSession
+            assertEquals(KioskWebPageResult.REJECTED, fixture.controller.onPageFinished(terminal, terminal))
+            assertEquals(listOf("host.attach", "host.invalidate", "context.session"), fixture.events)
+        }
 
     @Test
     fun invalidationRemovesHostBeforeItsOwnedLifecycleEventAndCannotReviveIt() {
@@ -109,7 +135,8 @@ class KioskWebActivityTest {
     }
 
     private fun attachedFixture() = Fixture().also {
-        assertTrue(it.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.RELOAD_REQUIRED, it.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, it.controller.onPageFinished(terminal, terminal))
         it.events.clear()
     }
 
@@ -117,7 +144,7 @@ class KioskWebActivityTest {
         val fixture = attachedFixture()
         fixture.controller.action()
         assertEquals(listOf("host.invalidate", event), fixture.events)
-        assertFalse(fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.REJECTED, fixture.controller.onPageFinished(terminal, terminal))
         assertEquals(1, fixture.contextCreations)
     }
 

@@ -44,23 +44,32 @@ class SecureWebMessageHostTest {
     }
 
     @Test
-    fun adapterDispatchesOnlyAdmittedMessagesAndRepliesWithRedactedJson() {
+    fun adapterDispatchesOnlyAdmittedMessagesAndRepliesWithClosedRequestEnvelope() {
         var calls = 0
-        val bridge = SecureWebBridge(mapOf("collect" to SecureBridgeOperation(emptyMap()) {
+        var state = SecureBridgeState.ACCEPTED
+        val bridge = SecureWebBridge(mapOf("startPreparedPurchase" to SecureBridgeOperation(emptyMap()) {
             calls++
-            SecureBridgeState.ACCEPTED
+            state
         })) { _, _ -> "opaque-ref" }
         val adapter = SecureWebMessageAdapter(requireNotNull(SecureWebAdmission.from(origin)), bridge)
-        val request = "{\"version\":1,\"operation\":\"collect\",\"requestId\":\"id\\\"<\",\"payload\":{}}"
+        val request = "{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"id\\\"<\",\"payload\":{}}"
 
-        assertEquals("{\"requestId\":\"id\\\"<\",\"operationRef\":\"opaque-ref\",\"state\":\"accepted\"}", adapter.handle(origin, true, terminal, request))
-        assertEquals("{\"requestId\":null,\"error\":\"malformed_request\"}", adapter.handle(origin, true, terminal, "bad"))
+        assertEquals("{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"id\\\"<\",\"payload\":{\"operationReference\":\"opaque-ref\",\"state\":\"accepted\"}}", adapter.handle(origin, true, terminal, request))
+        state = SecureBridgeState.REJECTED
+        val rejectedRequest = "{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"id-2\",\"payload\":{}}"
+        assertEquals("{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"id-2\",\"payload\":{\"operationReference\":\"opaque-ref\",\"state\":\"rejected\"}}", adapter.handle(origin, true, terminal, rejectedRequest))
+        val escapedOperationRequest = "{\"version\":1,\"operation\":\"startPreparedPur\\u0063hase\",\"requestId\":\"id-escaped\",\"payload\":{}}"
+        assertEquals("{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"id-escaped\",\"payload\":{\"operationReference\":\"opaque-ref\",\"state\":\"rejected\"}}", adapter.handle(origin, true, terminal, escapedOperationRequest))
+        assertNull(adapter.handle(origin, true, terminal, "bad"))
+        state = SecureBridgeState.PAID
+        val paidRequest = "{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"id-3\",\"payload\":{}}"
+        assertNull(adapter.handle(origin, true, terminal, paidRequest))
         assertNull(adapter.handle("https://foreign.invalid", true, terminal, request))
-        assertEquals(1, calls)
+        assertEquals(4, calls)
 
         adapter.invalidate()
         assertNull(adapter.handle(origin, true, terminal, request))
-        assertEquals(1, calls)
+        assertEquals(4, calls)
     }
 
     @Test

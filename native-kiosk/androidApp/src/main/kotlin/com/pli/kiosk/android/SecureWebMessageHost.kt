@@ -30,6 +30,7 @@ class SecureWebMessageAdapter(
     private val bridge: SecureWebBridge,
 ) {
     private var invalidated = false
+    private val webStates = setOf(SecureBridgeState.ACCEPTED, SecureBridgeState.PENDING, SecureBridgeState.REJECTED)
 
     fun handle(sourceOrigin: String?, isMainFrame: Boolean, currentUrl: String?, data: String?): String? {
         if (invalidated || data == null || !admission.acceptsMessage(sourceOrigin, isMainFrame, currentUrl)) return null
@@ -41,9 +42,12 @@ class SecureWebMessageAdapter(
         invalidated = true
     }
 
-    private fun reply(response: SecureBridgeResponse): String = when {
-        response.operationRef != null && response.state != null -> "{\"requestId\":${json(response.requestId)},\"operationRef\":${json(response.operationRef)},\"state\":${json(response.state.name.lowercase())}}"
-        else -> "{\"requestId\":${json(response.requestId)},\"error\":${json((response.error ?: SecureBridgeError.INTERNAL_ERROR).name.lowercase())}}"
+    /** A response is emitted only when it is accepted by the web closed-envelope parser. */
+    private fun reply(response: SecureBridgeResponse): String? {
+        val operation = response.operation ?: return null
+        val state = response.state?.takeIf { it in webStates } ?: return null
+        val operationRef = response.operationRef ?: return null
+        return "{\"version\":1,\"operation\":${json(operation)},\"requestId\":${json(response.requestId)},\"payload\":{\"operationReference\":${json(operationRef)},\"state\":${json(state.name.lowercase())}}}"
     }
 
     private fun json(value: String?): String {

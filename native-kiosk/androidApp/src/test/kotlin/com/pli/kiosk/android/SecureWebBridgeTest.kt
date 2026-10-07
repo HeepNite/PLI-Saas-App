@@ -16,7 +16,7 @@ class SecureWebBridgeTest {
 
         val response = bridge.dispatch(request("one", "collect", "{\"token\":\"abc\"}"))
 
-        assertEquals(SecureBridgeResponse("one", "opaque-ref", SecureBridgeState.ACCEPTED), response)
+        assertEquals(SecureBridgeResponse("one", "opaque-ref", SecureBridgeState.ACCEPTED, operation = "collect"), response)
         assertEquals(mapOf("token" to "abc"), received)
     }
 
@@ -114,6 +114,7 @@ class SecureWebBridgeTest {
 
         val response = bridge.dispatch(request("one", "collect", "{\"token\":\"abc\"}"))
 
+        assertEquals("collect", response.operation)
         assertEquals("opaque-one-collect", response.operationRef)
         assertEquals(Triple("one", "opaque-one-collect", mapOf("token" to "abc")), received)
     }
@@ -125,7 +126,7 @@ class SecureWebBridgeTest {
         val request = request("one", "collect", "{}")
 
         val first = bridge.dispatch(request)
-        assertEquals(SecureBridgeResponse("one", error = SecureBridgeError.INTERNAL_ERROR), first)
+        assertEquals(SecureBridgeResponse("one", error = SecureBridgeError.INTERNAL_ERROR, operation = "collect"), first)
         assertEquals(first, bridge.dispatch(request))
         assertNull(first.operationRef)
         assertEquals(1, calls)
@@ -141,7 +142,7 @@ class SecureWebBridgeTest {
         val response = bridge.dispatch(request("one", "collect", "{}"))
         assertEquals(SecureBridgeError.STALE_CONTEXT, response.error)
         assertNull(response.requestId)
-        assertTrue(response.operationRef == null && response.state == null)
+        assertTrue(response.operation == null && response.operationRef == null && response.state == null)
     }
 
     private fun assertCachedRequestDigest(bridge: SecureWebBridge) {
