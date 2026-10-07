@@ -6,6 +6,8 @@ export type PublicCheckoutQuoteResponse =
   | { amountCents: number; currency: string; promotionLabel?: string }
   | { error: string }
 
+export type ProfileCheckoutQuoteResponse = PublicCheckoutQuoteResponse
+
 type RequestOptions = {
   token?: string | null
   payload: CheckoutPayload
@@ -59,6 +61,22 @@ export const requestNewStudentOutcomeApi = async ({
 
 export const requestCheckoutQuoteApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
   const res = await resolveFetch(fetchImpl)("/api/public/checkout/quote", {
+    method: "POST",
+    headers: createJsonHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  })
+  const response = await res.json().catch(() => null)
+  const data = isPublicCheckoutQuoteResponse(response) ? response : null
+  return { res, data }
+}
+
+export const requestProfileCheckoutQuoteApi = async ({
+  token,
+  payload,
+  fetchImpl,
+}: Omit<RequestOptions, "token"> & { token: string }) => {
+  const res = await resolveFetch(fetchImpl)("/api/profile/checkout/quote", {
     method: "POST",
     headers: createJsonHeaders(token),
     credentials: "include",

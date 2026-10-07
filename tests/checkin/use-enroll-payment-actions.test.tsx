@@ -650,6 +650,117 @@ describe("useEnrollPaymentActions", () => {
   })
 
   // ---------------------------------------------------------------------
+  // authenticated profile quote
+  // ---------------------------------------------------------------------
+  describe("authenticated profile quote", () => {
+    it("loads a profile quote before the Payments step with a fresh Clerk token", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ amountCents: 1500, currency: "usd" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const getToken = vi.fn(async () => "fresh-clerk-token")
+      const { getResult } = await renderHook(defaultInput({
+        isProfileBookingFlow: true,
+        isSignedIn: true,
+        service: "dropin",
+        step: 1,
+        getToken,
+      }))
+      await flushEffects()
+
+      expect(getToken).toHaveBeenCalledWith({ skipCache: true })
+      expect(fetchMock).toHaveBeenCalledWith("/api/profile/checkout/quote", expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer fresh-clerk-token" }),
+      }))
+      expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
+    })
+
+    it("does not request a profile quote for a non-ordinary Drop-in shape", async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({
+        isProfileBookingFlow: true,
+        isSignedIn: true,
+        service: "dropin",
+        participants: 2,
+        getToken: vi.fn(async () => "token"),
+      }))
+      await flushEffects()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(getResult().profileQuote).toBeNull()
+    })
+
+    it("clears for a package without requesting, then refreshes when returning to Drop-in", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ amountCents: 1500, currency: "usd" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const input = defaultInput({ isProfileBookingFlow: true, isSignedIn: true, service: "dropin", getToken: vi.fn(async () => "token") })
+      const { getResult, rerender } = await renderHook(input)
+      await flushEffects()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await rerender({ ...input, pkg: "ten-class-package" })
+      await flushEffects()
+      expect(getResult().profileQuote).toBeNull()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await rerender({ ...input, pkg: "" })
+      await flushEffects()
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
+    })
+
+    it("ignores stale profile responses and unmounted completions", async () => {
+      const first = deferred<Response>()
+      const second = deferred<Response>()
+      const third = deferred<Response>()
+      const fetchMock = vi.fn(() => [first, second, third][fetchMock.mock.calls.length - 1].promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+      const input = defaultInput({ isProfileBookingFlow: true, isSignedIn: true, service: "dropin", getToken: vi.fn(async () => "token") })
+      const { getResult, rerender } = await renderHook(input)
+
+      await rerender({ ...input, date: "2026-07-11" })
+      await act(async () => second.resolve(jsonResponse({ amountCents: 1700, currency: "usd" })))
+      expect(getResult().profileQuote).toEqual({ amountCents: 1700, currency: "usd" })
+      await act(async () => first.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
+      expect(getResult().profileQuote).toEqual({ amountCents: 1700, currency: "usd" })
+
+      await rerender({ ...input, date: "2026-07-12" })
+      await act(async () => root?.unmount())
+      root = null
+      await act(async () => third.resolve(jsonResponse({ amountCents: 1600, currency: "usd" })))
+      expect(consoleError).not.toHaveBeenCalled()
+      consoleError.mockRestore()
+    })
+
+    it("keeps the quote out of the final profile checkout-session payload", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => (
+        url === "/api/profile/checkout/quote"
+          ? jsonResponse({ amountCents: 1500, currency: "usd" })
+          : jsonResponse({ error: "declined" }, { status: 400, ok: false })
+      ))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({
+        isProfileBookingFlow: true,
+        isSignedIn: true,
+        service: "dropin",
+        total: 20,
+        getToken: vi.fn(async () => "token"),
+      }))
+      await flushEffects()
+      expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
+
+      await getResult().handleSubmit()
+
+      const sessionCall = fetchMock.mock.calls.find(([url]) => url === "/api/profile/checkout/session")
+      expect(sessionCall).toBeDefined()
+      const body = JSON.parse(String(sessionCall![1].body))
+      expect(body.amount).toBe(2000)
+      expect(body.profileQuote).toBeUndefined()
+      expect(body.amountCents).toBeUndefined()
+    })
+  })
+
+  // ---------------------------------------------------------------------
   // handleSubmit — public existing-customer package path
   // ---------------------------------------------------------------------
   describe("handleSubmit — public package reservation", () => {

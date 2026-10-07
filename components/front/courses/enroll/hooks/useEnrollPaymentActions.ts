@@ -17,6 +17,7 @@ import {
   requestCheckoutCashApi,
   requestCheckoutIntentApi,
   requestCheckoutQuoteApi,
+  requestProfileCheckoutQuoteApi,
   requestCheckoutSessionApi,
   requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
@@ -115,6 +116,23 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   const [publicQuoteLoading, setPublicQuoteLoading] = React.useState(false)
   const [publicQuoteError, setPublicQuoteError] = React.useState<string | null>(null)
   const publicQuoteRequest = React.useRef(0)
+  const isProfileQuoteEligible =
+    isProfileBookingFlow &&
+    isSignedIn === true &&
+    (service === "dropin" || service === "new-student") &&
+    !pkg &&
+    participants === 1 &&
+    addons.length === 0 &&
+    !appliedCoupon &&
+    !consecutiveAccepted
+  const [profileQuote, setProfileQuote] = React.useState<{
+    amountCents: number
+    currency: string
+    promotionLabel?: string
+  } | null>(null)
+  const [profileQuoteLoading, setProfileQuoteLoading] = React.useState(false)
+  const [profileQuoteError, setProfileQuoteError] = React.useState<string | null>(null)
+  const profileQuoteRequest = React.useRef(0)
 
   const buildCheckoutPayload = React.useCallback(
     (extra: Record<string, unknown> = {}) =>
@@ -223,6 +241,60 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       active = false
     }
   }, [buildCheckoutPayload, getToken, isPublicQuoteEligible, isSignedIn])
+
+  React.useEffect(() => {
+    const requestId = ++profileQuoteRequest.current
+    let active = true
+
+    if (!isProfileQuoteEligible) {
+      setProfileQuote(null)
+      setProfileQuoteLoading(false)
+      setProfileQuoteError(null)
+      return () => {
+        active = false
+      }
+    }
+
+    setProfileQuote(null)
+    setProfileQuoteLoading(true)
+    setProfileQuoteError(null)
+
+    void (async () => {
+      try {
+        const token = await getToken({ skipCache: true })
+        if (!token) throw new Error("Missing Clerk token")
+        const { res, data } = await requestProfileCheckoutQuoteApi({
+          token,
+          payload: buildCheckoutPayload(),
+        })
+        if (!active || profileQuoteRequest.current !== requestId) return
+        if (
+          !res.ok ||
+          !data ||
+          !("amountCents" in data) ||
+          typeof data.amountCents !== "number" ||
+          !Number.isFinite(data.amountCents) ||
+          typeof data.currency !== "string"
+        ) {
+          setProfileQuoteError("We couldn't refresh the current price. Please try again.")
+          return
+        }
+        setProfileQuote(data)
+      } catch {
+        if (active && profileQuoteRequest.current === requestId) {
+          setProfileQuoteError("We couldn't refresh the current price. Please try again.")
+        }
+      } finally {
+        if (active && profileQuoteRequest.current === requestId) {
+          setProfileQuoteLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [buildCheckoutPayload, getToken, isProfileQuoteEligible])
 
   const requestNewStudentOutcome = React.useCallback(async (): Promise<NewStudentVerifyResponse | null> => {
     const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
@@ -819,6 +891,9 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     publicQuote,
     publicQuoteLoading,
     publicQuoteError,
+    profileQuote,
+    profileQuoteLoading,
+    profileQuoteError,
     handleSubmit,
     resetKioskQrCheckout,
   }
