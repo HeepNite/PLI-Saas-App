@@ -73,4 +73,43 @@ describe("StepPackages", () => {
 
     expect(setPkg).toHaveBeenCalledWith("")
   })
+
+  it("shows the required profile quote state instead of a local Drop-in price", async () => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    const render = async (quote: {
+      profileQuote?: { amountCents: number; currency: string } | null
+      profileQuoteLoading?: boolean
+      profileQuoteError?: string | null
+    }) => {
+      await act(async () => {
+        root?.render(
+          <StepPackages
+            isCheckInNewFlow={false}
+            course={course}
+            pkg=""
+            setPkg={vi.fn()}
+            to12h={() => "8:00 PM"}
+            time="20:00"
+            formatPackageMeta={() => undefined}
+            profileQuoteRequired
+            {...quote}
+          />
+        )
+      })
+    }
+
+    await render({ profileQuote: { amountCents: 1500, currency: "usd" } })
+    expect(container.textContent).toContain("$15.00")
+    expect(container.textContent).not.toContain("$20")
+
+    await render({ profileQuoteLoading: true })
+    expect(container.textContent).toContain("Updating price")
+    expect(container.textContent).not.toContain("$20")
+
+    await render({ profileQuoteError: "failed" })
+    expect(container.textContent).toContain("Price unavailable")
+    expect(container.textContent).not.toContain("$20")
+  })
 })

@@ -45,6 +45,10 @@ export type EnrollSidebarProps = {
   summaryDateTimeValue: React.ReactNode
   summaryGridClass: string
   total: number
+  profileQuoteRequired?: boolean
+  profileQuote?: { amountCents: number; currency: string } | null
+  profileQuoteLoading?: boolean
+  profileQuoteError?: string | null
   googleCalHref: string
   icsDataUri: string
   eventDates: boolean
@@ -85,6 +89,10 @@ export default function EnrollSidebar({
   summaryDateTimeValue,
   summaryGridClass,
   total,
+  profileQuoteRequired = false,
+  profileQuote = null,
+  profileQuoteLoading = false,
+  profileQuoteError = null,
   googleCalHref,
   icsDataUri,
   eventDates,
@@ -96,6 +104,24 @@ export default function EnrollSidebar({
   t,
 }: EnrollSidebarProps) {
   const stepValid = (index: number) => resolveStepValid(index, stepValidCtx)
+  const profileQuoteDisplay = !profileQuoteRequired
+    ? "local"
+    : profileQuoteLoading
+      ? "loading"
+      : profileQuoteError || !profileQuote
+        ? "unavailable"
+        : "ready"
+  const profileQuoteAmount = profileQuote
+    ? new Intl.NumberFormat("en-US", { style: "currency", currency: profileQuote.currency.toUpperCase() })
+      .format(profileQuote.amountCents / 100)
+    : null
+  const summaryTotal = profileQuoteDisplay === "ready"
+    ? <span className="font-semibold">{profileQuoteAmount}</span>
+    : profileQuoteDisplay === "loading"
+      ? <span className="font-semibold">Updating price</span>
+      : profileQuoteDisplay === "unavailable"
+        ? <span className="font-semibold">Price unavailable</span>
+        : <><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></>
 
   return (
     <aside
@@ -297,7 +323,7 @@ export default function EnrollSidebar({
                     </div>
                     <div className="break-words">
                       <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("total")}</div>
-                      <div className="mt-1 whitespace-normal break-words text-white/85"><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                      <div className="mt-1 whitespace-normal break-words text-white/85" aria-live={profileQuoteRequired ? "polite" : undefined}>{summaryTotal}</div>
                     </div>
                   </div>
                 </div>
@@ -340,7 +366,7 @@ export default function EnrollSidebar({
                     </div>
                     <div className="break-words">
                       <div className="text-[10px] uppercase tracking-[0.14em] text-white/55">{t("total")}</div>
-                      <div className="mt-1 whitespace-normal break-words text-white/85"><span className="font-semibold">${total.toFixed(2)}</span> <span className="opacity-60">({t("demo")})</span></div>
+                      <div className="mt-1 whitespace-normal break-words text-white/85" aria-live={profileQuoteRequired ? "polite" : undefined}>{summaryTotal}</div>
                     </div>
                   </div>
                 </details>
