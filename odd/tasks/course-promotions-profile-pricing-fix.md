@@ -26,12 +26,16 @@ Make authenticated `/client-profile` booking display the server-authoritative re
   - Status: complete
   - Verification: independent contract review and `git diff --check` passed; no stale profile-no-quote assertions remain.
   - Evidence: profile quote is Clerk-authenticated, payment-free, occurrence/shape/entitlement authoritative, separate from payment authority, suppressed by explicit package selection, and independently revalidated by final profile session.
-- [ ] 2. Add a payment-free authenticated profile quote route with authoritative occurrence and entitlement validation.
-  - Status: in progress
+- [x] 2. Add a payment-free authenticated profile quote route with authoritative occurrence and entitlement validation.
+  - Status: complete
   - Method: test-first (RED → GREEN → refactor)
-  - Verification: focused profile quote/session API tests, typecheck, `git diff --check`
+  - Commit: `5ed7c7c7`
+  - RED: focused route tests failed because `/api/profile/checkout/quote` did not exist.
+  - GREEN: profile quote, public quote, and profile checkout-session suites passed (16/16); typecheck and `git diff --check` passed.
+  - Independent verification: auth, Clerk-only identity, trusted profile channel, authoritative occurrence, minimal response, no payment/write path, and exclusions approved; route/test slice is 169 lines.
+  - Native review: approved, acknowledged, and burned as `review-c0d5f0cb8cae2267`; invalid-input and pricing-handoff coverage were informational advisories only.
 - [ ] 3. Request and retain profile quote state without making it payment authority.
-  - Status: pending
+  - Status: in progress
   - Method: test-first (RED → GREEN → refactor)
   - Verification: adapter/hook tests, stale-response coverage, typecheck
 - [ ] 4. Display the profile Drop-in quote in Package, Summary, and Payment while preserving package precedence.
