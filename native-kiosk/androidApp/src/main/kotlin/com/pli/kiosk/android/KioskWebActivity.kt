@@ -51,7 +51,12 @@ internal class KioskWebHostLifecycle(
     fun onPageFinished(completedUrl: String?, currentTopLevelUrl: String?): KioskWebPageResult {
         if (terminal) return KioskWebPageResult.REJECTED
         val exactCompletion = KioskWebActivity.isExactTerminalCompletion(admission, completedUrl, currentTopLevelUrl)
-        if (active || awaitingReload && !exactCompletion) {
+        if (active) {
+            if (exactCompletion) return KioskWebPageResult.BRIDGE_ACTIVE
+            invalidate(KioskWebHostContext::onSessionInvalidated)
+            return KioskWebPageResult.REJECTED
+        }
+        if (awaitingReload && !exactCompletion) {
             invalidate(KioskWebHostContext::onSessionInvalidated)
             return KioskWebPageResult.REJECTED
         }

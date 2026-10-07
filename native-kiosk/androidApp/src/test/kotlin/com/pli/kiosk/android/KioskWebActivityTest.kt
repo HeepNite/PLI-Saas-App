@@ -98,7 +98,7 @@ class KioskWebActivityTest {
     }
 
     @Test
-    fun reloadIsSingleUseAndUnexpectedAwaitedOrDuplicateCompletionFailsClosed() {
+    fun reloadIsSingleUseAndExactActiveCompletionsAreIdempotent() {
         val awaitingReload = Fixture()
         assertEquals(KioskWebPageResult.RELOAD_REQUIRED, awaitingReload.controller.onPageFinished(terminal, terminal))
         assertFalse(awaitingReload.controller.onNavigation(terminal, false, true))
@@ -106,8 +106,15 @@ class KioskWebActivityTest {
         assertEquals(KioskWebPageResult.REJECTED, awaitingReload.controller.onPageFinished("$terminal?next=1", terminal))
         assertEquals(listOf("host.invalidate", "context.session"), awaitingReload.events)
 
-        val active = attachedFixture()
-        assertEquals(KioskWebPageResult.REJECTED, active.controller.onPageFinished(terminal, terminal))
+        val active = Fixture()
+        assertEquals(KioskWebPageResult.RELOAD_REQUIRED, active.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, active.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, active.controller.onPageFinished(terminal, terminal))
+        assertEquals(2, active.captures)
+        assertTrue(active.events.contains("host.attach"))
+
+        active.events.clear()
+        assertEquals(KioskWebPageResult.REJECTED, active.controller.onPageFinished("$terminal?next=1", terminal))
         assertEquals(listOf("host.invalidate", "context.session"), active.events)
     }
 
