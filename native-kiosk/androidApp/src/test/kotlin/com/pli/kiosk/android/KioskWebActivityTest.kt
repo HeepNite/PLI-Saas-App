@@ -21,6 +21,25 @@ class KioskWebActivityTest {
     }
 
     @Test
+    fun stoppedActivityRequestsExactlyOneReplacementWhileInitialAndRepeatedResumesDoNot() {
+        val originalHost = attachedFixture()
+        val original = KioskWebActivityRecreation()
+
+        assertFalse(original.onResume())
+        originalHost.controller.onApplicationBackgrounded()
+        original.onStop()
+        assertTrue(original.onResume())
+        assertFalse(original.onResume())
+
+        val replacement = KioskWebActivityRecreation()
+        val replacementHost = Fixture()
+        assertFalse(replacement.onResume())
+        assertEquals(KioskWebPageResult.RELOAD_REQUIRED, replacementHost.controller.onPageFinished(terminal, terminal))
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, replacementHost.controller.onPageFinished(terminal, terminal))
+        assertEquals(1, replacementHost.contextCreations)
+    }
+
+    @Test
     fun collectionFlagAloneCannotExposeABridge() {
         assertFalse(SecureWebMessageHost.canAttach(SecureWebAdmission.from(origin), true, true, null))
     }

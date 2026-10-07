@@ -130,10 +130,27 @@ internal class KioskWebHostLifecycle(
     }
 }
 
+/** Requests a single Activity replacement after its host has been terminally invalidated. */
+internal class KioskWebActivityRecreation {
+    private var stopped = false
+    private var recreationRequested = false
+
+    fun onStop() {
+        stopped = true
+    }
+
+    fun onResume(): Boolean {
+        if (!stopped || recreationRequested) return false
+        recreationRequested = true
+        return true
+    }
+}
+
 /** Dedicated kiosk host for the exact terminal page and its native-only message bridge. */
 class KioskWebActivity : Activity() {
     private var webView: WebView? = null
     private var lifecycle: KioskWebHostLifecycle? = null
+    private val recreation = KioskWebActivityRecreation()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -203,7 +220,13 @@ class KioskWebActivity : Activity() {
 
     override fun onStop() {
         lifecycle?.onApplicationBackgrounded()
+        recreation.onStop()
         super.onStop()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (recreation.onResume()) recreate()
     }
 
     override fun onDestroy() {
