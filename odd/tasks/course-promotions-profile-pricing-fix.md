@@ -50,9 +50,12 @@ Make authenticated `/client-profile` booking display the server-authoritative re
   - GREEN: five focused UI/action suites passed 105/105; typecheck and `git diff --check` passed.
   - Evidence: required profile quote renders the authoritative amount on Drop-in, Summary, and Payment; loading/error suppress local `$20`; package selection retains package prices; public and profile session payload behavior remains unchanged.
   - Native review: approved, acknowledged, and burned as `review-854b643e26864d10`; special-flow Drop-in precedence was an informational advisory only.
-- [ ] 5. Run final regression, native review for source slices, and prepare bounded delivery candidates.
-  - Status: in progress
-  - Verification: focused suites, typecheck, scoped lint, production build, `git diff --check`
+- [x] 5. Run final regression, native review for source slices, and prepare bounded delivery candidates.
+  - Status: complete
+  - Verification: 11 focused files and 166/166 tests passed; typecheck passed; scoped ESLint had 0 errors and 9 pre-existing warnings; production build passed with 123/123 static pages; `git diff --check` passed.
+  - Boundaries: spec 107 lines, profile quote route 169, quote state 226, profile display 180; every source work unit remains below 400 changed lines.
+  - Native review: all source slices approved, acknowledged, and burned as `review-c0d5f0cb8cae2267`, `review-8b911f70d14a3bc5`, and `review-854b643e26864d10`.
+  - Worktree note: unrelated generated `.atl/skill-registry.md` drift remains unstaged and excluded.
 
 ## Constraints
 
