@@ -56,11 +56,13 @@ Make authenticated `/client-profile` booking display the server-authoritative re
   - Boundaries: spec 107 lines, profile quote route 169, quote state 226, profile display 180; every source work unit remains below 400 changed lines.
   - Native review: all source slices approved, acknowledged, and burned as `review-c0d5f0cb8cae2267`, `review-8b911f70d14a3bc5`, and `review-854b643e26864d10`.
   - Worktree note: unrelated generated `.atl/skill-registry.md` drift remains unstaged and excluded.
-- [ ] 6. Publish and sequentially integrate the bounded fix into `codex/develop`, then verify the automatic dev Preview.
-  - Status: in progress
+- [x] 6. Publish and sequentially integrate the bounded fix into `codex/develop`, then verify the automatic dev Preview.
+  - Status: complete
   - Authorization: user selected publish, integrate, and update dev after local verification completed.
-  - Method: create reviewable PR slices below 400 lines, wait for required checks, merge with ancestry-preserving merge commits, and verify the final `dev.palladiumlatin.art` deployment identity.
-  - Boundary: no Stripe operation, payment completion, catalog mutation, or database mutation.
+  - Delivery: PRs `#622`–`#625` merged in first-parent order with ancestry-preserving two-parent merge commits; behavior landing SHA is `ce1e1c773ff97c60a1a6b3451375419206642cf3`.
+  - Verification: all six actual final-SHA check runs and Vercel commit status succeeded; the final tree equals reviewed PR `#625` head tree.
+  - Dev Preview: `dev.palladiumlatin.art` resolves to automatic Vercel deployment `dpl_8aqtvQKnwzfYxvdd8BNsPnQXSEYE` (`pli-saas-341ltm0yn-heepnites-projects.vercel.app`) for the exact behavior landing SHA.
+  - Boundary: no manual deploy, Stripe operation, payment completion, catalog mutation, or database mutation.
 
 ## Constraints
 
