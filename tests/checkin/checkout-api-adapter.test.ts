@@ -4,6 +4,7 @@ import {
   requestCheckoutFinalizeApi,
   requestCheckoutIntentApi,
   requestCheckoutQuoteApi,
+  requestProfileCheckoutQuoteApi,
   requestCheckoutSessionApi,
   requestCheckoutSessionStatusApi,
   requestDropInCheckInApi,
@@ -66,6 +67,27 @@ describe("checkout/checkin api adapters", () => {
       body: JSON.stringify(payload),
     })
     expect(data).toEqual({ error: "Quote unavailable" })
+  })
+
+  it("requests an authenticated profile quote with a bearer token", async () => {
+    const fetchImpl = vi.fn(async () => {
+      return new Response(JSON.stringify({ amountCents: 1500, currency: "usd" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    })
+
+    const { data } = await requestProfileCheckoutQuoteApi({ token: "token_abc", payload, fetchImpl })
+
+    const [url, init] = getSingleFetchCall(fetchImpl)
+    expect(url).toBe("/api/profile/checkout/quote")
+    expect(init).toEqual({
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer token_abc" },
+      body: JSON.stringify(payload),
+    })
+    expect(data).toEqual({ amountCents: 1500, currency: "usd" })
   })
 
   it("uses the public endpoint for checkout intent when explicitly requested", async () => {
