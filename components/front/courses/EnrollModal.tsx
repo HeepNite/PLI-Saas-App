@@ -49,6 +49,7 @@ import EnrollSignInOverlay from "@/components/front/courses/enroll/steps/EnrollS
 import EnrollFlowPopup from "@/components/front/courses/enroll/steps/EnrollFlowPopup"
 import EnrollStepRouter from "@/components/front/courses/enroll/steps/EnrollStepRouter"
 import EnrollFormFooter from "@/components/front/courses/enroll/steps/EnrollFormFooter"
+import ProfileQuotePreloadGate from "@/components/front/courses/enroll/ProfileQuotePreloadGate"
 import EnrollSuccessView from "@/components/front/courses/enroll/steps/EnrollSuccessView"
 import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import { useEnrollNavigationActions } from "@/components/front/courses/enroll/hooks/useEnrollNavigationActions"
@@ -785,9 +786,11 @@ export default function EnrollModal({
     publicQuoteLoading,
     publicQuoteError,
     isProfileQuoteRequired,
+    isProfileQuoteReady,
     profileQuote,
     profileQuoteLoading,
     profileQuoteError,
+    retryProfileQuote,
   } = useEnrollPaymentActions({
     course,
     service,
@@ -1332,6 +1335,12 @@ export default function EnrollModal({
           </div>
         ) : null}
 
+        <ProfileQuotePreloadGate
+          isProfileQuoteRequired={isProfileQuoteRequired}
+          isProfileQuoteReady={isProfileQuoteReady}
+          profileQuoteError={profileQuoteError}
+          retryProfileQuote={retryProfileQuote}
+        >
         <div className={[
           isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12",
           forceKioskDarkModal || forceCampaignDarkCard ? "dark" : "",
@@ -1573,6 +1582,7 @@ export default function EnrollModal({
             </div>
           </section>
         </div>
+        </ProfileQuotePreloadGate>
         {showStripeModal && stripeClientSecret && (
           <StripePaymentModal
             clientSecret={stripeClientSecret}

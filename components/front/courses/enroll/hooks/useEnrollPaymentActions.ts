@@ -132,7 +132,10 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   } | null>(null)
   const [profileQuoteLoading, setProfileQuoteLoading] = React.useState(false)
   const [profileQuoteError, setProfileQuoteError] = React.useState<string | null>(null)
+  const [profileQuoteResolvedSubject, setProfileQuoteResolvedSubject] = React.useState<string | null>(null)
+  const [profileQuoteRetryGeneration, setProfileQuoteRetryGeneration] = React.useState(0)
   const profileQuoteRequest = React.useRef(0)
+  const profileQuoteRetryPending = React.useRef(false)
 
   const buildCheckoutPayload = React.useCallback(
     (extra: Record<string, unknown> = {}) =>
@@ -242,12 +245,29 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
   }, [buildCheckoutPayload, getToken, isPublicQuoteEligible, isSignedIn])
 
+  const profileQuoteRequestPayload = React.useMemo(
+    () => buildCheckoutPayload(),
+    [buildCheckoutPayload]
+  )
+  const profileQuoteRequestSubject = React.useMemo(
+    () => JSON.stringify(profileQuoteRequestPayload),
+    [profileQuoteRequestPayload]
+  )
+  const isProfileQuoteReady =
+    isProfileQuoteEligible &&
+    profileQuote !== null &&
+    profileQuoteResolvedSubject === profileQuoteRequestSubject
+  const currentProfileQuote = isProfileQuoteReady ? profileQuote : null
+
   React.useEffect(() => {
     const requestId = ++profileQuoteRequest.current
+    const requestSubject = profileQuoteRequestSubject
     let active = true
+    profileQuoteRetryPending.current = false
 
     if (!isProfileQuoteEligible) {
       setProfileQuote(null)
+      setProfileQuoteResolvedSubject(null)
       setProfileQuoteLoading(false)
       setProfileQuoteError(null)
       return () => {
@@ -256,6 +276,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
 
     setProfileQuote(null)
+    setProfileQuoteResolvedSubject(null)
     setProfileQuoteLoading(true)
     setProfileQuoteError(null)
 
@@ -265,7 +286,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         if (!token) throw new Error("Missing Clerk token")
         const { res, data } = await requestProfileCheckoutQuoteApi({
           token,
-          payload: buildCheckoutPayload(),
+          payload: profileQuoteRequestPayload,
         })
         if (!active || profileQuoteRequest.current !== requestId) return
         if (
@@ -280,6 +301,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
           return
         }
         setProfileQuote(data)
+        setProfileQuoteResolvedSubject(requestSubject)
       } catch {
         if (active && profileQuoteRequest.current === requestId) {
           setProfileQuoteError("We couldn't refresh the current price. Please try again.")
@@ -294,7 +316,23 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     return () => {
       active = false
     }
-  }, [buildCheckoutPayload, getToken, isProfileQuoteEligible])
+  }, [getToken, isProfileQuoteEligible, profileQuoteRequestPayload, profileQuoteRequestSubject, profileQuoteRetryGeneration])
+
+  const retryProfileQuote = React.useCallback(() => {
+    if (
+      !isProfileQuoteEligible ||
+      profileQuoteLoading ||
+      !profileQuoteError ||
+      profileQuoteRetryPending.current
+    ) return
+
+    profileQuoteRetryPending.current = true
+    setProfileQuote(null)
+    setProfileQuoteResolvedSubject(null)
+    setProfileQuoteError(null)
+    setProfileQuoteLoading(true)
+    setProfileQuoteRetryGeneration((generation) => generation + 1)
+  }, [isProfileQuoteEligible, profileQuoteError, profileQuoteLoading])
 
   const requestNewStudentOutcome = React.useCallback(async (): Promise<NewStudentVerifyResponse | null> => {
     const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
@@ -892,9 +930,11 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     publicQuoteLoading,
     publicQuoteError,
     isProfileQuoteRequired: isProfileQuoteEligible,
-    profileQuote,
+    isProfileQuoteReady,
+    profileQuote: currentProfileQuote,
     profileQuoteLoading,
     profileQuoteError,
+    retryProfileQuote,
     handleSubmit,
     resetKioskQrCheckout,
   }
