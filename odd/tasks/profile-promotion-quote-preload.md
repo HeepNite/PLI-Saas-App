@@ -25,12 +25,16 @@ Keep authenticated profile promotion validation server-authoritative while preve
   - Status: complete
   - Verification: independent contract review and `git diff --check` passed.
   - Evidence: date tiles remain unchanged; EnrollModal keeps sole quote ownership; eligible Packages waits for readiness; retry is serialized/stale-safe; non-profile flows and final session authority remain unchanged.
-- [ ] 2. Gate eligible profile Packages on quote readiness and add bounded retry behavior.
-  - Status: in progress
+- [x] 2. Gate eligible profile Packages on quote readiness and add bounded retry behavior.
+  - Status: complete
   - Method: test-first (RED → GREEN → refactor)
-  - Verification: modal/hook tests, close/reopen and stale-request coverage, typecheck
+  - RED: the modal gate module did not exist, retry was unavailable, and the anti-stale readiness contract was absent.
+  - GREEN: modal-level loading/error/retry, one-request retry serialization, request-ID/unmount guards, package bypass, and payload-subject readiness all pass focused coverage.
+  - Verification: 110-test preload regression and typecheck passed for the initial slice; 72 focused and 84 adjacent tests plus typecheck passed for the anti-stale follow-up; both diffs passed `git diff --check`.
+  - Commits: `cb03097d09ce2396b66801643134a011386dc864` (162 lines) and `f9fe3ae3e89096e30e73b963f6306857c8657278` (83 lines).
+  - Native review: `review-120c9255980a8aa3` approved the preload and identified an informational stale-quote risk; `review-8db522b40bf86caa` approved the separate anti-stale follow-up. Both approvals were acknowledged and burned.
 - [ ] 3. Run regression, native review, and prepare bounded delivery candidates.
-  - Status: pending
+  - Status: in progress
   - Verification: focused suites, typecheck, scoped lint, production build, `git diff --check`
 
 ## Constraints
