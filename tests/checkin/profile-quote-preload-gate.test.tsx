@@ -3,10 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server"
 import { describe, expect, it, vi } from "vitest"
 import ProfileQuotePreloadGate from "@/components/front/courses/enroll/ProfileQuotePreloadGate"
 
-const renderGate = (props: Partial<React.ComponentProps<typeof ProfileQuotePreloadGate>> = {}) =>
+const renderGate = (
+  props: Partial<React.ComponentProps<typeof ProfileQuotePreloadGate>> & { isProfileQuoteReady?: boolean } = {}
+) =>
   renderToStaticMarkup(
     <ProfileQuotePreloadGate
       isProfileQuoteRequired
+      isProfileQuoteReady={false}
       profileQuote={null}
       profileQuoteLoading={false}
       profileQuoteError={null}
@@ -29,11 +32,20 @@ describe("ProfileQuotePreloadGate", () => {
     expect(loading).not.toContain("Updating price")
   })
 
-  it("renders children only after the required quote is ready", () => {
-    const html = renderGate({ profileQuote: { amountCents: 1500, currency: "usd" } })
+  it("renders children only when the required quote matches the current request", () => {
+    const stale = renderGate({
+      profileQuote: { amountCents: 1500, currency: "usd" },
+      isProfileQuoteReady: false,
+    })
+    const ready = renderGate({
+      profileQuote: { amountCents: 1500, currency: "usd" },
+      isProfileQuoteReady: true,
+    })
 
-    expect(html).toContain("Packages local $20")
-    expect(html).not.toContain("Loading price")
+    expect(stale).toContain("Loading price")
+    expect(stale).not.toContain("Packages local $20")
+    expect(ready).toContain("Packages local $20")
+    expect(ready).not.toContain("Loading price")
   })
 
   it("shows a modal-level retry action after a quote error", () => {

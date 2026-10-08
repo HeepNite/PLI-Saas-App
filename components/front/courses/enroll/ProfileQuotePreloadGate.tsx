@@ -8,6 +8,7 @@ type ProfileQuote = {
 
 type ProfileQuotePreloadGateProps = {
   isProfileQuoteRequired: boolean
+  isProfileQuoteReady: boolean
   profileQuote: ProfileQuote | null
   profileQuoteLoading: boolean
   profileQuoteError: string | null
@@ -17,13 +18,14 @@ type ProfileQuotePreloadGateProps = {
 
 export default function ProfileQuotePreloadGate({
   isProfileQuoteRequired,
+  isProfileQuoteReady,
   profileQuote,
   profileQuoteLoading,
   profileQuoteError,
   retryProfileQuote,
   children,
 }: ProfileQuotePreloadGateProps) {
-  if (!isProfileQuoteRequired || profileQuote) return children
+  if (!isProfileQuoteRequired || isProfileQuoteReady) return children
 
   if (profileQuoteError) {
     return (

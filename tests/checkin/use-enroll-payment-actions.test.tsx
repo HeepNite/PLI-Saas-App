@@ -712,26 +712,38 @@ describe("useEnrollPaymentActions", () => {
       expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
     })
 
-    it("ignores stale profile responses and unmounted completions", async () => {
+    it("makes a resolved quote unavailable until the current request subject resolves", async () => {
       const first = deferred<Response>()
       const second = deferred<Response>()
       const third = deferred<Response>()
-      const fetchMock = vi.fn(() => [first, second, third][fetchMock.mock.calls.length - 1].promise)
+      const fourth = deferred<Response>()
+      const fetchMock = vi.fn(() => [first, second, third, fourth][fetchMock.mock.calls.length - 1].promise)
       vi.stubGlobal("fetch", fetchMock)
       const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
       const input = defaultInput({ isProfileBookingFlow: true, isSignedIn: true, service: "dropin", getToken: vi.fn(async () => "token") })
       const { getResult, rerender } = await renderHook(input)
 
-      await rerender({ ...input, date: "2026-07-11" })
-      await act(async () => second.resolve(jsonResponse({ amountCents: 1700, currency: "usd" })))
-      expect(getResult().profileQuote).toEqual({ amountCents: 1700, currency: "usd" })
       await act(async () => first.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
-      expect(getResult().profileQuote).toEqual({ amountCents: 1700, currency: "usd" })
+      expect(getResult().isProfileQuoteReady).toBe(true)
+      expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
 
-      await rerender({ ...input, date: "2026-07-12" })
+      await rerender({ ...input, date: "2026-07-11", time: "19:00" })
+      expect(getResult().isProfileQuoteReady).toBe(false)
+      expect(getResult().profileQuote).toBeNull()
+
+      await rerender({ ...input, date: "2026-07-12", time: "19:00" })
+      await act(async () => second.resolve(jsonResponse({ amountCents: 1700, currency: "usd" })))
+      expect(getResult().isProfileQuoteReady).toBe(false)
+      expect(getResult().profileQuote).toBeNull()
+
+      await act(async () => third.resolve(jsonResponse({ amountCents: 1600, currency: "usd" })))
+      expect(getResult().isProfileQuoteReady).toBe(true)
+      expect(getResult().profileQuote).toEqual({ amountCents: 1600, currency: "usd" })
+
+      await rerender({ ...input, date: "2026-07-13", time: "19:00" })
       await act(async () => root?.unmount())
       root = null
-      await act(async () => third.resolve(jsonResponse({ amountCents: 1600, currency: "usd" })))
+      await act(async () => fourth.resolve(jsonResponse({ amountCents: 1800, currency: "usd" })))
       expect(consoleError).not.toHaveBeenCalled()
       consoleError.mockRestore()
     })

@@ -786,6 +786,7 @@ export default function EnrollModal({
     publicQuoteLoading,
     publicQuoteError,
     isProfileQuoteRequired,
+    isProfileQuoteReady,
     profileQuote,
     profileQuoteLoading,
     profileQuoteError,
@@ -1336,6 +1337,7 @@ export default function EnrollModal({
 
         <ProfileQuotePreloadGate
           isProfileQuoteRequired={isProfileQuoteRequired}
+          isProfileQuoteReady={isProfileQuoteReady}
           profileQuote={profileQuote}
           profileQuoteLoading={profileQuoteLoading}
           profileQuoteError={profileQuoteError}
