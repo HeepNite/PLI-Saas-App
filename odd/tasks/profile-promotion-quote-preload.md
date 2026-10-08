@@ -33,9 +33,12 @@ Keep authenticated profile promotion validation server-authoritative while preve
   - Verification: 110-test preload regression and typecheck passed for the initial slice; 72 focused and 84 adjacent tests plus typecheck passed for the anti-stale follow-up; both diffs passed `git diff --check`.
   - Commits: `cb03097d09ce2396b66801643134a011386dc864` (162 lines) and `f9fe3ae3e89096e30e73b963f6306857c8657278` (83 lines).
   - Native review: `review-120c9255980a8aa3` approved the preload and identified an informational stale-quote risk; `review-8db522b40bf86caa` approved the separate anti-stale follow-up. Both approvals were acknowledged and burned.
-- [ ] 3. Run regression, native review, and prepare bounded delivery candidates.
-  - Status: in progress
-  - Verification: focused suites, typecheck, scoped lint, production build, `git diff --check`
+- [x] 3. Run regression, native review, and prepare bounded delivery candidates.
+  - Status: complete
+  - Verification: 9 files / 156 tests, typecheck, scoped ESLint (0 errors / 9 pre-existing warnings), production build (123/123 pages), and `git diff --check` passed at final behavior HEAD.
+  - Review: native reviews `review-120c9255980a8aa3` and `review-8db522b40bf86caa` approved and were acknowledged; the first review's stale-quote advisory was resolved by the separately reviewed follow-up.
+  - Cleanup: `85a58fb2b4beb457aa99e1edcbc92e071eae3907` removed obsolete gate props and restored scoped lint to the prior 9-warning baseline.
+  - Bounds: every commit and the aggregate branch diff remain below 400 changed lines; `.atl/skill-registry.md` remains unstaged and excluded.
 
 ## Constraints
 
