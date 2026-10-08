@@ -736,6 +736,37 @@ describe("useEnrollPaymentActions", () => {
       consoleError.mockRestore()
     })
 
+    it("retries a failed profile quote once and ignores retry attempts while loading", async () => {
+      const first = deferred<Response>()
+      const second = deferred<Response>()
+      const fetchMock = vi.fn(() => fetchMock.mock.calls.length === 1 ? first.promise : second.promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({
+        isProfileBookingFlow: true,
+        isSignedIn: true,
+        service: "dropin",
+        getToken: vi.fn(async () => "token"),
+      }))
+
+      await act(async () => first.resolve(jsonResponse({ error: "unavailable" }, { status: 503, ok: false })))
+      expect(getResult().profileQuoteError).toBe("We couldn't refresh the current price. Please try again.")
+
+      await act(async () => {
+        getResult().retryProfileQuote()
+        getResult().retryProfileQuote()
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(getResult().profileQuoteLoading).toBe(true)
+      expect(getResult().profileQuoteError).toBeNull()
+
+      getResult().retryProfileQuote()
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+
+      await act(async () => second.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
+      expect(getResult().profileQuote).toEqual({ amountCents: 1500, currency: "usd" })
+      expect(getResult().profileQuoteLoading).toBe(false)
+    })
+
     it("keeps the quote out of the final profile checkout-session payload", async () => {
       const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => (
         url === "/api/profile/checkout/quote"

@@ -132,7 +132,9 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   } | null>(null)
   const [profileQuoteLoading, setProfileQuoteLoading] = React.useState(false)
   const [profileQuoteError, setProfileQuoteError] = React.useState<string | null>(null)
+  const [profileQuoteRetryGeneration, setProfileQuoteRetryGeneration] = React.useState(0)
   const profileQuoteRequest = React.useRef(0)
+  const profileQuoteRetryPending = React.useRef(false)
 
   const buildCheckoutPayload = React.useCallback(
     (extra: Record<string, unknown> = {}) =>
@@ -245,6 +247,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   React.useEffect(() => {
     const requestId = ++profileQuoteRequest.current
     let active = true
+    profileQuoteRetryPending.current = false
 
     if (!isProfileQuoteEligible) {
       setProfileQuote(null)
@@ -294,7 +297,22 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     return () => {
       active = false
     }
-  }, [buildCheckoutPayload, getToken, isProfileQuoteEligible])
+  }, [buildCheckoutPayload, getToken, isProfileQuoteEligible, profileQuoteRetryGeneration])
+
+  const retryProfileQuote = React.useCallback(() => {
+    if (
+      !isProfileQuoteEligible ||
+      profileQuoteLoading ||
+      !profileQuoteError ||
+      profileQuoteRetryPending.current
+    ) return
+
+    profileQuoteRetryPending.current = true
+    setProfileQuote(null)
+    setProfileQuoteError(null)
+    setProfileQuoteLoading(true)
+    setProfileQuoteRetryGeneration((generation) => generation + 1)
+  }, [isProfileQuoteEligible, profileQuoteError, profileQuoteLoading])
 
   const requestNewStudentOutcome = React.useCallback(async (): Promise<NewStudentVerifyResponse | null> => {
     const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
@@ -895,6 +913,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     profileQuote,
     profileQuoteLoading,
     profileQuoteError,
+    retryProfileQuote,
     handleSubmit,
     resetKioskQrCheckout,
   }
