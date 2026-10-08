@@ -33,6 +33,22 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun diagnosticRoundTripHasAnEmptySchemaAndCannotLaunchThePreparedWorkflow() {
+        var launches = 0
+        val operations = PreparedBridgeOperations(PreparedBridgeWorkflow { _, _, _ -> launches++ })
+        val bridge = bridge(operations)
+
+        val accepted = bridge.dispatch(request("diagnostic", PreparedBridgeOperations.DIAGNOSTIC, "{}"))
+        val rejected = bridge.dispatch(request("diagnostic-extra", PreparedBridgeOperations.DIAGNOSTIC, "{\"preparedPurchaseReference\":\"${preparedReference()}\"}"))
+
+        assertEquals(SecureBridgeState.ACCEPTED, accepted.state)
+        assertEquals("opaque-diagnostic", accepted.operationRef)
+        assertEquals(null, rejected.state)
+        assertEquals(SecureBridgeError.INVALID_PAYLOAD, rejected.error)
+        assertEquals(0, launches)
+    }
+
+    @Test
     fun collidingGeneratedReferencesRejectBeforeInsertionOrSecondLaunch() {
         var launches = 0
         var complete: ((PreparedRecoveryState) -> Unit)? = null

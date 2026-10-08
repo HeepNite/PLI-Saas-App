@@ -73,6 +73,20 @@ class SecureWebMessageHostTest {
     }
 
     @Test
+    fun diagnosticRoundTripTraversesOnlyTheAdmittedHostAndDispatcherPath() {
+        var launches = 0
+        val operations = PreparedBridgeOperations(PreparedBridgeWorkflow { _, _, _ -> launches++ })
+        val bridge = SecureWebBridge(operations.bridgeOperations()) { requestId, _ -> "opaque-$requestId" }
+        val adapter = SecureWebMessageAdapter(requireNotNull(SecureWebAdmission.from(origin)), bridge)
+        val request = "{\"version\":1,\"operation\":\"diagnosticRoundTrip\",\"requestId\":\"diagnostic\",\"payload\":{}}"
+
+        assertEquals("{\"version\":1,\"operation\":\"diagnosticRoundTrip\",\"requestId\":\"diagnostic\",\"payload\":{\"operationReference\":\"opaque-diagnostic\",\"state\":\"accepted\"}}", adapter.handle(origin, true, terminal, request))
+        assertNull(adapter.handle("https://foreign.invalid", true, terminal, request))
+        assertNull(adapter.handle(origin, false, terminal, request))
+        assertEquals(0, launches)
+    }
+
+    @Test
     fun bridgeAdmissionRequiresEveryHostGate() {
         val policy = requireNotNull(SecureWebAdmission.from(origin))
         assertEquals("pliNativeBridge", SecureWebMessageHost.OBJECT_NAME)

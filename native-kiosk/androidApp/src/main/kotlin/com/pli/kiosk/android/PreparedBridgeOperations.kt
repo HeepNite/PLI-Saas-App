@@ -264,6 +264,7 @@ class PreparedBridgeOperations(
         POLL to SecureBridgeOperation.withResponse(mapOf(OPERATION_REFERENCE to MAX_OPERATION_REFERENCE_LENGTH)) { _, _, fields ->
             pollResult(fields.getValue(OPERATION_REFERENCE))
         },
+        DIAGNOSTIC to SecureBridgeOperation(emptyMap()) { SecureBridgeState.ACCEPTED },
     )
 
     @Synchronized
@@ -325,6 +326,7 @@ class PreparedBridgeOperations(
     companion object {
         const val START = "startPreparedPurchase"
         const val POLL = "getPreparedPurchaseState"
+        const val DIAGNOSTIC = "diagnosticRoundTrip"
         const val PREPARED_PURCHASE_REFERENCE = "preparedPurchaseReference"
         const val OPERATION_REFERENCE = "operationReference"
         private const val PREPARED_REFERENCE_LENGTH = 43

@@ -3,6 +3,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   handOffPreparedPurchase,
+  installPliNativeBridgeDiagnostic,
   isNativePaymentBridgeAvailable,
   parsePreparedPurchaseResponse,
 } from "@/components/front/courses/enroll/effects/native-payment-bridge"
@@ -18,6 +19,7 @@ function installBridge(postMessage: Bridge["postMessage"]) {
 
 afterEach(() => {
   delete (window as unknown as { pliNativeBridge?: Bridge }).pliNativeBridge
+  delete (window as unknown as { pliNativeBridgeDiagnostic?: unknown }).pliNativeBridgeDiagnostic
   vi.useRealTimers()
 })
 
@@ -50,8 +52,7 @@ describe("native payment bridge", () => {
     ["malformed", (bridge: Bridge) => bridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", payload: {} }) })],
     ["rejected", (bridge: Bridge) => bridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: "request", payload: { operationReference: "op_1", state: "rejected" } }) })],
   ])("treats post-dispatch %s responses as admitted", async (_name, reply) => {
-    let bridge: Bridge
-    bridge = installBridge(() => reply(bridge))
+    const bridge: Bridge = installBridge(() => reply(bridge))
     await expect(handOffPreparedPurchase(reference, 10)).resolves.toMatchObject({ admitted: true })
   })
 
@@ -70,5 +71,56 @@ describe("native payment bridge", () => {
     expect(parsePreparedPurchaseResponse({ version: 1, operation: "startPreparedPurchase", requestId: "r", payload: { operationReference: "op_1", state: "accepted" } }, "r")).toEqual({ state: "accepted" })
     expect(parsePreparedPurchaseResponse({ version: 1, operation: "startPreparedPurchase", requestId: "r", payload: { operationReference: "op_1", state: "accepted", clientSecret: "secret" } }, "r")).toBeNull()
     expect(parsePreparedPurchaseResponse({ version: 1, operation: "startPreparedPurchase", requestId: "r", payload: { operationReference: "op_1", state: "paid" } }, "r")).toBeNull()
+  })
+
+  it("exposes a read-only diagnostic that sends and correlates only its closed empty-payload request", async () => {
+    installPliNativeBridgeDiagnostic()
+    const postMessage = vi.fn((raw: string) => {
+      const request = JSON.parse(raw)
+      bridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "diagnosticRoundTrip", requestId: request.requestId, payload: { operationReference: "diagnostic_1", state: "accepted" } }) })
+    })
+    const bridge = installBridge(postMessage)
+    const diagnostic = (window as unknown as { pliNativeBridgeDiagnostic: () => Promise<{ success: boolean }> }).pliNativeBridgeDiagnostic
+
+    await expect(diagnostic()).resolves.toEqual({ success: true })
+    expect(Object.getOwnPropertyDescriptor(window, "pliNativeBridgeDiagnostic")?.writable).toBe(false)
+    expect(JSON.parse(postMessage.mock.calls[0][0])).toEqual({ version: 1, operation: "diagnosticRoundTrip", requestId: expect.any(String), payload: {} })
+  })
+
+  it.each([
+    ["mismatched request", (bridge: Bridge) => bridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "diagnosticRoundTrip", requestId: "other", payload: { operationReference: "diagnostic_1", state: "accepted" } }) })],
+    ["malformed response", (bridge: Bridge) => bridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "diagnosticRoundTrip", requestId: "request", payload: {} }) })],
+    ["throw", () => { throw new Error("bridge failure") }],
+  ])("returns coarse failure for a diagnostic %s", async (_name, reply) => {
+    installPliNativeBridgeDiagnostic()
+    const bridge: Bridge = installBridge(() => reply(bridge))
+
+    await expect((window as unknown as { pliNativeBridgeDiagnostic: () => Promise<{ success: boolean }> }).pliNativeBridgeDiagnostic()).resolves.toEqual({ success: false })
+  })
+
+  it("returns coarse failure when the diagnostic reply times out", async () => {
+    vi.useFakeTimers()
+    installPliNativeBridgeDiagnostic()
+    installBridge(() => {})
+    const pending = (window as unknown as { pliNativeBridgeDiagnostic: () => Promise<{ success: boolean }> }).pliNativeBridgeDiagnostic()
+
+    await vi.advanceTimersByTimeAsync(2_000)
+    await expect(pending).resolves.toEqual({ success: false })
+  })
+
+  it("does not replace a non-owned diagnostic global", () => {
+    delete (window as unknown as { pliNativeBridgeDiagnostic?: unknown }).pliNativeBridgeDiagnostic
+    const existing = vi.fn()
+    ;(window as unknown as { pliNativeBridgeDiagnostic?: unknown }).pliNativeBridgeDiagnostic = existing
+
+    expect(installPliNativeBridgeDiagnostic()).toBe(false)
+    expect((window as unknown as { pliNativeBridgeDiagnostic?: unknown }).pliNativeBridgeDiagnostic).toBe(existing)
+  })
+
+  it("does not replace an existing undefined diagnostic property", () => {
+    Object.defineProperty(window, "pliNativeBridgeDiagnostic", { value: undefined, configurable: true })
+
+    expect(installPliNativeBridgeDiagnostic()).toBe(false)
+    expect(Object.getOwnPropertyDescriptor(window, "pliNativeBridgeDiagnostic")?.value).toBeUndefined()
   })
 })
