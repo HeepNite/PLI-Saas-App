@@ -10,8 +10,6 @@ const renderGate = (
     <ProfileQuotePreloadGate
       isProfileQuoteRequired
       isProfileQuoteReady={false}
-      profileQuote={null}
-      profileQuoteLoading={false}
       profileQuoteError={null}
       retryProfileQuote={vi.fn()}
       {...props}
@@ -21,26 +19,17 @@ const renderGate = (
   )
 
 describe("ProfileQuotePreloadGate", () => {
-  it("hides quote-sensitive children while a required quote is unresolved or loading", () => {
+  it("hides quote-sensitive children while a required quote is not ready", () => {
     const unresolved = renderGate()
-    const loading = renderGate({ profileQuoteLoading: true })
 
     expect(unresolved).toContain("Loading price")
-    expect(loading).toContain("Loading price")
     expect(unresolved).not.toContain("Packages local $20")
-    expect(loading).not.toContain("Packages local $20")
-    expect(loading).not.toContain("Updating price")
+    expect(unresolved).not.toContain("Updating price")
   })
 
   it("renders children only when the required quote matches the current request", () => {
-    const stale = renderGate({
-      profileQuote: { amountCents: 1500, currency: "usd" },
-      isProfileQuoteReady: false,
-    })
-    const ready = renderGate({
-      profileQuote: { amountCents: 1500, currency: "usd" },
-      isProfileQuoteReady: true,
-    })
+    const stale = renderGate({ isProfileQuoteReady: false })
+    const ready = renderGate({ isProfileQuoteReady: true })
 
     expect(stale).toContain("Loading price")
     expect(stale).not.toContain("Packages local $20")
