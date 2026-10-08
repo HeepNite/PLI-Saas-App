@@ -35,7 +35,7 @@ type CoursePromotion = {
 | Promotions step | Add/edit/remove rules and explain server-authoritative behavior. |
 | Catalog presentation | Expose only safe public labels for potentially applicable occurrences. |
 | Public booking quote | Only through the dedicated public-booking server route/context, return an `everyone` quote anonymously or resolve exact authenticated identity and entitlement for restricted audiences, without creating payment state. |
-| Profile quote | On `/client-profile`, return separate read-only display state for eligible authenticated users before Continue/payment on selected Drop-in, Summary, and Payment surfaces. Validate authoritative occurrence, profile channel, checkout shape, authenticated Clerk identity/entitlement, and package precedence; submitted contact fields have no eligibility authority. Explicit package selection suppresses the Drop-in quote without changing package option or pricing data. |
+| Profile quote | EnrollModal's existing authenticated request returns separate read-only display state for eligible `/client-profile` users before Continue/payment on selected Drop-in, Summary, and Payment surfaces. Validate authoritative occurrence, profile channel, checkout shape, authenticated Clerk identity/entitlement, and package precedence; submitted contact fields have no eligibility authority. Explicit package selection suppresses the Drop-in quote without changing package option or pricing data. `ProfilePageClient` does not duplicate this quote logic. |
 | Checkout | Derive trusted channel, load course rules, re-resolve identity/entitlement and booking state, compare authorized candidates, then emit the Stripe amount and metadata. |
 
 ## Pricing Flow
@@ -48,8 +48,9 @@ type CoursePromotion = {
 6. Calculate valid promotional candidates from the regular drop-in base.
 7. Compare authorized existing and promotional candidates; choose one lowest price.
 8. For ordinary public booking, after refreshed validation require USD (used as `usd`), a strict real date, valid time, and an authoritative scheduled occurrence; then return this result as a read-only quote. On `/client-profile`, separately return the read-only profile quote as display state before Continue/payment on selected Drop-in, Summary, and Payment surfaces. Neither quote creates a Stripe intent or session, purchase, reservation, or payment state.
-9. When creating a final PaymentIntent or trusted `/api/profile/checkout/session`, repeat steps 2–7 against current authoritative course, date, identity, entitlement, package, and booking-shape state. If any of those change after a quote, the freshly revalidated result wins. Never trust a client quote or amount.
-10. Create Stripe checkout with the freshly chosen amount and server-generated reason metadata.
+9. For a quote-eligible profile Drop-in, open EnrollModal in a modal-level loading state and withhold Packages until its existing quote request resolves. Render the first visible Packages Drop-in and Summary from the authoritative quote; never render `Updating price` in Packages/Summary. Leave date/day tiles unchanged. On quote failure, render a modal-level retry action that reuses the request path, serializes requests, and preserves request-ID stale-result rejection and unmount cleanup. Package, ineligible-profile, public, and kiosk paths bypass this gate and render normally.
+10. When creating a final PaymentIntent or trusted `/api/profile/checkout/session`, repeat steps 2–7 against current authoritative course, date, identity, entitlement, package, and booking-shape state. If any of those change after a quote, the freshly revalidated result wins. Never trust a client quote or amount.
+11. Create Stripe checkout with the freshly chosen amount and server-generated reason metadata.
 
 ## Trust Boundaries
 
