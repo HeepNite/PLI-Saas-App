@@ -491,22 +491,38 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         nativeAttemptRef.current = true
         let nativeHandoffStarted = false
         try {
+          // The context used by native_m2_prepare must be freshly created at final
+          // confirmation; earlier setup can expire while the customer reviews it.
+          const refreshedAccount = await requestAccountPreparation()
+          if (!refreshedAccount) {
+            nativeAttemptRef.current = false
+            setProcessing(false)
+            return
+          }
+
           const token = isSignedIn ? await getToken({ skipCache: true }) : null
           const prepared = await requestCheckoutIntentApi({
             token,
             payload: buildCheckoutPayload({ paymentSurface: "native_m2_prepare" }),
           })
-          if (prepared.res.ok && isPreparedPurchaseResponse(prepared.data)) {
-            nativeHandoffStarted = true
-            const handoff = await handOffPreparedPurchase(prepared.data.preparedPurchaseReference)
-            if (handoff.state === "rejected") setFormError("We couldn't start the payment. Please try again.")
+          if (!prepared.res.ok || !isPreparedPurchaseResponse(prepared.data)) {
+            setFormError("We couldn't prepare native payment. Please try again.")
+            nativeAttemptRef.current = false
+            setProcessing(false)
             return
           }
+
+          nativeHandoffStarted = true
+          const handoff = await handOffPreparedPurchase(prepared.data.preparedPurchaseReference)
+          if (handoff.state === "rejected") setFormError("We couldn't start the payment. Please try again.")
+          return
         } catch {
           if (nativeHandoffStarted) return
-          // Preparation is pre-admission; retain the existing embedded fallback.
+          setFormError("We couldn't prepare native payment. Please try again.")
+          nativeAttemptRef.current = false
+          setProcessing(false)
+          return
         }
-        nativeAttemptRef.current = false
       }
       try {
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
