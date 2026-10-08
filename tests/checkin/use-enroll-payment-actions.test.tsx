@@ -246,7 +246,7 @@ describe("useEnrollPaymentActions", () => {
       expect(setFormError).not.toHaveBeenCalled()
     })
 
-    it("sends prepareOnly:true in the checkout payload", async () => {
+    it("sends ordinary prepareOnly without a native context refresh", async () => {
       const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ account: { hasAvatar: false } }))
       vi.stubGlobal("fetch", fetchMock)
       const { getResult } = await renderHook(defaultInput())
@@ -257,6 +257,7 @@ describe("useEnrollPaymentActions", () => {
       expect(call[0]).toBe("/api/checkout/intent")
       const body = JSON.parse(call[1].body as string)
       expect(body.prepareOnly).toBe(true)
+      expect(body.refreshKioskPreparedContext).toBeUndefined()
     })
 
     it("sets a form error and returns null when account data is missing/invalid", async () => {
@@ -994,7 +995,7 @@ describe("useEnrollPaymentActions", () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string))).toMatchObject([
-        { prepareOnly: true, paymentSurface: "embedded" },
+        { prepareOnly: true, paymentSurface: "embedded", refreshKioskPreparedContext: true, kioskCurrentCourseDuration: 60 },
         { paymentSurface: "native_m2_prepare", amount: 2500, serviceId: "regular" },
       ])
       expect(setProcessing).toHaveBeenCalledWith(true)
@@ -1014,7 +1015,9 @@ describe("useEnrollPaymentActions", () => {
       await getResult().handleSubmit()
 
       expect(fetchMock).toHaveBeenCalledTimes(1)
-      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({ prepareOnly: true, paymentSurface: "embedded" })
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+        prepareOnly: true, paymentSurface: "embedded", refreshKioskPreparedContext: true,
+      })
       expect(postMessage).not.toHaveBeenCalled()
       expect(setFormError).toHaveBeenCalledWith("Account refresh failed")
       expect(setShowStripeModal).not.toHaveBeenCalled()

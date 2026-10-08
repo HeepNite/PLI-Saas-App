@@ -22,6 +22,8 @@ export type CheckoutBody = {
   name?: string
   phone?: string
   prepareOnly?: boolean
+  /** Final native-Confirm-only request to replace the kiosk prepared context. */
+  refreshKioskPreparedContext?: boolean
   /** Closed discriminator for the staff-terminal embedded PaymentElement fallback. */
   paymentSurface?: "embedded"
   photoContext?: string
@@ -47,6 +49,8 @@ export type CheckoutBody = {
   kioskCurrentCourseDate?: string
   /** Authoritative current class time from kiosk context (HH:MM) */
   kioskCurrentCourseTime?: string
+  /** Authoritative current class duration from kiosk context (minutes). */
+  kioskCurrentCourseDuration?: number
 }
 
 export type CheckoutValidation = {
@@ -78,6 +82,7 @@ export type CheckoutValidation = {
   consecutiveLinkedCourseTime: string | null
   kioskCurrentCourseDate: string | null
   kioskCurrentCourseTime: string | null
+  kioskCurrentCourseDuration: number | null
   consecutiveAddOnOnly: boolean
   linkedFromCourseSlug: string | null
   /** Display-only remaining credits for the congrats screen; never gates payment. */
@@ -115,6 +120,9 @@ const normalizeTime24 = (value: unknown): string | null => {
   return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : null
 }
 
+const normalizeDurationMinutes = (value: unknown): number | null =>
+  typeof value === "number" && Number.isInteger(value) && value > 0 && value <= 24 * 60 ? value : null
+
 export { isEmail, normalizePhone }
 
 export const validateCheckoutPayload = async (
@@ -142,6 +150,7 @@ export const validateCheckoutPayload = async (
     packageRemaining,
     kioskCurrentCourseDate,
     kioskCurrentCourseTime,
+    kioskCurrentCourseDuration,
   } = body || {}
 
   const rawAmount = typeof amount === "number" ? amount : Number.NaN
@@ -194,6 +203,7 @@ export const validateCheckoutPayload = async (
   let validatedConsecutiveLinkedCourseTime: string | null = null
   const validatedKioskCurrentCourseDate = normalizeIsoDate(kioskCurrentCourseDate)
   const validatedKioskCurrentCourseTime = normalizeTime24(kioskCurrentCourseTime)
+  const validatedKioskCurrentCourseDuration = normalizeDurationMinutes(kioskCurrentCourseDuration)
 
   if (consecutiveAddOnOnly && hasConsecutive && linkedFromCourseSlug) {
     const { findConsecutiveLinkBetween } = await import("@/lib/course-links")
@@ -266,6 +276,7 @@ export const validateCheckoutPayload = async (
     consecutiveLinkedCourseTime: validatedConsecutiveLinkedCourseTime,
     kioskCurrentCourseDate: validatedKioskCurrentCourseDate,
     kioskCurrentCourseTime: validatedKioskCurrentCourseTime,
+    kioskCurrentCourseDuration: validatedKioskCurrentCourseDuration,
     consecutiveAddOnOnly: Boolean(consecutiveAddOnOnly),
     linkedFromCourseSlug: typeof linkedFromCourseSlug === "string" && linkedFromCourseSlug.trim() ? linkedFromCourseSlug.trim() : null,
     packageRemaining:

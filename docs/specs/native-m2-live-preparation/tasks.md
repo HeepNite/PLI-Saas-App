@@ -78,6 +78,8 @@ All slices are **pending**. This is the sole implementation sequencing source fo
 
 **W3o2c complete (`57f246ed` + `708637b4`):** `KioskWebActivity` attaches the native message host only after exact terminal completion, successful native session capture, and fresh encrypted-session revalidation. Main-frame navigation now invalidates an attached bridge before the replacement document loads; background, session/reader invalidation, destruction, and failed attachment remove or poison ownership before lifecycle forwarding. Resume and late callbacks cannot reattach, while subframes remain untouched. Focused tests pass 14/14 and the full Android suite passes 174/174. Native review `review-5843afd3fc0751be` approved the corrected candidate and acknowledgement burned authority; host-invalidation exceptions skipping the context callback remain a non-blocking follow-up.
 
+**W3p10 in progress:** Final native Confirm now fails closed for an invalid strict boolean kiosk-only refresh intent and reports prepared source after successful replacement. Focused RED/GREEN covers missing/expired replacement, actual exact-slot storage lookup/mismatch rejection, no Purchase/PaymentIntent/provider API call during refresh, strict negatives, and client-only final-Confirm intent. Review, deployment, and device proof remain pending; do not mark this slice complete.
+
 ## 5. Physical and deployment gate
 
 **Scope:** Obtain separate approval and perform any Vercel deployment, APK installation, reader provisioning or operation, and LIVE validation.

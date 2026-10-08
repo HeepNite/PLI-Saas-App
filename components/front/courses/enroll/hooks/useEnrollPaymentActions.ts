@@ -141,6 +141,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       photoFlowContext,
       checkInContextDate,
       checkInContextTime,
+      checkInContextDuration,
       infoStepIndex,
       pkg,
       kioskSessionToken,
@@ -163,11 +164,16 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     return data as NewStudentVerifyResponse
   }, [contact.phone, setFormError])
 
-  const requestAccountPreparation = React.useCallback(async (): Promise<PreparedAccountState | null> => {
+  const requestAccountPreparation = React.useCallback(async (
+    options: { refreshKioskPreparedContext?: boolean } = {}
+  ): Promise<PreparedAccountState | null> => {
     const { res, data } = await requestCheckoutIntentApi({
       payload: buildCheckoutPayload({
         prepareOnly: true,
         ...(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+        ...(options.refreshKioskPreparedContext === true
+          ? { refreshKioskPreparedContext: true, kioskCurrentCourseDuration: checkInContextDuration }
+          : {}),
       }),
     })
     const account = data?.account as PreparedAccountState | undefined
@@ -181,7 +187,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
     setPreparedAccount(account)
     return account
-  }, [buildCheckoutPayload, isKioskTerminalFlow, setFormError, setPreparedAccount])
+  }, [buildCheckoutPayload, checkInContextDuration, isKioskTerminalFlow, setFormError, setPreparedAccount])
 
   const showRegularFallbackPopup = React.useCallback(
     (message?: string) => {
@@ -493,7 +499,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         try {
           // The context used by native_m2_prepare must be freshly created at final
           // confirmation; earlier setup can expire while the customer reviews it.
-          const refreshedAccount = await requestAccountPreparation()
+          const refreshedAccount = await requestAccountPreparation({ refreshKioskPreparedContext: true })
           if (!refreshedAccount) {
             nativeAttemptRef.current = false
             setProcessing(false)
@@ -503,7 +509,10 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
           const token = isSignedIn ? await getToken({ skipCache: true }) : null
           const prepared = await requestCheckoutIntentApi({
             token,
-            payload: buildCheckoutPayload({ paymentSurface: "native_m2_prepare" }),
+            payload: buildCheckoutPayload({
+              paymentSurface: "native_m2_prepare",
+              kioskCurrentCourseDuration: checkInContextDuration,
+            }),
           })
           if (!prepared.res.ok || !isPreparedPurchaseResponse(prepared.data)) {
             setFormError("We couldn't prepare native payment. Please try again.")

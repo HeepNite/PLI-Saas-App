@@ -77,6 +77,12 @@ The response exposes only:
 
 It exposes no Purchase ID, PaymentIntent ID, signed ticket, client secret, provider object, terminal/session identifier, or diagnostics. A digest of the random value is persisted. Repeating the same checkout preparation may replace only an unconsumed, expired capability for the same stable pending purchase; it never creates a second purchase for an unresolved payment.
 
+### W3p10 final-Confirm context refresh
+
+`POST /api/checkout/intent` accepts `refreshKioskPreparedContext` as one optional boolean only. A non-boolean is rejected before checkout validation. The client adds `true` only through `requestAccountPreparation` directly before `native_m2_prepare` when the native bridge is present; earlier preparation, embedded fallback, and QR/mobile never add it.
+
+The request fails closed unless it is `prepareOnly`, exact kiosk-terminal, feature-enabled, has a nonblank kiosk token, and preparation returns terminal authorization. The route resolves that token again under the authorization and binds the created/replaced row to only those returned IDs. Course, service, and total use existing server/catalog validation; displayed date/time/duration are normalized exact-match replay binding, not independent schedule-resolution proof. It immediately reports `{ source: "prepared", preparedContextRefreshed: true }` in the prepare-only response. A following native preparation performs ordinary context lookup. No Purchase, PaymentIntent, Stripe/gateway/provider API call occurs during refresh; the pre-existing module-level Stripe constructor is not a provider API call.
+
 ## Native consumption contract
 
 The native host passes the opaque reference directly to `/api/kiosk/terminal/internal-purchase`; JavaScript does not proxy the response. The endpoint authenticates the current terminal session and atomically consumes an unexpired capability whose terminal/session binding matches the caller.

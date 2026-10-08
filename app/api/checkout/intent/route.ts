@@ -11,6 +11,8 @@ import {
 import { validateCheckoutPayload, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
+import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled } from "@/lib/checkout/prepared-context"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
 import { createOrReuseNativePreparedPurchase } from "@/lib/checkout/native-prepared-purchase"
 import { issuePreparedNativePurchase } from "@/lib/stripe/prepared-native-purchase"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -152,6 +154,22 @@ export async function POST(req: Request) {
   if (rawPaymentSurface !== undefined && rawPaymentSurface !== "embedded" && rawPaymentSurface !== "native_m2_prepare") {
     return NextResponse.json({ error: "Invalid payment surface" }, { status: 400 })
   }
+  const rawRefreshKioskPreparedContext = body.refreshKioskPreparedContext
+  if (rawRefreshKioskPreparedContext !== undefined && typeof rawRefreshKioskPreparedContext !== "boolean") {
+    return NextResponse.json({ error: "Invalid prepared context refresh intent" }, { status: 400 })
+  }
+  const refreshKioskPreparedContext = rawRefreshKioskPreparedContext === true
+  if (refreshKioskPreparedContext) {
+    if (body.prepareOnly !== true || body.photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL) {
+      return NextResponse.json({ error: "Prepared context refresh requires kiosk prepare-only checkout" }, { status: 400 })
+    }
+    if (!isPreparedCheckoutContextEnabled()) {
+      return NextResponse.json({ error: "Prepared context refresh unavailable" }, { status: 409 })
+    }
+    if (typeof body.kioskSessionToken !== "string" || body.kioskSessionToken.trim().length === 0) {
+      return NextResponse.json({ error: "Kiosk session required for prepared context refresh" }, { status: 400 })
+    }
+  }
   const isEmbeddedPaymentSurface = rawPaymentSurface === "embedded"
   const isNativeM2Preparation = rawPaymentSurface === "native_m2_prepare"
   if (isNativeM2Preparation && (body as { prepareOnly?: unknown }).prepareOnly === true) {
@@ -177,6 +195,12 @@ export async function POST(req: Request) {
     photoContext,
     validation,
   })
+  const preparedContextValidation = {
+    ...validation,
+    date: effectiveSession.date ?? validation.date,
+    time: effectiveSession.time ?? validation.time,
+    durationMinutes: validation.kioskCurrentCourseDuration,
+  }
 
   const preparation = await resolveCheckoutPreparation(
     req,
@@ -198,15 +222,41 @@ export async function POST(req: Request) {
       // work for truly new students. The staff-session isolation guard in lib/checkout.ts
       // ensures the new user uses the STUDENT's identity, not the staff's.
       deferUserCreation: false,
-      validation,
+      validation: preparedContextValidation,
     }
   )
   if (isApiError(preparation)) {
     return toErrorResponse(preparation)
   }
 
-  const { preparedAccount, verification, source, fallbackReason, terminalAuth, preparedContextId } = preparation
+  const { preparedAccount, verification, terminalAuth, preparedContextId } = preparation
+  let { source, fallbackReason } = preparation
   const { clerkUser, resolvedUserId, identity, account, userId } = preparedAccount
+  let preparedContextRefreshed = false
+
+  if (refreshKioskPreparedContext) {
+    if (!terminalAuth?.ok) {
+      return NextResponse.json({ error: "Terminal session required for prepared context refresh" }, { status: 401 })
+    }
+    const kioskSession = await resolveTerminalKioskSession(kioskSessionToken, {
+      terminalAuth,
+      touch: false,
+    })
+    if (!kioskSession.ok) {
+      return NextResponse.json({ error: kioskSession.error }, { status: kioskSession.status })
+    }
+
+    await createPreparedCheckoutContext({
+      terminalId: terminalAuth.terminal.id,
+      kioskSessionId: kioskSession.session.id,
+      validation: preparedContextValidation,
+      preparedAccount,
+      verification,
+    })
+    source = "prepared"
+    fallbackReason = undefined
+    preparedContextRefreshed = true
+  }
 
   if (prepareOnly) {
     console.info("[staff-terminal-checkout-latency] checkout-intent", {
@@ -219,6 +269,7 @@ export async function POST(req: Request) {
       ok: true,
       prepareOnly: true,
       account,
+      ...(preparedContextRefreshed ? { source, preparedContextRefreshed: true } : {}),
     })
   }
 
