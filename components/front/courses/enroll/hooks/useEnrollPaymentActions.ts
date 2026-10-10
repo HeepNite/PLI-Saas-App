@@ -151,6 +151,23 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     ]
   )
 
+  React.useEffect(() => {
+    const target = window as typeof window & { pliNativeAttemptState?: unknown }
+    if (!isKioskTerminalFlow || "pliNativeAttemptState" in target) return
+    const unresolved = { state: "payment_unresolved" as const }
+    const reader = async () => {
+      try {
+        const response = await fetch("/api/checkout/native-attempt-state", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(buildCheckoutPayload({ kioskCurrentCourseDuration: checkInContextDuration })) })
+        const value: unknown = await response.json()
+        if (!response.ok || !value || typeof value !== "object" || Array.isArray(value)) return unresolved
+        const record = value as Record<string, unknown>
+        return Object.keys(record).length === 1 && typeof record.state === "string" && ["absent", "pending_without_payment", "payment_unresolved", "paid", "rejected"].includes(record.state) ? { state: record.state as typeof unresolved.state } : unresolved
+      } catch { return unresolved }
+    }
+    target.pliNativeAttemptState = reader
+    return () => { if (target.pliNativeAttemptState === reader) delete target.pliNativeAttemptState }
+  }, [buildCheckoutPayload, checkInContextDuration, isKioskTerminalFlow])
+
   const requestNewStudentOutcome = React.useCallback(async (): Promise<NewStudentVerifyResponse | null> => {
     const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
     if (!res.ok || !data || typeof data.outcome !== "string") {

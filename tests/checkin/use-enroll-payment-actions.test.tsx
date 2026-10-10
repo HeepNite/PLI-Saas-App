@@ -108,6 +108,7 @@ describe("useEnrollPaymentActions", () => {
     root = null
     container = null
     result = null
+    delete (window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState
     vi.unstubAllGlobals()
     vi.useRealTimers()
   })
@@ -1112,6 +1113,47 @@ describe("useEnrollPaymentActions", () => {
       expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(setProcessing).not.toHaveBeenLastCalledWith(false)
       if (mode === "rejected") expect(setFormError).toHaveBeenCalledWith("We couldn't start the payment. Please try again.")
+    })
+  })
+
+  describe("native attempt-state global", () => {
+    it("installs an input-free kiosk-only closed-state reader without payment side effects", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ state: "pending_without_payment" }))
+      const postMessage = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+      ;(window as unknown as { pliNativeBridge?: { postMessage: (message: string) => void } }).pliNativeBridge = { postMessage }
+      await renderHook(defaultInput({ isKioskTerminalFlow: true, kioskSessionToken: "kiosk-token" }))
+      const reader = (window as unknown as { pliNativeAttemptState?: () => Promise<unknown> }).pliNativeAttemptState
+      expect(reader).toBeTypeOf("function")
+      await expect(reader!()).resolves.toEqual({ state: "pending_without_payment" })
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/native-attempt-state", expect.objectContaining({ method: "POST", credentials: "include" }))
+      const [, init] = fetchMock.mock.calls[0]!
+      expect(JSON.parse(init.body as string)).toMatchObject({ kioskSessionToken: "kiosk-token" })
+      expect(postMessage).not.toHaveBeenCalled()
+    })
+
+    it("returns only PAYMENT_UNRESOLVED for malformed or failed responses", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ state: "paid", extra: true })))
+      await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+      const reader = (window as unknown as { pliNativeAttemptState: () => Promise<unknown> }).pliNativeAttemptState
+      await expect(reader()).resolves.toEqual({ state: "payment_unresolved" })
+    })
+
+    it("does not install outside kiosk flow, does not clobber, and cleans up its own global", async () => {
+      await renderHook(defaultInput())
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBeUndefined()
+      const existing = () => Promise.resolve({ state: "paid" })
+      ;(window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState = existing
+      await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBe(existing)
+      delete (window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState
+      await act(async () => root?.unmount())
+      root = null
+      await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBeTypeOf("function")
+      await act(async () => root?.unmount())
+      root = null
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBeUndefined()
     })
   })
 })

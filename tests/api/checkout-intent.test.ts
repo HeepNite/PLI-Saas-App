@@ -11,6 +11,8 @@ const mockIssuePreparedNativePurchase = vi.fn()
 const mockCreatePreparedCheckoutContext = vi.fn()
 const mockIsPreparedCheckoutContextEnabled = vi.fn()
 const mockResolveTerminalKioskSession = vi.fn()
+class MockNativePreparedPurchaseError extends Error {}
+class MockPreparedNativePurchaseError extends Error {}
 
 const ENV_KEYS = [
   "NEST_GATEWAY_ENABLED",
@@ -57,10 +59,12 @@ vi.mock("@/lib/checkout/validation", () => ({
 }))
 
 vi.mock("@/lib/checkout/native-prepared-purchase", () => ({
+  NativePreparedPurchaseError: MockNativePreparedPurchaseError,
   createOrReuseNativePreparedPurchase: (...args: unknown[]) => mockCreateOrReuseNativePreparedPurchase(...args),
 }))
 
 vi.mock("@/lib/stripe/prepared-native-purchase", () => ({
+  PreparedNativePurchaseError: MockPreparedNativePurchaseError,
   issuePreparedNativePurchase: (...args: unknown[]) => mockIssuePreparedNativePurchase(...args),
 }))
 
@@ -707,6 +711,25 @@ describe("checkout intent route", () => {
 
     consoleInfo.mockRestore()
     dateNow.mockRestore()
+  })
+
+  it.each([
+    ["precondition_failure", () => mockResolveCheckoutPreparation.mockResolvedValueOnce({ source: "fallback", terminalAuth: null, verification: { hasVerifiedPhone: true }, preparedAccount: { userId: "user_123", clerkUser: null, resolvedUserId: "user_123", identity: { resolvedEmail: "test@example.com", phoneNormalized: "9293876584" }, account: {} } })],
+    ["purchase_mismatch", () => mockCreateOrReuseNativePreparedPurchase.mockRejectedValueOnce(new MockNativePreparedPurchaseError("secret purchase"))],
+    ["purchase_persistence_failure", () => mockCreateOrReuseNativePreparedPurchase.mockRejectedValueOnce(new Error("secret purchase"))],
+    ["prepared_reference_unavailable", () => mockIssuePreparedNativePurchase.mockRejectedValueOnce(new MockPreparedNativePurchaseError("secret reference"))],
+    ["prepared_reference_persistence_failure", () => mockIssuePreparedNativePurchase.mockRejectedValueOnce(new Error("secret reference"))],
+  ])("keeps native preparation responses generic while logging only allowlisted %s", async (reasonCode, arrange) => {
+    arrange()
+    const log = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const response = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", photoContext: "kiosk_terminal" }))
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: "Native preparation unavailable" })
+    const event = log.mock.calls.find(([eventName]) => eventName === "[native-m2-prepare]")
+    expect(event).toEqual(["[native-m2-prepare]", { outcome: "rejected", reasonCode }])
+    expect(JSON.stringify(event)).not.toMatch(/secret|purchase_1|prepared-reference|terminal_session_1/i)
+    log.mockRestore()
   })
 
   it("does not clear prepared context when delegated checkout falls back locally and Stripe is not configured", async () => {

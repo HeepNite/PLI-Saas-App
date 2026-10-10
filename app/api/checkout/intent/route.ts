@@ -13,8 +13,8 @@ import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled } from "@/lib/checkout/prepared-context"
 import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
-import { createOrReuseNativePreparedPurchase } from "@/lib/checkout/native-prepared-purchase"
-import { issuePreparedNativePurchase } from "@/lib/stripe/prepared-native-purchase"
+import { createOrReuseNativePreparedPurchase, NativePreparedPurchaseError } from "@/lib/checkout/native-prepared-purchase"
+import { issuePreparedNativePurchase, PreparedNativePurchaseError } from "@/lib/stripe/prepared-native-purchase"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 
@@ -31,6 +31,7 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 const UNKNOWN_PAYMENT_INTENT_ERROR = "Payment intent status is unknown. Verify the terminal payment before retrying."
+const logNativePreparation = (outcome: "prepared" | "rejected", reasonCode: "success" | "precondition_failure" | "purchase_mismatch" | "purchase_persistence_failure" | "prepared_reference_unavailable" | "prepared_reference_persistence_failure") => console.info("[native-m2-prepare]", { outcome, reasonCode })
 
 type EffectiveSession = {
   date: string | null
@@ -308,38 +309,28 @@ export async function POST(req: Request) {
       !terminalAuth.terminal.id ||
       !terminalAuth.sessionId
     ) {
+      logNativePreparation("rejected", "precondition_failure")
       return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
     }
 
+    let purchase: { id: string }
     try {
-      const purchase = await createOrReuseNativePreparedPurchase({
+      purchase = await createOrReuseNativePreparedPurchase({
         preparedContextId,
-        recipient: {
-          userId,
-          email: identity.resolvedEmail,
-          name: name || [firstName, lastName].filter(Boolean).join(" ") || null,
-          phone: identity.phoneNormalized || null,
-        },
-        selection: {
-          courseSlug: validation.courseSlug,
-          courseTitle: validation.courseTitle,
-          amount: validation.amountInt,
-          currency: validation.currency,
-          packageId: validation.packageId,
-          serviceId: validation.serviceId,
-          addons: validation.addons,
-          participants: validation.safeParticipants,
-          coupon: validation.coupon,
-        },
+        recipient: { userId, email: identity.resolvedEmail, name: name || [firstName, lastName].filter(Boolean).join(" ") || null, phone: identity.phoneNormalized || null },
+        selection: { courseSlug: validation.courseSlug, courseTitle: validation.courseTitle, amount: validation.amountInt, currency: validation.currency, packageId: validation.packageId, serviceId: validation.serviceId, addons: validation.addons, participants: validation.safeParticipants, coupon: validation.coupon },
         fulfillmentMetadata: metadata,
       })
-      const preparedPurchaseReference = await issuePreparedNativePurchase({
-        purchaseId: purchase.id,
-        terminalId: terminalAuth.terminal.id,
-        sessionId: terminalAuth.sessionId,
-      })
+    } catch (error) {
+      logNativePreparation("rejected", error instanceof NativePreparedPurchaseError ? "purchase_mismatch" : "purchase_persistence_failure")
+      return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
+    }
+    try {
+      const preparedPurchaseReference = await issuePreparedNativePurchase({ purchaseId: purchase.id, terminalId: terminalAuth.terminal.id, sessionId: terminalAuth.sessionId })
+      logNativePreparation("prepared", "success")
       return NextResponse.json({ preparedPurchaseReference, state: "prepared" })
-    } catch {
+    } catch (error) {
+      logNativePreparation("rejected", error instanceof PreparedNativePurchaseError ? "prepared_reference_unavailable" : "prepared_reference_persistence_failure")
       return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
     }
   }
