@@ -27,6 +27,86 @@ describe("EmbeddedSignIn resend cooldown", () => {
     vi.restoreAllMocks()
   })
 
+  it("starts email-code access with the submitted email", async () => {
+    vi.useFakeTimers()
+    const preparedSignIn = {
+      supportedFirstFactors: [
+        { strategy: "email_code", emailAddressId: "email_1", safeIdentifier: "e***@example.com" },
+      ],
+      prepareFirstFactor: vi.fn().mockResolvedValue(undefined),
+    }
+    const signIn = {
+      identifier: null,
+      status: null,
+      supportedFirstFactors: [],
+      create: vi.fn().mockResolvedValue(preparedSignIn),
+      prepareFirstFactor: vi.fn().mockResolvedValue(undefined),
+      attemptFirstFactor: vi.fn(),
+    }
+    useSignInMock.mockReturnValue({
+      isLoaded: true,
+      signIn,
+      setActive: vi.fn(),
+    })
+
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root!.render(
+        <EmbeddedSignIn
+          redirectUrl="/client-profile"
+          emailAddress="existing@example.com"
+          initialStrategy="email_code"
+          autoSend
+        />
+      )
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(100))
+
+    expect(signIn.create).toHaveBeenCalledWith({
+      strategy: "email_code",
+      identifier: "existing@example.com",
+    })
+    expect(preparedSignIn.prepareFirstFactor).toHaveBeenCalledWith({
+      strategy: "email_code",
+      emailAddressId: "email_1",
+    })
+    expect(container.textContent).toContain("e***@example.com")
+  })
+
+  it("does not retry Clerk's deterministic identifier-not-found error", async () => {
+    vi.useFakeTimers()
+    const signIn = {
+      identifier: null,
+      status: null,
+      supportedFirstFactors: [],
+      create: vi.fn().mockRejectedValue({
+        errors: [{ code: "form_identifier_not_found", longMessage: "Couldn't find your account." }],
+      }),
+      prepareFirstFactor: vi.fn(),
+      attemptFirstFactor: vi.fn(),
+    }
+    useSignInMock.mockReturnValue({
+      isLoaded: true,
+      signIn,
+      setActive: vi.fn(),
+    })
+
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root!.render(<EmbeddedSignIn redirectUrl="/client-profile" phoneNumber="+15555550140" autoSend />)
+    })
+    await act(async () => vi.advanceTimersByTimeAsync(10_100))
+
+    expect(signIn.create).toHaveBeenCalledTimes(1)
+    expect(container.textContent).toContain("Check the phone number or contact staff for help.")
+  })
+
   it("counts down every second before enabling resend", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-25T12:00:00.000Z"))
