@@ -79,6 +79,12 @@ const getClerkErrorMessage = (err: unknown) => {
   )
 }
 
+const getClerkErrorCode = (err: unknown) => {
+  if (!err || typeof err !== "object" || !("errors" in err)) return null
+  const code = (err as { errors?: Array<{ code?: unknown }> }).errors?.[0]?.code
+  return typeof code === "string" ? code : null
+}
+
 // ─── Reducer ──────────────────────────────────────────────────────────────────
 
 interface SignInState {
@@ -115,6 +121,7 @@ type SignInAction =
         phoneNumberId: string
         emailAddressId: string
         emailSafeIdentifier: string
+        verificationStrategy: VerificationStrategy
       }
     }
   | { type: "RESET_TO_PHONE_STEP" }
@@ -155,7 +162,7 @@ function signInReducer(state: SignInState, action: SignInAction): SignInState {
         phoneNumberId: action.payload.phoneNumberId,
         emailAddressId: action.payload.emailAddressId,
         emailSafeIdentifier: action.payload.emailSafeIdentifier,
-        verificationStrategy: "phone_code",
+        verificationStrategy: action.payload.verificationStrategy,
         code: "",
         step: "code",
       }
@@ -181,6 +188,8 @@ function signInReducer(state: SignInState, action: SignInAction): SignInState {
 export default function EmbeddedSignIn({
   redirectUrl,
   phoneNumber,
+  emailAddress,
+  initialStrategy = "phone_code",
   onSuccessAction,
   onSessionCreated,
   onCodeSent,
@@ -192,6 +201,8 @@ export default function EmbeddedSignIn({
 }: {
   redirectUrl: string
   phoneNumber?: string
+  emailAddress?: string
+  initialStrategy?: VerificationStrategy
   onSuccessAction?: () => void | Promise<void>
   onSessionCreated?: (sessionId: string) => void | Promise<void>
   onCodeSent?: () => void
@@ -216,7 +227,7 @@ export default function EmbeddedSignIn({
     phoneNumberId: "",
     emailAddressId: "",
     emailSafeIdentifier: "",
-    verificationStrategy: "phone_code",
+    verificationStrategy: initialStrategy,
     activeField: INITIAL_KIOSK_NUMERIC_FIELD,
   }))
   const [resendCountdownNow, setResendCountdownNow] = React.useState(() => Date.now())
@@ -263,6 +274,8 @@ export default function EmbeddedSignIn({
   }, [resendAvailableAt])
 
   const normalizedPhone = React.useMemo(() => toE164Phone(phone), [phone])
+  const normalizedEmail = React.useMemo(() => emailAddress?.trim().toLowerCase() || "", [emailAddress])
+  const isEmailSignIn = initialStrategy === "email_code"
   const resendSecondsRemaining = Math.max(
     0,
     Math.ceil((resendAvailableAt - Math.max(resendCountdownNow, Date.now())) / 1_000)
@@ -283,19 +296,21 @@ export default function EmbeddedSignIn({
 
   const moveToCodeStepFromCurrentAttempt = React.useCallback(() => {
     if (!signIn) return false
-    const factor = getPhoneCodeFactor(signIn.supportedFirstFactors)
+    const phoneFactor = getPhoneCodeFactor(signIn.supportedFirstFactors)
     const emailFactor = getEmailCodeFactor(signIn.supportedFirstFactors)
-    if (!factor?.phoneNumberId) return false
+    if (isEmailSignIn && !emailFactor?.emailAddressId) return false
+    if (!isEmailSignIn && !phoneFactor?.phoneNumberId) return false
     dispatch({
       type: "MOVE_TO_CODE_STEP",
       payload: {
-        phoneNumberId: factor.phoneNumberId,
+        phoneNumberId: phoneFactor?.phoneNumberId || "",
         emailAddressId: emailFactor?.emailAddressId || "",
-        emailSafeIdentifier: emailFactor?.safeIdentifier || "",
+        emailSafeIdentifier: emailFactor?.safeIdentifier || normalizedEmail,
+        verificationStrategy: isEmailSignIn ? "email_code" : "phone_code",
       },
     })
     return true
-  }, [signIn])
+  }, [isEmailSignIn, normalizedEmail, signIn])
 
   const resetToPhoneStep = React.useCallback(() => {
     dispatch({ type: "RESET_TO_PHONE_STEP" })
@@ -313,15 +328,21 @@ export default function EmbeddedSignIn({
 
   // Effect 4: Resume an in-progress sign-in attempt on Clerk re-mount
   React.useEffect(() => {
-    if (!isLoaded || !signIn || step === "code" || !normalizedPhone) return
+    const identifier = isEmailSignIn ? normalizedEmail : normalizedPhone
+    if (!isLoaded || !signIn || step === "code" || !identifier) return
     if (signIn.status !== "needs_first_factor") return
-    if (signIn.identifier !== normalizedPhone) return
+    if (signIn.identifier !== identifier) return
     moveToCodeStepFromCurrentAttempt()
-  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, signIn, step])
+  }, [isEmailSignIn, isLoaded, moveToCodeStepFromCurrentAttempt, normalizedEmail, normalizedPhone, signIn, step])
 
   const sendCode = React.useCallback(async () => {
-    if (!normalizedPhone || !isCompleteUSPhone(phone)) {
+    const identifier = isEmailSignIn ? normalizedEmail : normalizedPhone
+    if (!isEmailSignIn && (!normalizedPhone || !isCompleteUSPhone(phone))) {
       dispatch({ type: "SET_ERROR", payload: "Enter a valid US phone number." })
+      return
+    }
+    if (!identifier) {
+      dispatch({ type: "SET_ERROR", payload: "Enter a valid email address." })
       return
     }
     if (!isLoaded || !signIn) {
@@ -331,28 +352,36 @@ export default function EmbeddedSignIn({
 
     dispatch({ type: "SET_BUSY", payload: true })
     dispatch({ type: "SET_ERROR", payload: null })
-    dispatch({ type: "SET_NOTICE", payload: "Sending SMS code..." })
+    dispatch({ type: "SET_NOTICE", payload: isEmailSignIn ? "Sending email code..." : "Sending SMS code..." })
     try {
       if (
-        signIn.identifier === normalizedPhone &&
+        signIn.identifier === identifier &&
         signIn.status === "needs_first_factor" &&
         moveToCodeStepFromCurrentAttempt()
       ) {
         return
       }
 
-      // Retry loop: newly created Clerk accounts may take a moment to propagate.
+      // A just-created phone account can briefly lag in Clerk. Explicit
+      // identifier-not-found responses are deterministic and must not retry.
       let created = null as Awaited<ReturnType<typeof signIn.create>> | null
       for (let attempt = 0; attempt <= SIGN_IN_MAX_RETRIES; attempt++) {
         try {
           created = await signIn.create({
-            strategy: "phone_code",
-            identifier: normalizedPhone,
+            strategy: isEmailSignIn ? "email_code" : "phone_code",
+            identifier,
           })
           break
         } catch (retryErr) {
           const retryMsg = getClerkErrorMessage(retryErr)
-          if (retryMsg && NOT_FOUND_RE.test(retryMsg) && attempt < SIGN_IN_MAX_RETRIES) {
+          const retryCode = getClerkErrorCode(retryErr)
+          if (
+            !isEmailSignIn &&
+            retryCode !== "form_identifier_not_found" &&
+            retryMsg &&
+            NOT_FOUND_RE.test(retryMsg) &&
+            attempt < SIGN_IN_MAX_RETRIES
+          ) {
             dispatch({ type: "SET_NOTICE", payload: "Setting up your account…" })
             await new Promise((r) => setTimeout(r, SIGN_IN_RETRY_DELAY_MS))
             continue
@@ -366,31 +395,52 @@ export default function EmbeddedSignIn({
         return
       }
 
-      const factor = getPhoneCodeFactor(created.supportedFirstFactors)
+      const phoneFactor = getPhoneCodeFactor(created.supportedFirstFactors)
       const emailFactor = getEmailCodeFactor(created.supportedFirstFactors)
-      if (!factor?.phoneNumberId) {
+      if (isEmailSignIn && !emailFactor?.emailAddressId) {
+        dispatch({ type: "SET_ERROR", payload: "We couldn't prepare email sign-in." })
+        return
+      }
+      if (!isEmailSignIn && !phoneFactor?.phoneNumberId) {
         dispatch({ type: "SET_ERROR", payload: "We couldn't prepare phone sign-in." })
         return
       }
 
-      await created.prepareFirstFactor({
-        strategy: "phone_code",
-        phoneNumberId: factor.phoneNumberId,
-      })
+      if (isEmailSignIn) {
+        await created.prepareFirstFactor({ strategy: "email_code", emailAddressId: emailFactor!.emailAddressId })
+      } else {
+        await created.prepareFirstFactor({ strategy: "phone_code", phoneNumberId: phoneFactor!.phoneNumberId })
+      }
 
       dispatch({
         type: "MOVE_TO_CODE_STEP",
         payload: {
-          phoneNumberId: factor.phoneNumberId,
+          phoneNumberId: phoneFactor?.phoneNumberId || "",
           emailAddressId: emailFactor?.emailAddressId || "",
-          emailSafeIdentifier: emailFactor?.safeIdentifier || "",
+          emailSafeIdentifier: emailFactor?.safeIdentifier || normalizedEmail,
+          verificationStrategy: isEmailSignIn ? "email_code" : "phone_code",
         },
       })
       startCodeCooldown()
-      dispatch({ type: "SET_NOTICE", payload: `We sent a code to ${formatUSPhone(phone)}.` })
+      dispatch({
+        type: "SET_NOTICE",
+        payload: isEmailSignIn
+          ? `We sent a code to ${emailFactor?.safeIdentifier || normalizedEmail}.`
+          : `We sent a code to ${formatUSPhone(phone)}.`,
+      })
       onCodeSent?.()
     } catch (err) {
       const message = getClerkErrorMessage(err)
+      const errorCode = getClerkErrorCode(err)
+      if (errorCode === "form_identifier_not_found") {
+        dispatch({
+          type: "SET_ERROR",
+          payload: isEmailSignIn
+            ? "We couldn't find an account for this email. Check the email address or contact staff for help."
+            : "We couldn't find an account for this phone number. Check the phone number or contact staff for help.",
+        })
+        return
+      }
       if (moveToCodeStepFromCurrentAttempt() || (message && PHONE_CODE_RATE_LIMIT_RE.test(message))) {
         dispatch({ type: "SET_STEP", payload: "code" })
         startCodeCooldown()
@@ -402,14 +452,14 @@ export default function EmbeddedSignIn({
         dispatch({ type: "SET_ERROR", payload: "An active session was detected. Please close this modal and try again, or contact staff for help." })
         return
       }
-      dispatch({ type: "SET_ERROR", payload: "We couldn't send the code to your phone." })
+      dispatch({ type: "SET_ERROR", payload: isEmailSignIn ? "We couldn't send the code to your email." : "We couldn't send the code to your phone." })
     } finally {
       dispatch({ type: "SET_BUSY", payload: false })
     }
-  }, [isLoaded, moveToCodeStepFromCurrentAttempt, normalizedPhone, onCodeSent, phone, signIn, startCodeCooldown])
+  }, [isEmailSignIn, isLoaded, moveToCodeStepFromCurrentAttempt, normalizedEmail, normalizedPhone, onCodeSent, phone, signIn, startCodeCooldown])
 
-  // Effect 5: Auto-send SMS code on mount when autoSend is enabled and phone is valid
-  // Small delay ensures Clerk is fully initialized before attempting to send
+  // Effect 5: Auto-send the preselected access method when it is valid.
+  // Small delay ensures Clerk is fully initialized before attempting to send.
   React.useEffect(() => {
     if (
       autoSend &&
@@ -417,8 +467,7 @@ export default function EmbeddedSignIn({
       isLoaded &&
       signIn &&
       step === "phone" &&
-      normalizedPhone &&
-      isCompleteUSPhone(phone)
+      (isEmailSignIn ? Boolean(normalizedEmail) : Boolean(normalizedPhone && isCompleteUSPhone(phone)))
     ) {
       autoSendTriggeredRef.current = true
       // Small delay to ensure Clerk's internal state is ready
@@ -427,7 +476,7 @@ export default function EmbeddedSignIn({
       }, 100)
       return () => clearTimeout(timer)
     }
-  }, [autoSend, isLoaded, signIn, step, normalizedPhone, phone, sendCode])
+  }, [autoSend, isEmailSignIn, isLoaded, normalizedEmail, signIn, step, normalizedPhone, phone, sendCode])
 
   const verifyCode = React.useCallback(async () => {
     if (!isLoaded || !signIn || !setActive) {
@@ -566,61 +615,67 @@ export default function EmbeddedSignIn({
       {step === "phone" ? (
         <div className="space-y-3">
           <div className="pr-16">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand,#c71818)]">Phone access</p>
-            <p className="mt-1 text-xs text-white/82">We&apos;ll text you a verification code.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand,#c71818)]">{isEmailSignIn ? "Email access" : "Phone access"}</p>
+            <p className="mt-1 text-xs text-white/82">{isEmailSignIn ? "We&apos;ll email you a verification code." : "We&apos;ll text you a verification code."}</p>
           </div>
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-white/85">Phone</span>
-            <div className="relative">
-              <input
-                type={PHONE_INPUT_ATTRIBUTES.type}
-                value={phone}
-                onChange={(event) => {
-                  dispatch({ type: "SET_PHONE", payload: formatUSPhone(event.target.value) })
-                  dispatch({ type: "SET_ERROR", payload: null })
-                }}
-                onFocus={() => {
-                  if (useNumericKeypad) dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
-                }}
-                onClick={() => {
-                  if (useNumericKeypad) dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
-                }}
-                readOnly={useNumericKeypad}
-                inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
-                autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
-                enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
-                pattern={PHONE_INPUT_ATTRIBUTES.pattern}
-                placeholder="+1 (929) 387-6584"
-                className={`h-10 w-full rounded-lg border bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition ${
-                  useNumericKeypad && activeField === "phone"
-                    ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
-                    : "border-white/12 focus:border-[var(--brand,#c71818)]"
-                }`}
-              />
-              {renderCursorHint("phone")}
-            </div>
-          </label>
-          {useNumericKeypad && (
-            <KioskNumericKeypad
-              disabled={busy}
-              onDigit={(digit) => {
-                dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
-                dispatch({ type: "SET_PHONE", payload: (prev) => appendPhoneDigit(prev, digit) })
-                dispatch({ type: "SET_ERROR", payload: null })
-              }}
-              onBackspace={() => {
-                dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
-                dispatch({ type: "SET_PHONE", payload: (prev) => removePhoneDigit(prev) })
-                dispatch({ type: "SET_ERROR", payload: null })
-              }}
-              onClear={() => {
-                dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
-                dispatch({ type: "SET_PHONE", payload: clearPhoneDigits() })
-                dispatch({ type: "SET_ERROR", payload: null })
-              }}
-              size="compact"
-              className="p-3"
-            />
+          {isEmailSignIn ? (
+            <p className="rounded-lg border border-white/12 bg-white/[0.03] px-3 py-2.5 text-sm text-white/85">{normalizedEmail}</p>
+          ) : (
+            <>
+              <label className="block space-y-1.5">
+                <span className="text-xs font-medium text-white/85">Phone</span>
+                <div className="relative">
+                  <input
+                    type={PHONE_INPUT_ATTRIBUTES.type}
+                    value={phone}
+                    onChange={(event) => {
+                      dispatch({ type: "SET_PHONE", payload: formatUSPhone(event.target.value) })
+                      dispatch({ type: "SET_ERROR", payload: null })
+                    }}
+                    onFocus={() => {
+                      if (useNumericKeypad) dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
+                    }}
+                    onClick={() => {
+                      if (useNumericKeypad) dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
+                    }}
+                    readOnly={useNumericKeypad}
+                    inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
+                    autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
+                    enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
+                    pattern={PHONE_INPUT_ATTRIBUTES.pattern}
+                    placeholder="+1 (929) 387-6584"
+                    className={`h-10 w-full rounded-lg border bg-white/[0.03] px-3 text-sm text-white placeholder:text-white/40 outline-none transition ${
+                      useNumericKeypad && activeField === "phone"
+                        ? "border-[var(--brand,#ff7a7a)] ring-2 ring-[rgba(255,122,122,0.2)]"
+                        : "border-white/12 focus:border-[var(--brand,#c71818)]"
+                    }`}
+                  />
+                  {renderCursorHint("phone")}
+                </div>
+              </label>
+              {useNumericKeypad && (
+                <KioskNumericKeypad
+                  disabled={busy}
+                  onDigit={(digit) => {
+                    dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
+                    dispatch({ type: "SET_PHONE", payload: (prev) => appendPhoneDigit(prev, digit) })
+                    dispatch({ type: "SET_ERROR", payload: null })
+                  }}
+                  onBackspace={() => {
+                    dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
+                    dispatch({ type: "SET_PHONE", payload: (prev) => removePhoneDigit(prev) })
+                    dispatch({ type: "SET_ERROR", payload: null })
+                  }}
+                  onClear={() => {
+                    dispatch({ type: "SET_ACTIVE_FIELD", payload: selectKioskNumericField("phone") })
+                    dispatch({ type: "SET_PHONE", payload: clearPhoneDigits() })
+                    dispatch({ type: "SET_ERROR", payload: null })
+                  }}
+                  size="compact"
+                  className="p-3"
+                />
+              )}
+            </>
           )}
           {error && <p className="text-xs text-red-200">{error}</p>}
           <button
@@ -630,7 +685,7 @@ export default function EmbeddedSignIn({
             className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-[var(--brand,#c71818)] px-4 text-sm font-semibold text-white shadow-[0_10px_30px_-14px_rgba(182,22,22,0.75)] transition hover:bg-[#d91b1b] disabled:opacity-60"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Send code
+            {isEmailSignIn ? "Send email code" : "Send code"}
           </button>
         </div>
       ) : (
@@ -706,13 +761,15 @@ export default function EmbeddedSignIn({
             </button>
           )}
           <div className="flex items-center justify-between gap-3 text-xs">
-            <button
-              type="button"
-              onClick={resetToPhoneStep}
-              className="text-white/65 underline decoration-white/20 underline-offset-4"
-            >
-              Change number
-            </button>
+            {!isEmailSignIn && (
+              <button
+                type="button"
+                onClick={resetToPhoneStep}
+                className="text-white/65 underline decoration-white/20 underline-offset-4"
+              >
+                Change number
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void resendCode()}
