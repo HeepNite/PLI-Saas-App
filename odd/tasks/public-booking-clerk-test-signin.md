@@ -38,6 +38,13 @@ origin/codex/develop
    └─ Slice 2: 21713fa7 — public-booking identifier routing (current)
 ```
 
+## Delivery Tasks
+
+- [x] Create a conforming bug issue, then obtain explicit maintainer approval for that exact issue.
+  - Issue #628: `https://github.com/HeepNite/PLI-Saas-App/issues/628` (`status:approved`, read-back confirmed).
+- [ ] Push the two stacked behavior branches and open issue-linked PRs with exactly one `type:bug` label each.
+- [ ] Merge sequentially after required checks, verify the Vercel dev deployment, and run the authorized `0140` smoke test without checkout or payment.
+
 ## Evidence
 
 - User screenshot: existing-phone popup reaches Phone Access but reports `We couldn't send the code to your phone.`
