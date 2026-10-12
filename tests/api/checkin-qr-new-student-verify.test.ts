@@ -180,6 +180,29 @@ describe("qr new-student verify route", () => {
     })
   })
 
+  it("reports email-only Clerk matches without claiming the submitted phone exists", async () => {
+    mockFindClerkUserByIdentifiers.mockImplementation(({ phone }: { phone?: string }) =>
+      Promise.resolve(phone ? null : { id: "clerk_email" })
+    )
+    mockPurchaseFindFirst.mockResolvedValue(null)
+
+    const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
+    const res = await POST(new Request("http://localhost/api/checkin/qr/new-student/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+1 (929) 387-6584", email: "existing@example.com" }),
+    }))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data).toMatchObject({
+      outcome: "existing_user",
+      existingIdentifier: "email",
+      requiresSmsVerification: false,
+      requiresLogin: true,
+    })
+  })
+
   it("returns existing_user before SMS when the phone exists in Clerk", async () => {
     mockFindClerkUserByIdentifiers.mockResolvedValue({ id: "clerk_123" })
     mockPurchaseFindFirst.mockResolvedValue(null)

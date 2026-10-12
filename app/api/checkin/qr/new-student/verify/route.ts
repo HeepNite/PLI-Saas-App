@@ -93,16 +93,23 @@ export async function POST(req: Request) {
     // Current session — used to detect if the session already owns the phone
     const { userId: sessionUserId } = await auth()
 
-    // Clerk lookup by phone and/or email
-    const existingClerkUser = await findClerkUserByIdentifiers({
-      phone: phoneLookup?.e164,
-      email: emailInput || undefined,
-    })
+    // Lookup each Clerk identifier separately. The shared helper intentionally
+    // prefers email when given both, which must not turn an email-only result
+    // into proof that the submitted phone belongs to that account.
+    const [existingClerkPhoneUser, existingClerkEmailUser] = await Promise.all([
+      phoneLookup ? findClerkUserByIdentifiers({ phone: phoneLookup.e164 }) : null,
+      emailInput ? findClerkUserByIdentifiers({ email: emailInput }) : null,
+    ])
+    const existingClerkUser = existingClerkEmailUser || existingClerkPhoneUser
 
     // Build DB identity filters from exact phone candidates and email
     const identityFilters: Array<Record<string, unknown>> = []
     if (phoneLookup) identityFilters.push({ phone: { in: phoneLookup.digitCandidates } })
-    if (existingClerkUser?.id) identityFilters.push({ clerkId: existingClerkUser.id })
+    for (const clerkUserId of new Set(
+      [existingClerkPhoneUser?.id, existingClerkEmailUser?.id].filter((id): id is string => Boolean(id))
+    )) {
+      identityFilters.push({ clerkId: clerkUserId })
+    }
     if (emailInput) identityFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
 
     let existingDbUser = null as null | { id: string; clerkId: string | null; email: string; phone: string | null }
@@ -121,12 +128,14 @@ export async function POST(req: Request) {
 
     const exists = Boolean(existingClerkUser || existingDbUser)
 
-    // Determine which identifiers matched
+    // Determine which identifiers matched without treating a match on one
+    // identifier as ownership of the other.
     const phoneMatch = Boolean(
-      existingClerkUser || (existingDbUser?.phone && phoneLookup?.digitCandidates.includes(existingDbUser.phone))
+      existingClerkPhoneUser || (existingDbUser?.phone && phoneLookup?.digitCandidates.includes(existingDbUser.phone))
     )
     const emailMatch = Boolean(
-      existingDbUser?.email && emailInput && existingDbUser.email.toLowerCase() === emailInput.toLowerCase()
+      existingClerkEmailUser ||
+      (existingDbUser?.email && emailInput && existingDbUser.email.toLowerCase() === emailInput.toLowerCase())
     )
 
     const existingIdentifier = resolveExistingIdentifier(phoneMatch, emailMatch)
@@ -137,7 +146,11 @@ export async function POST(req: Request) {
     // returning-customer detection. A staff session matching the phone must still
     // see fallback_regular if the phone owner has completed purchases.
     const purchaseFilters: Array<Record<string, unknown>> = []
-    if (existingClerkUser?.id) purchaseFilters.push({ user: { clerkId: existingClerkUser.id } })
+    for (const clerkUserId of new Set(
+      [existingClerkPhoneUser?.id, existingClerkEmailUser?.id].filter((id): id is string => Boolean(id))
+    )) {
+      purchaseFilters.push({ user: { clerkId: clerkUserId } })
+    }
     if (existingDbUser?.id) purchaseFilters.push({ userId: existingDbUser.id })
     if (phoneLookup) purchaseFilters.push({ phone: { in: phoneLookup.digitCandidates } })
     if (emailInput) purchaseFilters.push({ email: { equals: emailInput, mode: "insensitive" } })
@@ -155,7 +168,7 @@ export async function POST(req: Request) {
     // A public booking may accept the active Clerk session as ownership proof
     // only when that same session owns the submitted verified phone.
     const sessionOwnsPhone =
-      Boolean(sessionUserId && existingClerkUser?.id === sessionUserId) &&
+      Boolean(sessionUserId && existingClerkPhoneUser?.id === sessionUserId) &&
       await sessionOwnsVerifiedPhone(sessionUserId as string, phoneLookup?.e164 || "")
 
     // Never start account-creation SMS for a known identity. The visitor must
@@ -165,7 +178,9 @@ export async function POST(req: Request) {
       const response: VerifyResponse = {
         outcome: "existing_user",
         reason: "existing_identity",
-        message: "This phone number already exists. Sign in to access your account.",
+        message: emailMatch && !phoneMatch
+          ? "This email address already exists. Sign in with your email to access your account."
+          : "This phone number already exists. Sign in to access your account.",
         eligibleForNewStudent: false,
         requiresSmsVerification: false,
         shouldFallbackToRegular: false,
