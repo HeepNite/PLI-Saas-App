@@ -42,7 +42,10 @@ origin/codex/develop
 
 - [x] Create a conforming bug issue, then obtain explicit maintainer approval for that exact issue.
   - Issue #628: `https://github.com/HeepNite/PLI-Saas-App/issues/628` (`status:approved`, read-back confirmed).
-- [ ] Push the two stacked behavior branches and open issue-linked PRs with exactly one `type:bug` label each.
+- [x] Push the two stacked behavior branches and open issue-linked PRs with exactly one `type:bug` label each.
+  - PR #629: `https://github.com/HeepNite/PLI-Saas-App/pull/629` (`codex/develop` ← `fix/public-booking-clerk-email-access`).
+  - PR #630: `https://github.com/HeepNite/PLI-Saas-App/pull/630` (`fix/public-booking-clerk-email-access` ← `fix/public-booking-clerk-test-signin`).
+  - Both PR bodies and `type:bug` labels were read back and confirmed.
 - [ ] Merge sequentially after required checks, verify the Vercel dev deployment, and run the authorized `0140` smoke test without checkout or payment.
 
 ## Evidence
