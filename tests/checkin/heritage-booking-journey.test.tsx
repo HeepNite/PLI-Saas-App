@@ -104,6 +104,11 @@ describe("Heritage campaign booking presentation", () => {
     expect(enrollModalSource).toContain('"This phone number already exists"')
   })
 
+  it("routes email-only account access through the submitted email", () => {
+    expect(enrollModalSource).toContain('useEmailCode={verification.existingIdentifier === "email"}')
+    expect(enrollModalSource).toContain("Sign in with the email you submitted")
+  })
+
   it("does not prefill a new public booking from an ambient Clerk session", () => {
     expect(enrollModalSource).toContain('isKioskTerminalFlow || bookingSource === "public_booking"')
     expect(enrollModalSource).toContain("public bookings collect the")
