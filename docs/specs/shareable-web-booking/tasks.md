@@ -68,6 +68,15 @@
 - [x] Enlarge the centered PLI logo and remove the BOOK eyebrow.
 - [x] Re-run focused tests, feature E2E, scoped ESLint, typecheck, and mobile/desktop browser inspection.
 
+## Phase 7 — Weekday Route Extension (Planned)
+
+- [ ] Add focused failing coverage for all seven routes, New York weekday matching, multiple same-day classes, promotion-independent inclusion, deterministic empty states, floating-chrome suppression, and the legacy redirect.
+- [ ] Add a shared weekday configuration and reuse the bounded occurrence builder to select all matching active public-catalog occurrences for each weekday.
+- [ ] Add explicit static `/monday` through `/sunday` route files; do not add a broad dynamic top-level `[weekday]` route.
+- [ ] Reuse the canonical QR booking handoff and existing identity/checkout flow; preserve ordinary `/booking` unchanged.
+- [ ] Redirect `/monday-salsa-beginner` to `/monday`.
+- [ ] Run focused tests, typecheck/lint/diff checks, and a read-only smoke for Monday plus one other weekday.
+
 ## Delivery Guardrails
 
 - No new endpoint, schema migration, dependency, auth path, checkout path, or kiosk edit.
