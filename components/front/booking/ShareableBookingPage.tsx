@@ -17,11 +17,13 @@ import {
   buildShareableBookingOccurrences,
   filterBookingOccurrences,
   filterBookingOccurrencesForWeekday,
+  focusBookingOccurrences,
   getBookingFilterOptions,
   getCurrentBookingDateKey,
   getCurrentBookingMonthKey,
   groupBookingOccurrencesByDate,
   type BookingClassTypeFilter,
+  type BookingFocus,
   type ShareableBookingOccurrence,
 } from "@/lib/checkin/shareable-booking"
 
@@ -40,6 +42,7 @@ type BookingPageContentProps = {
   onSelect: (occurrence: ShareableBookingOccurrence) => void
   onRetry?: () => void
   weekdayName?: string
+  focused?: boolean
 }
 
 type CatalogCoursesResponse = {
@@ -207,6 +210,7 @@ export function BookingPageContent({
   onSelect,
   onRetry,
   weekdayName,
+  focused = false,
 }: BookingPageContentProps) {
   if (status === "loading") {
     return (
@@ -241,7 +245,7 @@ export function BookingPageContent({
     )
   }
 
-  const filteredOccurrences = weekdayName
+  const filteredOccurrences = focused || weekdayName
     ? occurrences
     : filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
   const groups = groupBookingOccurrencesByDate(filteredOccurrences)
@@ -249,7 +253,7 @@ export function BookingPageContent({
 
   return (
     <section aria-live="polite">
-      {!weekdayName ? (
+      {!focused && !weekdayName ? (
         <BookingDiscoveryToolbar
           occurrences={occurrences}
           selectedMonth={selectedMonth}
@@ -309,10 +313,18 @@ export function BookingPageContent({
   )
 }
 
-export default function ShareableBookingPage({ weekday }: { weekday?: number }) {
+// Temporary PR-1 compatibility bridge for the course-specific booking route.
+export default function ShareableBookingPage({
+  weekday,
+  focus,
+}: {
+  weekday?: number
+  focus?: BookingFocus
+}) {
   const router = useRouter()
-  const weekdayName = typeof weekday === "number"
-    ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][weekday]
+  const focusedWeekday = focus?.weekday ?? weekday
+  const weekdayName = typeof focusedWeekday === "number"
+    ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][focusedWeekday]
     : undefined
   const [status, setStatus] = React.useState<BookingPageStatus>("loading")
   const [occurrences, setOccurrences] = React.useState<ShareableBookingOccurrence[]>([])
@@ -341,6 +353,7 @@ export default function ShareableBookingPage({ weekday }: { weekday?: number }) 
         const data = (await response.json().catch(() => null)) as CatalogCoursesResponse | null
         if (!response.ok || !Array.isArray(data?.courses)) throw new Error("Invalid catalog response")
         const nextOccurrences = buildShareableBookingOccurrences(data.courses)
+        if (focus) return focusBookingOccurrences(nextOccurrences, focus)
         return typeof weekday === "number"
           ? filterBookingOccurrencesForWeekday(nextOccurrences, weekday)
           : nextOccurrences
@@ -356,7 +369,7 @@ export default function ShareableBookingPage({ weekday }: { weekday?: number }) 
       })
 
     return () => controller.abort()
-  }, [weekday, requestVersion])
+  }, [weekday, focus, requestVersion])
 
   React.useEffect(() => {
     pendingOccurrenceRef.current = pendingOccurrence
@@ -414,6 +427,7 @@ export default function ShareableBookingPage({ weekday }: { weekday?: number }) 
           onSelect={selectOccurrence}
           onRetry={() => setRequestVersion((version) => version + 1)}
           weekdayName={weekdayName}
+          focused={Boolean(focus)}
         />
       </section>
       {navigatingOccurrence ? (
