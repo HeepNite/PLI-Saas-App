@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import * as shareableBooking from "@/lib/checkin/shareable-booking"
 import {
   buildShareableBookingOccurrences,
   classifyBookingClass,
@@ -118,6 +119,83 @@ describe("90-day public booking occurrences", () => {
     const occurrences = buildShareableBookingOccurrences([course], new Date("2026-06-11T16:00:00-04:00"))
     expect(occurrences.find(({ date }) => date === "2026-06-11")?.promotionLabels).toEqual(["Heritage pin benefit"])
     expect(occurrences.find(({ date }) => date === "2026-06-25")?.promotionLabels).toEqual([])
+  })
+})
+
+describe("weekday booking routes", () => {
+  it("configures all seven static routes and keeps every matching weekday occurrence regardless of promotions", () => {
+    const now = new Date("2026-06-07T16:00:00-04:00")
+    const courses = [
+      makeCourse({
+        slug: "monday-salsa",
+        title: "Monday Salsa",
+        scheduleRules: { rules: [{ weekday: 1, times: ["19:00"] }] },
+      }),
+      makeCourse({
+        slug: "monday-bachata",
+        title: "Monday Bachata",
+        scheduleRules: {
+          rules: [{ weekday: 1, times: ["20:00"] }],
+          promotions: [{
+            id: "expired", label: "Expired promotion", active: true,
+            pricing: { kind: "fixed", amountCents: 1500 },
+            window: { basis: "class_date", endDate: "2026-06-01" },
+            audience: "heritage_pin_delivered", channels: ["public_booking"],
+          }],
+        },
+      }),
+      makeCourse({
+        slug: "tuesday-salsa",
+        title: "Tuesday Salsa",
+        scheduleRules: { rules: [{ weekday: 2, times: ["19:00"] }] },
+      }),
+    ]
+    const occurrences = buildShareableBookingOccurrences(courses, now)
+    const api = shareableBooking as typeof shareableBooking & {
+      WEEKDAY_BOOKING_ROUTES: readonly { path: string; weekday: number }[]
+      filterBookingOccurrencesForWeekday: (
+        occurrences: readonly ShareableBookingOccurrence[],
+        weekday: number,
+      ) => ShareableBookingOccurrence[]
+    }
+
+    expect(api.WEEKDAY_BOOKING_ROUTES).toEqual([
+      { path: "/monday", weekday: 1 },
+      { path: "/tuesday", weekday: 2 },
+      { path: "/wednesday", weekday: 3 },
+      { path: "/thursday", weekday: 4 },
+      { path: "/friday", weekday: 5 },
+      { path: "/saturday", weekday: 6 },
+      { path: "/sunday", weekday: 0 },
+    ])
+    expect(api.filterBookingOccurrencesForWeekday(occurrences, 1).map(({ slug, date, time, promotionLabels }) => ({ slug, date, time, promotionLabels }))).toEqual([
+      { slug: "monday-salsa", date: "2026-06-08", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-06-08", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-06-15", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-06-15", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-06-22", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-06-22", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-06-29", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-06-29", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-07-06", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-07-06", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-07-13", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-07-13", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-07-20", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-07-20", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-07-27", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-07-27", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-08-03", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-08-03", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-08-10", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-08-10", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-08-17", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-08-17", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-08-24", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-08-24", time: "20:00", promotionLabels: [] },
+      { slug: "monday-salsa", date: "2026-08-31", time: "19:00", promotionLabels: [] },
+      { slug: "monday-bachata", date: "2026-08-31", time: "20:00", promotionLabels: [] },
+    ])
   })
 })
 

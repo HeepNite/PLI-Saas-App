@@ -40,10 +40,15 @@ export type BookingOccurrenceGroup = {
   occurrences: ShareableBookingOccurrence[]
 }
 
-export type BookingPromotionFocus = {
-  courseSlug: string
-  weekday: number
-}
+export const WEEKDAY_BOOKING_ROUTES = [
+  { path: "/monday", weekday: 1 },
+  { path: "/tuesday", weekday: 2 },
+  { path: "/wednesday", weekday: 3 },
+  { path: "/thursday", weekday: 4 },
+  { path: "/friday", weekday: 5 },
+  { path: "/saturday", weekday: 6 },
+  { path: "/sunday", weekday: 0 },
+] as const
 
 const getZonedParts = (date: Date) => {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -179,13 +184,10 @@ export const buildShareableBookingOccurrences = (
   )
 }
 
-export const focusBookingOccurrences = (
+export const filterBookingOccurrencesForWeekday = (
   occurrences: readonly ShareableBookingOccurrence[],
-  focus: BookingPromotionFocus,
-) => occurrences.filter((occurrence) => (
-  occurrence.slug === focus.courseSlug
-  && getJsWeekdayForDateKey(occurrence.date) === focus.weekday
-))
+  weekday: number,
+) => occurrences.filter((occurrence) => getJsWeekdayForDateKey(occurrence.date) === weekday)
 
 export const getBookingFilterOptions = (occurrences: readonly ShareableBookingOccurrence[]) => {
   const months = [...new Set(occurrences.map(({ monthKey }) => monthKey))].sort()

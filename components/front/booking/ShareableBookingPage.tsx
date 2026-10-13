@@ -16,13 +16,12 @@ import {
   BOOKING_CLASS_TYPE_LABELS,
   buildShareableBookingOccurrences,
   filterBookingOccurrences,
-  focusBookingOccurrences,
+  filterBookingOccurrencesForWeekday,
   getBookingFilterOptions,
   getCurrentBookingDateKey,
   getCurrentBookingMonthKey,
   groupBookingOccurrencesByDate,
   type BookingClassTypeFilter,
-  type BookingPromotionFocus,
   type ShareableBookingOccurrence,
 } from "@/lib/checkin/shareable-booking"
 
@@ -40,7 +39,7 @@ type BookingPageContentProps = {
   navigatingId: string | null
   onSelect: (occurrence: ShareableBookingOccurrence) => void
   onRetry?: () => void
-  focused?: boolean
+  weekdayName?: string
 }
 
 type CatalogCoursesResponse = {
@@ -84,7 +83,7 @@ const StateCard = ({ children }: { children: React.ReactNode }) => (
   </div>
 )
 
-export function BookingBrandHeader({ focused = false }: { focused?: boolean }) {
+export function BookingBrandHeader({ weekdayName }: { weekdayName?: string }) {
   return (
     <header className="mb-9 flex flex-col items-center text-center">
       <Image
@@ -99,10 +98,10 @@ export function BookingBrandHeader({ focused = false }: { focused?: boolean }) {
         <HeritageCampaignBanner />
       </div>
       <h1 className="text-4xl font-black tracking-[-0.035em] text-white sm:text-5xl">
-        {focused ? "Monday Salsa Beginner" : "Upcoming classes"}
+        {weekdayName ? `Upcoming ${weekdayName} classes` : "Upcoming classes"}
       </h1>
       <p className="mt-3 text-base text-white/58">
-        {focused ? "Choose an upcoming Monday and reserve your class." : "Choose your month, find your style, and book your class."}
+        {weekdayName ? `Choose an upcoming ${weekdayName} class and reserve your spot.` : "Choose your month, find your style, and book your class."}
       </p>
     </header>
   )
@@ -207,7 +206,7 @@ export function BookingPageContent({
   navigatingId,
   onSelect,
   onRetry,
-  focused = false,
+  weekdayName,
 }: BookingPageContentProps) {
   if (status === "loading") {
     return (
@@ -236,13 +235,13 @@ export function BookingPageContent({
   if (status === "empty") {
     return (
       <StateCard>
-        <p className="text-xl font-bold text-white">No upcoming classes are available</p>
+        <p className="text-xl font-bold text-white">{weekdayName ? `No ${weekdayName} classes are currently scheduled` : "No upcoming classes are available"}</p>
         <p className="mt-2 text-sm text-white/55">Please check back when the next schedule is published.</p>
       </StateCard>
     )
   }
 
-  const filteredOccurrences = focused
+  const filteredOccurrences = weekdayName
     ? occurrences
     : filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
   const groups = groupBookingOccurrencesByDate(filteredOccurrences)
@@ -250,7 +249,7 @@ export function BookingPageContent({
 
   return (
     <section aria-live="polite">
-      {!focused ? (
+      {!weekdayName ? (
         <BookingDiscoveryToolbar
           occurrences={occurrences}
           selectedMonth={selectedMonth}
@@ -264,8 +263,8 @@ export function BookingPageContent({
 
       {groups.length === 0 ? (
         <StateCard>
-          <p className="text-xl font-bold text-white">No matching classes</p>
-          <p className="mt-2 text-sm text-white/55">Try another search, month, or class type.</p>
+          <p className="text-xl font-bold text-white">{weekdayName ? `No ${weekdayName} classes are currently scheduled` : "No matching classes"}</p>
+          <p className="mt-2 text-sm text-white/55">{weekdayName ? "Please check back when the next schedule is published." : "Try another search, month, or class type."}</p>
         </StateCard>
       ) : (
         <div className="space-y-8">
@@ -310,10 +309,11 @@ export function BookingPageContent({
   )
 }
 
-export default function ShareableBookingPage({ focus }: { focus?: BookingPromotionFocus }) {
+export default function ShareableBookingPage({ weekday }: { weekday?: number }) {
   const router = useRouter()
-  const focusCourseSlug = focus?.courseSlug
-  const focusWeekday = focus?.weekday
+  const weekdayName = typeof weekday === "number"
+    ? ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][weekday]
+    : undefined
   const [status, setStatus] = React.useState<BookingPageStatus>("loading")
   const [occurrences, setOccurrences] = React.useState<ShareableBookingOccurrence[]>([])
   const [selectedMonth, setSelectedMonth] = React.useState<string | "all">(() => getCurrentBookingMonthKey())
@@ -341,8 +341,9 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
         const data = (await response.json().catch(() => null)) as CatalogCoursesResponse | null
         if (!response.ok || !Array.isArray(data?.courses)) throw new Error("Invalid catalog response")
         const nextOccurrences = buildShareableBookingOccurrences(data.courses)
-        if (!focusCourseSlug || typeof focusWeekday !== "number") return nextOccurrences
-        return focusBookingOccurrences(nextOccurrences, { courseSlug: focusCourseSlug, weekday: focusWeekday })
+        return typeof weekday === "number"
+          ? filterBookingOccurrencesForWeekday(nextOccurrences, weekday)
+          : nextOccurrences
       })
       .then((nextOccurrences) => {
         setOccurrences(nextOccurrences)
@@ -355,7 +356,7 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
       })
 
     return () => controller.abort()
-  }, [focusCourseSlug, focusWeekday, requestVersion])
+  }, [weekday, requestVersion])
 
   React.useEffect(() => {
     pendingOccurrenceRef.current = pendingOccurrence
@@ -399,7 +400,7 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
     <main className="min-h-screen bg-[#09070d] px-4 py-8 font-bricolage sm:px-6 sm:py-12 lg:py-16">
       <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.16),transparent_58%)]" />
       <section className="relative z-10 mx-auto w-full max-w-3xl">
-        <BookingBrandHeader focused={Boolean(focus)} />
+        <BookingBrandHeader weekdayName={weekdayName} />
         <BookingPageContent
           status={status}
           occurrences={occurrences}
@@ -412,7 +413,7 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
           navigatingId={navigatingId}
           onSelect={selectOccurrence}
           onRetry={() => setRequestVersion((version) => version + 1)}
-          focused={Boolean(focus)}
+          weekdayName={weekdayName}
         />
       </section>
       {navigatingOccurrence ? (
