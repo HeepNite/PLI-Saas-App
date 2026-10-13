@@ -34,9 +34,10 @@ Provide stable `/monday` through `/sunday` public booking URLs. Each page lists 
 
 - [x] Create a conforming issue, obtain explicit approval for that exact issue, and record its stable URL.
   - Issue #631: `https://github.com/HeepNite/PLI-Saas-App/issues/631` (`status:approved`, read-back confirmed).
-- [ ] Slice the feature once into two stacked PRs to `codex/develop`, each within the 400-line review budget, with exactly one `type:feature` label and clean immediate-base diffs.
-  - PR 1: accepted spec plus shared weekday route configuration/filtering, booking-page support, chrome policy, and core tests.
-  - PR 2: seven static routes, legacy redirect, route/UI tests, and final ODD evidence; targets PR 1 until it merges.
+- [x] Slice the feature once into two stacked PRs to `codex/develop`, each within the 400-line review budget, with exactly one `type:feature` label and clean immediate-base diffs.
+  - PR #632: `https://github.com/HeepNite/PLI-Saas-App/pull/632` — accepted spec plus shared weekday route configuration/filtering, booking-page support, chrome policy, compatibility bridge, and core tests (263 changed lines).
+  - PR #633: `https://github.com/HeepNite/PLI-Saas-App/pull/633` — seven static routes, legacy redirect, compatibility cleanup, route/UI tests, and final ODD evidence; targets PR #632 until it merges (within 400 lines).
+  - Both PRs target clean immediate bases and have exactly one `type:feature` label; read-back confirmed.
 - [ ] Merge both PRs sequentially only after required checks pass, verify the Vercel dev deployment, and smoke `/monday`, `/tuesday`, `/monday-salsa-beginner`, and `/booking` without creating users, reservations, checkout sessions, or payments.
 
 ## Delivery Strategy
