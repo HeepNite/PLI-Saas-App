@@ -10,6 +10,8 @@ export type EnrollSignInOverlayProps = {
   variant: SignInModalVariant
   signInReturnTo: string
   phoneE164: string | undefined
+  emailAddress?: string
+  useEmailCode?: boolean
   isKioskTerminalFlow: boolean
   isCheckInFlow: boolean
   onDismiss: () => void
@@ -25,6 +27,8 @@ export default function EnrollSignInOverlay({
   variant,
   signInReturnTo,
   phoneE164,
+  emailAddress,
+  useEmailCode = false,
   isKioskTerminalFlow,
   isCheckInFlow,
   onDismiss,
@@ -69,6 +73,9 @@ export default function EnrollSignInOverlay({
           <EmbeddedSignIn
             redirectUrl={signInReturnTo}
             phoneNumber={phoneE164}
+            emailAddress={emailAddress}
+            initialStrategy={useEmailCode ? "email_code" : "phone_code"}
+            autoSend={useEmailCode}
             useNumericKeypad={isKioskTerminalFlow}
             bare
             onSuccessAction={
