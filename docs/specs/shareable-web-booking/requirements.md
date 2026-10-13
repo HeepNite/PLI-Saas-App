@@ -2,7 +2,7 @@
 
 ## Status
 
-`IMPLEMENTED — PROMOTIONAL LINK EXTENSION IN PROGRESS`
+`IMPLEMENTED — WEEKDAY ROUTE EXTENSION IN PROGRESS`
 
 ## Objective
 
@@ -18,7 +18,8 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 - Group filtered occurrences by date and order dates and times chronologically.
 - Hand valid selections to the existing QR booking URL and preserve automatic sign-in plus `/client-profile` completion.
 - Preserve the accepted PLI visual identity and route-scoped floating-chrome suppression.
-- Provide the short promotional route `/monday-salsa-beginner` for future Monday occurrences of the existing `salsa-night-beginner` course.
+- Provide stable public weekday routes `/monday` through `/sunday`, each showing its matching 90-day schedule.
+- Redirect the retired promotional alias `/monday-salsa-beginner` to `/monday`.
 
 ### Out of scope
 
@@ -45,18 +46,21 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 14. A search field MUST filter occurrences by class title, category/style, normalized class type, or slug without another network request.
 15. The search field MUST occupy the left half of one discovery-toolbar row while the month and class-type filters each occupy one quarter. All three controls MUST remain on that same row on desktop and phone, using compact mobile sizing.
 16. The centered PLI logo MUST be visually larger, and the redundant `BOOK` eyebrow beneath it MUST be removed.
-17. The global assistant/chat and floating Home controls MUST remain hidden on `/booking`, the exact promotional route `/monday-salsa-beginner`, and the existing campaign handoff; behavior elsewhere MUST remain unchanged.
+17. The global assistant/chat and floating Home controls MUST remain hidden on `/booking`, every stable weekday route, `/monday-salsa-beginner`, and the existing campaign handoff; behavior elsewhere MUST remain unchanged.
 18. Loading, API-error, malformed schedule, invalid selection, and duplicate-submit behavior MUST fail safely.
-19. `/monday-salsa-beginner` MUST derive its occurrences from the existing public catalog course `salsa-night-beginner` and show only its future Monday schedule inside the same 90-day horizon; it MUST NOT duplicate or hard-code bookable dates.
-20. The focused promotional route MUST omit broad catalog discovery controls and fail safely when the course is inactive, missing, malformed, or has no future Monday occurrence.
-21. Selecting a promoted occurrence MUST preserve course, date, time, duration, `bookingSource`, and the explicitly selected Heritage country through the canonical QR booking URL.
-22. After country selection, the existing course enrollment flow MUST load the selected class context and personal-data form before checkout; the promotional route MUST NOT introduce a parallel identity or payment flow.
-23. After identity resolution, a verified customer with no successful purchase or package history MUST retain the existing US$15 new-student price.
-24. An existing customer without an applicable package MUST receive the regular server-authoritative price.
-25. An existing customer with an active, unexpired package applicable to the selected course MUST be able to reserve that occurrence against the package instead of entering paid checkout.
-26. Package booking MUST create one scheduled attendance and hold package capacity without final credit consumption. Attendance completion consumes the credit; cancellation before attendance releases the hold.
-27. The server MUST prevent package holds from exceeding available credits and MUST reject forged package ownership, stale package state, duplicate booking, full class, invalid schedule, or mismatched course claims.
-28. Physical Heritage pin state MUST NOT affect new-student, regular, or package routing.
+19. Each stable route `/monday` through `/sunday` MUST list every occurrence from an active public-catalog course whose weekday in `America/New_York` matches that route, from now through the existing 90-day horizon.
+20. Weekday-route inclusion MUST NOT depend on a promotion's presence, applicability, or expiration. Promotion labels and pricing may still be resolved downstream after selection.
+21. A weekday route with no matching occurrences MUST render a deterministic empty state.
+22. `/monday-salsa-beginner` MUST redirect to `/monday`; ordinary `/booking` discovery remains unchanged.
+23. Weekday routes MUST use shared weekday configuration plus explicit static route files; a broad dynamic top-level `[weekday]` catch-all MUST NOT be introduced.
+24. Selecting a weekday occurrence MUST preserve course, date, time, duration, and `bookingSource` through the canonical QR booking URL.
+25. The existing course enrollment flow MUST load the selected class context and personal-data form before checkout; weekday routes MUST NOT introduce a parallel identity or payment flow.
+26. After identity resolution, a verified customer with no successful purchase or package history MUST retain the existing US$15 new-student price.
+27. An existing customer without an applicable package MUST receive the regular server-authoritative price.
+28. An existing customer with an active, unexpired package applicable to the selected course MUST be able to reserve that occurrence against the package instead of entering paid checkout.
+29. Package booking MUST create one scheduled attendance and hold package capacity without final credit consumption. Attendance completion consumes the credit; cancellation before attendance releases the hold.
+30. The server MUST prevent package holds from exceeding available credits and MUST reject forged package ownership, stale package state, duplicate booking, full class, invalid schedule, or mismatched course claims.
+31. Physical Heritage pin state MUST NOT affect new-student, regular, or package routing.
 
 ## Constraints
 
@@ -84,12 +88,14 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 - [ ] Search matches title, category/style, normalized type, and slug; the larger logo renders without the BOOK eyebrow.
 - [ ] New-client automatic sign-in/profile redirect, returning-user behavior, and kiosk behavior remain unchanged.
 - [ ] No migration, new dependency, staff-only API exposure, or parallel booking/auth implementation is introduced.
-- [ ] `/monday-salsa-beginner` shows only future Monday occurrences of `salsa-night-beginner` and omits broad discovery controls.
-- [ ] Country selection from the promotional route loads the existing personal-data form with complete class/date/time/duration/source/country context for checkout.
+- [ ] Each `/monday` through `/sunday` route lists exactly the active public-catalog occurrences matching its New York weekday inside the 90-day horizon.
+- [ ] Weekday inclusion is unchanged when promotions are absent, inapplicable, or expired; an empty weekday has a deterministic empty state.
+- [ ] `/monday-salsa-beginner` redirects to `/monday`, while ordinary `/booking` remains unchanged.
+- [ ] Weekday routes use shared configuration and explicit static route files, with no broad dynamic top-level `[weekday]` route.
+- [ ] Weekday selection preserves canonical class/date/time/duration/source context through the existing personal-data and checkout flow.
 - [ ] New verified customers receive US$15, existing customers receive the regular price, and applicable package holders reserve without paid checkout.
 - [ ] A package reservation holds capacity, cannot oversubscribe credits, consumes on attended completion, and releases on pre-attendance cancellation.
 - [ ] Heritage pin state does not affect pricing or package routing.
-- [ ] Missing or inactive promotional course data fails safely without exposing another class.
 
 ## Definition Of Done
 
