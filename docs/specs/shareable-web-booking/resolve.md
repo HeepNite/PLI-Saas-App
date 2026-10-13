@@ -12,6 +12,10 @@
 8. Filtered results remain grouped by date and chronological within each date.
 9. The existing QR course/`EnrollModal` personal flow remains the sole owner of identity, booking, checkout, session activation, and profile redirect.
 10. The centered PLI header, circular red `BOOK` action, dark brand palette, and `/booking` floating-chrome suppression are presentation requirements.
+11. `/monday` through `/sunday` are stable public routes. Each selects all active public-catalog occurrences in the existing 90-day window whose calendar weekday in `America/New_York` matches its route.
+12. Weekday occurrence inclusion is schedule-driven and never depends on promotion presence, applicability, or expiration. Promotion labels and pricing remain downstream concerns after a visitor selects an occurrence.
+13. Each weekday route has a deterministic empty state and continues through the existing canonical booking, identity, and checkout flow.
+14. Implement weekday routes with shared weekday configuration and seven explicit static route files, not a broad top-level `[weekday]` catch-all. `/monday-salsa-beginner` is a legacy redirect to `/monday`; `/booking` is unchanged.
 
 ## Contract Reconciliation
 
@@ -19,6 +23,7 @@
 - `/api/checkin/terminal/today-classes` remains valid for terminal operations but is no longer the `/booking` list source.
 - `CourseData` currently omits the database category. A backward-compatible optional `category` field may be exposed through the existing catalog mapping; classification still works when it is absent.
 - No database migration or new public endpoint is required.
+- The former course-specific `/monday-salsa-beginner` page is superseded by the legacy redirect. It no longer controls weekday-page inclusion or limits `/monday` to `salsa-night-beginner`.
 
 ## Implementation Preconditions
 
