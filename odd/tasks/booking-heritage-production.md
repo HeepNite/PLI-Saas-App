@@ -40,7 +40,11 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - The selected historical deltas touch 149 unique paths and total roughly 12,400 changed lines against current production, so the hard 400-line PR gate requires a long chained release; the oversized #506 foundation must be re-sliced.
   - Production overlap requiring manual reconciliation: `app/api/checkout/cash/route.ts`, staff payment presentation/types, `lib/phone/index.ts`, and their focused tests. Preserve main's cash sale-day, payment-debt, and strict international-phone fixes.
   - Commit: `c68f1355` (`docs(release): map booking production scope`).
-- [ ] Reconstruct the shareable Booking foundation on the production base in reviewable work units.
+- [x] Reconstruct the shareable Booking foundation on the production base in reviewable work units.
+  - Exact source patch ports: `e9d7d849`, `0f2b53db`, `be4c1da1`, `895f6941`, and `e46df553`; each is below 400 changed lines.
+  - Verification: 16 focused tests, typecheck, focused ESLint, and `git diff --check` passed locally. Independent verification confirmed exact source patch IDs, no hidden omitted-module dependency, preserved main behavior, and 54 focused tests plus 3 boundary probes.
+  - Browser smoke was unavailable because the isolated verifier lacked a Clerk publishable key; production deployment smoke remains mandatory.
+  - Native review preflight was unavailable (`package-local-binary-missing`) and created no lineage.
 - [ ] Integrate the Heritage acquisition and staff-fulfillment lifecycle without the deferred package-credit award.
 - [ ] Integrate current public package routing, promotion pricing, and corrected Clerk account access.
 - [ ] Integrate and verify `/monday` through `/sunday` plus the legacy redirect.

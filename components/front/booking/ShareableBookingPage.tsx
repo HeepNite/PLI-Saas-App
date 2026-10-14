@@ -1,10 +1,19 @@
 "use client"
 
 import React from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
+import { RefreshCw, Search } from "lucide-react"
 import type { CourseData } from "@/constants/courses"
 import {
+  BOOKING_CLASS_TYPE_LABELS,
   buildShareableBookingOccurrences,
+  filterBookingOccurrences,
+  getBookingFilterOptions,
+  getCurrentBookingDateKey,
+  getCurrentBookingMonthKey,
+  groupBookingOccurrencesByDate,
+  type BookingClassTypeFilter,
   type ShareableBookingOccurrence,
 } from "@/lib/checkin/shareable-booking"
 
@@ -13,6 +22,12 @@ export type BookingPageStatus = "loading" | "ready" | "empty" | "error"
 type BookingPageContentProps = {
   status: BookingPageStatus
   occurrences: ShareableBookingOccurrence[]
+  selectedMonth: string | "all"
+  selectedClassType: BookingClassTypeFilter
+  searchQuery: string
+  onMonthChange: (month: string | "all") => void
+  onClassTypeChange: (classType: BookingClassTypeFilter) => void
+  onSearchQueryChange: (query: string) => void
   navigatingId: string | null
   onSelect: (occurrence: ShareableBookingOccurrence) => void
   onRetry?: () => void
@@ -28,15 +43,150 @@ const formatTime = (time: string) => {
     .format(new Date(2020, 0, 1, hour, minute))
 }
 
+const formatMonth = (monthKey: string) => {
+  const [year, month] = monthKey.split("-").map(Number)
+  return new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, 1)))
+}
+
+const formatDateHeading = (dateKey: string) => {
+  const today = getCurrentBookingDateKey()
+  const [year, month, day] = dateKey.split("-").map(Number)
+  const date = new Date(Date.UTC(year, month - 1, day, 12))
+  const tomorrow = new Date(`${today}T12:00:00Z`)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const tomorrowKey = tomorrow.toISOString().slice(0, 10)
+  const dateLabel = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(date).toUpperCase()
+
+  if (dateKey === today) return `TODAY · ${dateLabel.split(", ").at(-1)}`
+  if (dateKey === tomorrowKey) return `TOMORROW · ${dateLabel.split(", ").at(-1)}`
+  return dateLabel.replace(",", " ·")
+}
+
 const StateCard = ({ children }: { children: React.ReactNode }) => (
-  <div className="rounded-2xl border border-neutral-200 bg-white px-6 py-12 text-center shadow-sm">
+  <div className="rounded-2xl border border-white/10 bg-[#1d1b21] px-6 py-12 text-center shadow-[0_20px_70px_-44px_rgba(182,22,22,0.75)]">
     {children}
   </div>
 )
 
+export function BookingBrandHeader() {
+  return (
+    <header className="mb-9 flex flex-col items-center text-center">
+      <Image
+        src="/logo/logo-white.png"
+        alt="Palladium Latin Art"
+        width={224}
+        height={89}
+        priority
+        className="h-auto w-44 object-contain sm:w-52"
+      />
+      <h1 className="mt-7 text-4xl font-black tracking-[-0.035em] text-white sm:text-5xl">Upcoming classes</h1>
+      <p className="mt-3 text-base text-white/58">Choose your month, find your style, and book your class.</p>
+    </header>
+  )
+}
+
+const CourseThumbnail = ({ occurrence }: { occurrence: ShareableBookingOccurrence }) => (
+  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#b61616] sm:h-14 sm:w-14">
+    {occurrence.coverImageUrl ? (
+      // Course media is managed by staff and may come from configured external storage.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={occurrence.coverImageUrl} alt="" className="h-full w-full object-cover" />
+    ) : (
+      <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(145deg,#d51f2b,#710b16)]">
+        <span className="text-[10px] font-black tracking-[0.16em] text-white">PLI</span>
+      </div>
+    )}
+  </div>
+)
+
+const BookingDiscoveryToolbar = ({
+  occurrences,
+  selectedMonth,
+  selectedClassType,
+  searchQuery,
+  onMonthChange,
+  onClassTypeChange,
+  onSearchQueryChange,
+}: Pick<
+  BookingPageContentProps,
+  | "occurrences"
+  | "selectedMonth"
+  | "selectedClassType"
+  | "searchQuery"
+  | "onMonthChange"
+  | "onClassTypeChange"
+  | "onSearchQueryChange"
+>) => {
+  const options = getBookingFilterOptions(occurrences)
+  const monthOptions = [...new Set([
+    ...(selectedMonth === "all" ? [] : [selectedMonth]),
+    ...options.months,
+  ])].sort()
+  const classTypeOptions = [...new Set([
+    ...(selectedClassType === "all" ? [] : [selectedClassType]),
+    ...options.classTypes,
+  ])]
+
+  const controlClass = "h-10 min-w-0 rounded-full border border-white/12 bg-[#1d1b21] px-2 text-[10px] font-bold text-white outline-none transition focus:border-[#d51f2b] sm:h-11 sm:px-4 sm:text-xs"
+  const compactTypeLabel = (classType: keyof typeof BOOKING_CLASS_TYPE_LABELS) => {
+    if (classType === "salsa-cubana") return "Cuban"
+    if (classType === "salsa-on2") return "On2"
+    return BOOKING_CLASS_TYPE_LABELS[classType]
+  }
+
+  return (
+    <div className="mb-8 grid grid-cols-[2fr_1fr_1fr] gap-1.5 sm:gap-2.5">
+      <label className="relative block min-w-0">
+        <span className="sr-only">Search classes</span>
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/42 sm:left-4 sm:h-4 sm:w-4" aria-hidden="true" />
+        <input
+          type="search"
+          aria-label="Search classes"
+          value={searchQuery}
+          onChange={(event) => onSearchQueryChange(event.target.value)}
+          placeholder="Search…"
+          className={`${controlClass} w-full pl-8 font-medium placeholder:text-white/35 sm:pl-11`}
+        />
+      </label>
+      <select
+        aria-label="Filter by month"
+        value={selectedMonth}
+        onChange={(event) => onMonthChange(event.target.value)}
+        className={controlClass}
+      >
+        <option value="all">All dates</option>
+        {monthOptions.map((month) => <option key={month} value={month}>{formatMonth(month)}</option>)}
+      </select>
+      <select
+        aria-label="Filter by class type"
+        value={selectedClassType}
+        onChange={(event) => onClassTypeChange(event.target.value as BookingClassTypeFilter)}
+        className={controlClass}
+      >
+        <option value="all">All</option>
+        {classTypeOptions.map((classType) => (
+          <option key={classType} value={classType}>{compactTypeLabel(classType)}</option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
 export function BookingPageContent({
   status,
   occurrences,
+  selectedMonth,
+  selectedClassType,
+  searchQuery,
+  onMonthChange,
+  onClassTypeChange,
+  onSearchQueryChange,
   navigatingId,
   onSelect,
   onRetry,
@@ -44,7 +194,8 @@ export function BookingPageContent({
   if (status === "loading") {
     return (
       <StateCard>
-        <p className="text-base font-semibold text-neutral-800">Loading upcoming classes…</p>
+        <div className="mx-auto mb-4 h-7 w-7 animate-spin rounded-full border-2 border-white/15 border-t-[#d51f2b]" />
+        <p className="text-base font-semibold text-white">Loading upcoming classes…</p>
       </StateCard>
     )
   }
@@ -52,10 +203,11 @@ export function BookingPageContent({
   if (status === "error") {
     return (
       <StateCard>
-        <p className="text-xl font-bold text-neutral-900">We couldn’t load upcoming classes</p>
-        <p className="mt-2 text-sm text-neutral-600">Please check your connection and try again.</p>
+        <p className="text-xl font-bold text-white">We couldn’t load upcoming classes</p>
+        <p className="mt-2 text-sm text-white/55">Please check your connection and try again.</p>
         {onRetry ? (
-          <button type="button" onClick={onRetry} className="mt-6 rounded-xl bg-red-700 px-5 py-3 text-sm font-bold text-white">
+          <button type="button" onClick={onRetry} className="mx-auto mt-6 inline-flex items-center gap-2 rounded-xl bg-[#b61616] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#d51f2b]">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
             Try again
           </button>
         ) : null}
@@ -66,36 +218,72 @@ export function BookingPageContent({
   if (status === "empty") {
     return (
       <StateCard>
-        <p className="text-xl font-bold text-neutral-900">No upcoming classes are available</p>
-        <p className="mt-2 text-sm text-neutral-600">Please check back when the next schedule is published.</p>
+        <p className="text-xl font-bold text-white">No upcoming classes are available</p>
+        <p className="mt-2 text-sm text-white/55">Please check back when the next schedule is published.</p>
       </StateCard>
     )
   }
 
+  const filteredOccurrences = filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
+  const groups = groupBookingOccurrencesByDate(filteredOccurrences)
+
   return (
-    <section aria-live="polite" className="space-y-3">
-      {occurrences.map((occurrence) => {
-        const isNavigating = navigatingId === occurrence.id
-        return (
-          <article key={occurrence.id} className="flex items-center justify-between gap-4 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
-            <div className="min-w-0">
-              <p className="truncate text-base font-bold text-neutral-900">{occurrence.title}</p>
-              <p className="mt-1 text-sm text-neutral-600">
-                {occurrence.date} · {formatTime(occurrence.time)}
-                {occurrence.durationMinutes ? ` · ${occurrence.durationMinutes} min` : ""}
+    <section aria-live="polite">
+      <BookingDiscoveryToolbar
+        occurrences={occurrences}
+        selectedMonth={selectedMonth}
+        selectedClassType={selectedClassType}
+        searchQuery={searchQuery}
+        onMonthChange={onMonthChange}
+        onClassTypeChange={onClassTypeChange}
+        onSearchQueryChange={onSearchQueryChange}
+      />
+
+      {groups.length === 0 ? (
+        <StateCard>
+          <p className="text-xl font-bold text-white">No matching classes</p>
+          <p className="mt-2 text-sm text-white/55">Try another search, month, or class type.</p>
+        </StateCard>
+      ) : (
+        <div className="space-y-8">
+          {groups.map((group) => (
+            <section key={group.date}>
+              <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-white/45">
+                {formatDateHeading(group.date)}
               </p>
-            </div>
-            <button
-              type="button"
-              disabled={navigatingId !== null}
-              onClick={() => onSelect(occurrence)}
-              className="rounded-xl bg-red-700 px-4 py-3 text-sm font-bold text-white disabled:opacity-50"
-            >
-              {isNavigating ? "Opening…" : "Book"}
-            </button>
-          </article>
-        )
-      })}
+              <div className="space-y-2.5">
+                {group.occurrences.map((occurrence) => {
+                  const isNavigating = navigatingId === occurrence.id
+                  const isDisabled = navigatingId !== null
+
+                  return (
+                    <article key={occurrence.id} className="grid grid-cols-[48px_minmax(0,1fr)_52px] items-center gap-2.5 rounded-2xl border border-white/12 bg-[#1d1b21] px-3 py-3 shadow-sm sm:grid-cols-[56px_minmax(0,1fr)_60px] sm:gap-4 sm:px-4">
+                      <CourseThumbnail occurrence={occurrence} />
+                      <div className="min-w-0 leading-tight">
+                        <p className="truncate text-sm font-bold text-white sm:text-base">{occurrence.title}</p>
+                        <p className="mt-1 truncate text-xs font-semibold tabular-nums text-white/68 sm:text-sm">
+                          {formatTime(occurrence.time)}
+                          {occurrence.durationMinutes ? ` · ${occurrence.durationMinutes} min` : ""}
+                        </p>
+                        <p className="mt-1 truncate text-[10px] text-white/42 sm:text-xs">{occurrence.instructorName}</p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Book ${occurrence.title} on ${occurrence.date} at ${formatTime(occurrence.time)}`}
+                        disabled={isDisabled}
+                        onClick={() => onSelect(occurrence)}
+                        className="flex h-[52px] w-[52px] items-center justify-center rounded-full bg-[#b61616] text-[9px] font-black tracking-[0.08em] text-white transition hover:scale-[1.03] hover:bg-[#d51f2b] disabled:cursor-not-allowed disabled:opacity-45 sm:h-[60px] sm:w-[60px] sm:text-[10px]"
+                      >
+                        {isNavigating ? "OPEN" : "BOOK"}
+                      </button>
+                    </article>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
     </section>
   )
 }
@@ -104,6 +292,9 @@ export default function ShareableBookingPage() {
   const router = useRouter()
   const [status, setStatus] = React.useState<BookingPageStatus>("loading")
   const [occurrences, setOccurrences] = React.useState<ShareableBookingOccurrence[]>([])
+  const [selectedMonth, setSelectedMonth] = React.useState<string | "all">(() => getCurrentBookingMonthKey())
+  const [selectedClassType, setSelectedClassType] = React.useState<BookingClassTypeFilter>("all")
+  const [searchQuery, setSearchQuery] = React.useState("")
   const [navigatingId, setNavigatingId] = React.useState<string | null>(null)
   const navigationStartedRef = React.useRef(false)
   const [requestVersion, setRequestVersion] = React.useState(0)
@@ -139,15 +330,19 @@ export default function ShareableBookingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-neutral-50 px-4 py-10">
-      <section className="mx-auto w-full max-w-3xl">
-        <header className="mb-8">
-          <h1 className="text-4xl font-black text-neutral-950">Upcoming classes</h1>
-          <p className="mt-2 text-neutral-600">Choose a class to continue with registration and booking.</p>
-        </header>
+    <main className="min-h-screen bg-[#09070d] px-4 py-8 font-bricolage sm:px-6 sm:py-12 lg:py-16">
+      <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.16),transparent_58%)]" />
+      <section className="relative mx-auto w-full max-w-3xl">
+        <BookingBrandHeader />
         <BookingPageContent
           status={status}
           occurrences={occurrences}
+          selectedMonth={selectedMonth}
+          selectedClassType={selectedClassType}
+          searchQuery={searchQuery}
+          onMonthChange={setSelectedMonth}
+          onClassTypeChange={setSelectedClassType}
+          onSearchQueryChange={setSearchQuery}
           navigatingId={navigatingId}
           onSelect={selectOccurrence}
           onRetry={() => setRequestVersion((version) => version + 1)}
