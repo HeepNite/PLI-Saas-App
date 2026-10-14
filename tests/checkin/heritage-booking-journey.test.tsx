@@ -13,7 +13,6 @@ import {
   getDecorativeBookingFlag,
   isHeritageCampaignAcquiringNow,
 } from "@/components/front/booking/HeritageCampaignBooking"
-import { HeritageVerificationBackdrop } from "@/components/front/courses/enroll/HeritageVerificationBackdrop"
 import type { ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -76,17 +75,12 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).not.toContain("photograph")
   })
 
-  it("keeps branded campaign context visible behind phone verification", () => {
-    const html = renderToStaticMarkup(
-      <HeritageVerificationBackdrop courseTitle="Salsa Beginner / Open Level" countryCode="MX" />,
-    )
-
-    expect(html).toContain('data-heritage-verification-context="true"')
-    expect(html).toContain("%2Flogo%2Flogo-white.png")
-    expect(html).toContain("¡Feliz Mes de la Herencia Latina!")
-    expect(html).toContain("Your country. Your pin. Your community.")
-    expect(html).toContain("Salsa Beginner / Open Level")
-    expect(html).toContain("Mexico")
+  it("keeps the active booking form visible behind a translucent phone verification overlay", () => {
+    expect(enrollModalSource).toContain('verificationState === "sms_pending"')
+    expect(enrollModalSource).toContain('activateSessionOnSuccess={isQrMobileCompactFlow}')
+    expect(enrollModalSource).toContain('bg-[#09070d]/55 backdrop-blur-[2px]')
+    expect(enrollModalSource).not.toContain("<HeritageVerificationBackdrop")
+    expect(enrollModalSource).not.toContain('data-heritage-verification-context="true"')
   })
 
   it("lets the visitor search and explicitly select a country before continuing", async () => {
