@@ -10,6 +10,7 @@ import {
   HeritageCampaignBanner,
   HeritageCampaignPromoDialog,
   HeritageCountryDialog,
+  HeritageFlagRails,
   isHeritageCampaignAcquiringNow,
 } from "@/components/front/booking/HeritageCampaignBooking"
 import {
@@ -236,6 +237,7 @@ export function BookingPageContent({
 
   const filteredOccurrences = filterBookingOccurrences(occurrences, selectedMonth, selectedClassType, searchQuery)
   const groups = groupBookingOccurrencesByDate(filteredOccurrences)
+  const decorativeFlagIndexes = new Map(filteredOccurrences.map((occurrence, index) => [occurrence.id, index]))
 
   return (
     <section aria-live="polite">
@@ -279,6 +281,7 @@ export function BookingPageContent({
                       </div>
                       <HeritageBookButton
                         occurrence={occurrence}
+                        decorativeIndex={decorativeFlagIndexes.get(occurrence.id)}
                         busy={isNavigating}
                         disabled={isDisabled}
                         onSelect={() => onSelect(occurrence)}
@@ -308,6 +311,12 @@ export default function ShareableBookingPage() {
   const pendingOccurrenceRef = React.useRef<ShareableBookingOccurrence | null>(null)
   const navigationStartedRef = React.useRef(false)
   const [requestVersion, setRequestVersion] = React.useState(0)
+  const navigatingOccurrence = occurrences.find((occurrence) => occurrence.id === navigatingId)
+
+  React.useEffect(() => {
+    delete document.documentElement.dataset.qrBooking
+    delete document.documentElement.dataset.qrBookingReady
+  }, [])
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -355,6 +364,8 @@ export default function ShareableBookingPage() {
     navigationStartedRef.current = true
     setPendingOccurrence(null)
     setNavigatingId(occurrence.id)
+    document.documentElement.dataset.qrBooking = "true"
+    delete document.documentElement.dataset.qrBookingReady
     if (!countryCode) {
       router.push(occurrence.bookingUrl)
       return
@@ -378,7 +389,8 @@ export default function ShareableBookingPage() {
   return (
     <main className="min-h-screen bg-[#09070d] px-4 py-8 font-bricolage sm:px-6 sm:py-12 lg:py-16">
       <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.16),transparent_58%)]" />
-      <section className="relative mx-auto w-full max-w-3xl">
+      {isHeritageCampaignAcquiringNow() ? <HeritageFlagRails /> : null}
+      <section className="relative z-10 mx-auto w-full max-w-3xl">
         <BookingBrandHeader />
         <BookingPageContent
           status={status}
@@ -394,6 +406,19 @@ export default function ShareableBookingPage() {
           onRetry={() => setRequestVersion((version) => version + 1)}
         />
       </section>
+      {navigatingOccurrence ? (
+        <div className="fixed inset-0 z-[14000] flex items-center justify-center bg-[#09070d] px-6 text-center text-white" aria-live="polite">
+          <div className="flex flex-col items-center gap-3">
+            <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={160} height={64} priority className="h-auto w-36" />
+            <p className="mt-2 rounded-full bg-[#b61616] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em]">
+              Heritage pin booking
+            </p>
+            <p className="max-w-sm text-lg font-black">{navigatingOccurrence.title}</p>
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-[#d51f2b] motion-reduce:animate-none" aria-hidden="true" />
+            <p className="text-sm text-white/60">Loading your booking…</p>
+          </div>
+        </div>
+      ) : null}
       {promoOpen ? <HeritageCampaignPromoDialog onClose={closePromo} /> : null}
       {pendingOccurrence ? (
         <HeritageCountryDialog
