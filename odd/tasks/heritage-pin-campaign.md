@@ -60,6 +60,25 @@ Run a configurable Latin Heritage campaign that awards one country pin after a q
   - Make the public booking handoff continuously campaign-branded: no generic course skeleton, announcement, navigation, footer, or home chrome before/during the enrollment process; retain the PLI logo and Heritage heading above the process.
   - Evidence: 14 focused Vitest checks passed; isolated Playwright booking journey passed; typecheck and diff check passed; scoped ESLint has only six pre-existing `EnrollModal` warnings; desktop/mobile screenshots verified varied filtered-row flag pins, campaign-window-only side rails, hidden chrome, logo + Heritage heading, and a centered dark process card; direct and delayed-SPA handoffs showed no generic course/home content. Final candidate is 333 changed lines and native review approved it. Work-unit commit: `27a33177420c4dc14b867a3f1d1a43acb40e0547`.
 
+- [x] 7. Polish compact booking navigation and reconcile demo test phones.
+  - Keep exactly two footer actions: `Cancel | Continue` on the first step and `Back | Continue` afterward.
+  - Accept Clerk's reserved `+1 555-555-0100…0199` test range only in the `codex/develop` preview/demo environment; production MUST continue rejecting it.
+  - Reconcile only the authorized Clerk test instance and Railway demo database after a read-only dry-run and local backup, aborting if either environment guard fails.
+  - Cover production rejection, demo acceptance, footer behavior, and exact identity lookup with focused tests.
+  - Evidence: UI and guarded parser delivered by PR #561 and merge `7cebb29367c8fd87ae025e5aa65cf855b5d1dafb`; 85 focused tests, typecheck, diff check, PR size, CI, CodeQL, and native reliability review `review-f39d20aa608184b8` passed. A transient CodeQL alert in a test helper was fixed by `75027726b96fb589e27c294f257b9e127db66d16`. `Postgres-g1Qy` was proven as the intended 8-course demo and the `codex/develop`-only Vercel `DATABASE_URL` override was switched to it, with rollback material at `/tmp/pli-vercel-db-switch-20260929T225120Z.json`. After mode-0600 backup `/tmp/pli-g1qy-clerk-links-2026-09-29T22-50-32-053Z.json`, stale `0101`/`0123` rows were relinked transactionally; all six selected Clerk test phones now match Railway, while DB-only `0115`/`0119`/`0121`/`0124`/`0133` remain untouched. Git-source deployment `dpl_JD5SHTT7b1L4YT3JtC9QYXmFj2U2` is READY at `dev.palladiumlatin.art`: `/booking` and all six phone verification requests returned 200, the catalog exactly matches the 8-course g1Qy digest, and browser readback verified `Cancel | Continue`, then `Back | Continue`, plus Clerk recognition for `0101`. The historical 7-course database retained 224 users, 647 purchases, and its orphan `0102` row byte-for-byte unchanged.
+
+- [ ] 8. Activate Heritage pin acquisition early in the codex demo only.
+  - Keep production defaults and the US$15 benefit window starting on 2026-10-01.
+  - Add a browser-safe acquisition-start override and set both server/client branch-scoped preview values to 2026-09-29.
+  - Redeploy `codex/develop` and verify country selection, successful-payment entitlement visibility, and staff delivery controls without changing production configuration.
+  - Evidence: shared config reads browser-safe acquisition overrides with private server values taking precedence; 39 focused campaign/checkout tests, typecheck, diff check, and scoped ESLint passed. Both `HERITAGE_PIN_ACQUISITION_START` and `NEXT_PUBLIC_HERITAGE_PIN_ACQUISITION_START` are set to `2026-09-29` only for the `codex/develop` preview. Production defaults and the `2026-10-01` benefit start remain unchanged. Delivery, redeploy, country-dialog readback, and paid entitlement/staff lifecycle evidence are pending.
+
+- [x] 9. Restrict Heritage pin countries to Hispanic America and Spain.
+  - Update the requirements to define the exact campaign geography: the 18 sovereign Spanish-speaking American countries, Puerto Rico, and Spain.
+  - Centralize the allowlist so both the country selector and server-side normalization reject every other ISO country code.
+  - Add focused coverage proving included boundary examples and excluding unrelated countries such as Albania and Algeria.
+  - Evidence: `HERITAGE_PIN_COUNTRY_CODES` is the shared selector/server allowlist; 13 focused campaign tests pass and explicitly reject Albania, Algeria, Brazil, and Equatorial Guinea while accepting Colombia, Puerto Rico, and Spain.
+
 ## Delivery Strategy
 
 - Strategy: Feature Branch Chain, because the campaign must integrate atomically and the complete diff exceeds the 400-line review budget.

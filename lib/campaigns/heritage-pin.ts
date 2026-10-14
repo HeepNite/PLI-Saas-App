@@ -1,5 +1,3 @@
-import { getCountries } from "libphonenumber-js/max"
-
 export const HERITAGE_PIN_CAMPAIGN_KEY = "latin-heritage-2026"
 export const HERITAGE_PIN_TIME_ZONE = "America/New_York"
 export const HERITAGE_PIN_PRICE_CENTS = 1500
@@ -9,7 +7,15 @@ const DEFAULT_ACQUISITION_END = "2026-10-31"
 const DEFAULT_BENEFIT_START = "2026-10-01"
 const DEFAULT_BENEFIT_END = "2026-10-31"
 const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-const COUNTRY_CODES = new Set<string>(getCountries())
+export const HERITAGE_PIN_COUNTRY_CODES = [
+  "AR", "BO", "CL", "CO", "CR", "CU", "DO", "EC", "ES", "GT",
+  "HN", "MX", "NI", "PA", "PE", "PR", "PY", "SV", "UY", "VE",
+] as const
+export type HeritagePinCountryCode = typeof HERITAGE_PIN_COUNTRY_CODES[number]
+export const HERITAGE_PIN_DECORATIVE_FLAG_CODES = [
+  "AR", "MX", "CO", "DO", "PR", "ES", "PE", "CU",
+] as const satisfies readonly HeritagePinCountryCode[]
+const COUNTRY_CODES = new Set<string>(HERITAGE_PIN_COUNTRY_CODES)
 
 export type HeritagePinStatus = "pending" | "delivered"
 
@@ -66,9 +72,10 @@ const resolveCampaignWindow = (
 
 export const getHeritagePinCampaignConfig = (
   env: Partial<Record<string, string | undefined>> = process.env,
+  publicAcquisitionStart = process.env.NEXT_PUBLIC_HERITAGE_PIN_ACQUISITION_START,
 ): HeritagePinCampaignConfig => {
   const acquisition = resolveCampaignWindow(
-    env.HERITAGE_PIN_ACQUISITION_START,
+    env.HERITAGE_PIN_ACQUISITION_START ?? publicAcquisitionStart,
     env.HERITAGE_PIN_ACQUISITION_END,
     DEFAULT_ACQUISITION_START,
     DEFAULT_ACQUISITION_END,

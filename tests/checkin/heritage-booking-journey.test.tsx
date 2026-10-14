@@ -78,7 +78,7 @@ describe("Heritage campaign booking presentation", () => {
 
   it("uses a concise flag collage in the timed promotion instead of the pin photograph", () => {
     const html = renderToStaticMarkup(<HeritageCampaignPromoDialog onClose={() => undefined} />)
-    expect(html).toContain("Latin American and Caribbean flags")
+    expect(html).toContain("Hispanic American and Spanish flags")
     expect(html).toContain("Book online. Choose your country. Pick up your pin.")
     expect(html).toContain("$15 Sunday &amp; Monday classes after pickup.")
     expect(html).not.toContain("heritage-country-pins")
