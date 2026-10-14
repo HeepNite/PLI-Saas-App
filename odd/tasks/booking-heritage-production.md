@@ -65,6 +65,9 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Native review was unavailable with `package-local-binary-missing`; inspect created no lineage.
 - [ ] Create and approve the production release issue, publish bounded PRs, merge only after all required checks pass, verify the production deployment, and run a non-destructive live smoke.
   - Status: in progress.
+  - Approved issue: `#634`.
+  - Delivery chain: PRs `#635` through `#678`; 44 stacked slices, each below 400 changed lines and carrying exactly one `type:feature` label.
+  - Verified assembly preserved as `backup/booking-heritage-production-verified`; delivery history tip materializes the same verified tree, with the single 416-line phone-verification change split into separate 199-line runtime and 217-line test commits.
 
 ## Source PR Manifest
 
