@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { buildQrBookingUrl, buildQrSignInUrl, buildQrWelcomeUrl } from "@/lib/checkin/qr-booking-links"
+import {
+  buildQrBookingUrl,
+  buildQrSignInUrl,
+  buildQrWelcomeUrl,
+  shouldSkipQrBookingContactStep,
+} from "@/lib/checkin/qr-booking-links"
 
 describe("QR booking links", () => {
   it("builds a course booking URL for the scanned class", () => {
@@ -30,6 +35,44 @@ describe("QR booking links", () => {
 
   it("falls back to bare /checkin when no class context is available", () => {
     expect(buildQrWelcomeUrl({ courseSlug: "" })).toBe("/checkin")
+  })
+
+  it("keeps the contact step for signed-in public bookings", () => {
+    expect(
+      shouldSkipQrBookingContactStep({
+        hasQrBookingContext: true,
+        isLoaded: true,
+        isSignedIn: true,
+        bookingSource: "public_booking",
+      })
+    ).toBe(false)
+  })
+
+  it("preserves the trusted shortcut for signed-in non-public QR bookings", () => {
+    expect(
+      shouldSkipQrBookingContactStep({
+        hasQrBookingContext: true,
+        isLoaded: true,
+        isSignedIn: true,
+      })
+    ).toBe(true)
+  })
+
+  it("does not skip contact before auth or outside QR booking", () => {
+    expect(
+      shouldSkipQrBookingContactStep({
+        hasQrBookingContext: true,
+        isLoaded: false,
+        isSignedIn: true,
+      })
+    ).toBe(false)
+    expect(
+      shouldSkipQrBookingContactStep({
+        hasQrBookingContext: false,
+        isLoaded: true,
+        isSignedIn: true,
+      })
+    ).toBe(false)
   })
 
   it("keeps sign-in redirects scoped to check-in", () => {

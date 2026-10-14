@@ -5,7 +5,23 @@ export type QrBookingLinkParams = {
   durationMinutes?: number
 }
 
+type QrBookingContactStepInput = {
+  hasQrBookingContext: boolean
+  isLoaded: boolean
+  isSignedIn: boolean
+  bookingSource?: "public_booking"
+}
+
 const FALLBACK_COURSE_CATALOG_URL = "/courses-library"
+
+export function shouldSkipQrBookingContactStep({
+  hasQrBookingContext,
+  isLoaded,
+  isSignedIn,
+  bookingSource,
+}: QrBookingContactStepInput) {
+  return hasQrBookingContext && isLoaded && isSignedIn && bookingSource !== "public_booking"
+}
 
 export function buildQrBookingUrl({
   courseSlug,
