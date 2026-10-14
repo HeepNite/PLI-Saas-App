@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 
+import { readFileSync } from "node:fs"
+import { join } from "node:path"
 import React, { act } from "react"
 import { createRoot } from "react-dom/client"
 import { renderToStaticMarkup } from "react-dom/server"
@@ -15,6 +17,14 @@ import {
 } from "@/components/front/booking/HeritageCampaignBooking"
 import type { ShareableBookingOccurrence } from "@/lib/checkin/shareable-booking"
 
+const enrollModalSource = readFileSync(
+  join(process.cwd(), "components/front/courses/EnrollModal.tsx"),
+  "utf8",
+)
+const shareableBookingSource = readFileSync(
+  join(process.cwd(), "components/front/booking/ShareableBookingPage.tsx"),
+  "utf8",
+)
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const occurrence: ShareableBookingOccurrence = {
@@ -75,6 +85,12 @@ describe("Heritage campaign booking presentation", () => {
     expect(html).not.toContain("photograph")
   })
 
+  it("offers the timed promotion after five seconds on every booking visit", () => {
+    expect(shareableBookingSource).toContain("}, 5_000)")
+    expect(shareableBookingSource).not.toContain("heritage-promo-seen")
+    expect(shareableBookingSource).not.toContain("sessionStorage")
+  })
+
   it("keeps the active booking form visible behind a translucent phone verification overlay", () => {
     expect(enrollModalSource).toContain('verificationState === "sms_pending"')
     expect(enrollModalSource).toContain('activateSessionOnSuccess={isQrMobileCompactFlow}')
@@ -85,6 +101,11 @@ describe("Heritage campaign booking presentation", () => {
 
   it("uses explicit existing-phone copy before account access", () => {
     expect(enrollModalSource).toContain('"This phone number already exists"')
+  })
+
+  it("does not prefill a new public booking from an ambient Clerk session", () => {
+    expect(enrollModalSource).toContain('isKioskTerminalFlow || bookingSource === "public_booking"')
+    expect(enrollModalSource).toContain("public bookings collect the")
   })
 
   it("lets the visitor search and explicitly select a country before continuing", async () => {

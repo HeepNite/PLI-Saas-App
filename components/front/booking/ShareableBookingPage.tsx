@@ -362,13 +362,10 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
 
   React.useEffect(() => {
     if (!isHeritageCampaignAcquiringNow()) return
-    const sessionKey = "pli:heritage-promo-seen"
-    if (window.sessionStorage.getItem(sessionKey)) return
 
     const timer = window.setTimeout(() => {
-      window.sessionStorage.setItem(sessionKey, "true")
       if (!pendingOccurrenceRef.current && !navigationStartedRef.current) setPromoOpen(true)
-    }, 10_000)
+    }, 5_000)
     return () => window.clearTimeout(timer)
   }, [])
 
@@ -391,7 +388,6 @@ export default function ShareableBookingPage({ focus }: { focus?: BookingPromoti
 
   const selectOccurrence = (occurrence: ShareableBookingOccurrence) => {
     setPromoOpen(false)
-    window.sessionStorage.setItem("pli:heritage-promo-seen", "true")
     if (isHeritageCampaignAcquiringNow()) {
       setPendingOccurrence(occurrence)
       return

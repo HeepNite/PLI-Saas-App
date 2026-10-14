@@ -26,6 +26,7 @@ import { canOperateStudentEdits } from "@/lib/security/staff-access"
 import { isOpenSettlementRow } from "@/components/front/staff/staffPaymentFilters"
 import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
+import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
 import type { StudentCardsGridProps } from "@/components/front/staff/StudentCardsGrid"
 import type { PaymentBackedStudentCard } from "@/components/front/staff/studentsBoardTypes"
@@ -285,6 +286,23 @@ export function PaymentStudentCard({
           </span>
         </span>
       </div>
+
+      {payment.heritagePin ? (
+        <div
+          title={payment.heritagePin.status === "pending" ? "Physical pin awaiting staff handoff" : "Physical pin delivered"}
+          className="mt-2.5 flex w-full items-center justify-center rounded-md border border-[var(--brand,#b61616)]/35 bg-[var(--brand,#b61616)]/10 px-3 py-2 text-xs font-semibold text-red-100"
+        >
+          {payment.heritagePin.status === "delivered"
+            ? `Heritage pin · ${payment.heritagePin.countryName}`
+            : `Country pin pending · ${payment.heritagePin.countryName}`}
+        </div>
+      ) : null}
+      <HeritagePinDeliveryControl
+        userId={payment.userId}
+        heritagePin={payment.heritagePin}
+        canDeliver={canEditStudentInfo}
+        onDelivered={onRefreshPaymentsBoard}
+      />
 
       <div className="mt-4 space-y-2.5 border-t border-white/10 pt-3.5 text-xs text-white/85">
         <p className="inline-flex w-full items-center justify-between gap-2">
