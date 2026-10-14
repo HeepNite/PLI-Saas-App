@@ -45,7 +45,11 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Verification: 16 focused tests, typecheck, focused ESLint, and `git diff --check` passed locally. Independent verification confirmed exact source patch IDs, no hidden omitted-module dependency, preserved main behavior, and 54 focused tests plus 3 boundary probes.
   - Browser smoke was unavailable because the isolated verifier lacked a Clerk publishable key; production deployment smoke remains mandatory.
   - Native review preflight was unavailable (`package-local-binary-missing`) and created no lineage.
-- [ ] Integrate the Heritage acquisition and staff-fulfillment lifecycle without the deferred package-credit award.
+- [x] Integrate the Heritage acquisition and staff-fulfillment lifecycle without the deferred package-credit award.
+  - Ports: `a3ce2211`, `2ab0fb2f`, `3c05f923`, `55d95447`, `5ead0ff1`, `dec1d4b0`, `e57f6d2a`, `73bd9f9b`, `7cec034f`, and formatting cleanup `a7781113`; every work unit remains below 400 changed lines.
+  - Conflict reconciliation preserved production's package sale-date behavior and omitted unrelated special-class capture modules while retaining Heritage award, terminal-only cash, and delivered-pin pricing.
+  - Verification: 58 focused tests, typecheck, focused ESLint (0 errors, 6 inherited warnings), and diff check passed. Independent verification ran 131 focused tests plus 5 probes and found no blocker.
+  - Browser E2E remains pending because isolated verifier environments lacked Playwright Chromium/Clerk configuration.
 - [ ] Integrate current public package routing, promotion pricing, and corrected Clerk account access.
 - [ ] Integrate and verify `/monday` through `/sunday` plus the legacy redirect.
 - [ ] Prove the final executable release tree matches the intended scoped dev behavior and run focused/full checks plus independent verification.

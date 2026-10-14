@@ -66,12 +66,14 @@ Names may be refined during implementation, but semantics and idempotency are fi
 
 Announcement direction:
 
-> **Celebrate Latin Heritage Month with PLI**  
+> **Celebrate Latin Heritage Month with PLI**
+>
 > Complete your booking online and receive a pin representing your country. Once you pick it up, eligible Sunday and Monday classes are only $15 during the campaign.
 
 Country step direction:
 
-> **Where are you from?**  
+> **Where are you from?**
+>
 > Choose your country so we can prepare your pin. Your benefit activates after the pin is handed to you at PLI.
 
 Final copy may be tightened for viewport constraints without changing these promises.
