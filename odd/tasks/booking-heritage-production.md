@@ -34,7 +34,7 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/booking-heritage-production-release`.
   - Commit: `5ece79a0` (`docs(odd): track booking production release`).
 - [x] Build an exact source/path manifest and identify production-base conflicts for the scoped release.
-  - Source groups: public Booking foundation (#506); Heritage contract/domain/UI/checkout/staff lifecycle (#551–#559); campaign and identity corrections (#560–#570, excluding unrelated gaps); package routing (#572–#576); booking/identity recovery (#583, #588, #594–#595, #598–#602); public promotion pricing (#608–#621); Clerk email/phone access (#629–#630); weekday routes (#632–#633).
+  - Source groups: public Booking foundation (#506); Heritage contract/domain/UI/checkout/staff lifecycle (#551–#559); campaign and identity corrections (#560–#570, excluding unrelated gaps); package routing (#572–#576); booking/identity recovery (#583–#584, #588, #594–#595, #598–#602); public promotion pricing (#608–#621, excluding the non-runtime staff editor in #610); Clerk email/phone access (#629–#630); weekday routes (#632–#633).
   - Explicitly excluded: dev-only Clerk test-phone persistence (#581), profile-only promotion quote work (#622–#627), package-credit pin awards, package reward ledger, and unrelated dev changes.
   - Assembly rule: replay each selected PR's first-parent delta in chronological order. Do not copy the current dev files wholesale because current shared files import excluded profile-quote and special-class modules.
   - The selected historical deltas touch 149 unique paths and total roughly 12,400 changed lines against current production, so the hard 400-line PR gate requires a long chained release; the oversized #506 foundation must be re-sliced.
@@ -50,9 +50,16 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Conflict reconciliation preserved production's package sale-date behavior and omitted unrelated special-class capture modules while retaining Heritage award, terminal-only cash, and delivered-pin pricing.
   - Verification: 58 focused tests, typecheck, focused ESLint (0 errors, 6 inherited warnings), and diff check passed. Independent verification ran 131 focused tests plus 5 probes and found no blocker.
   - Browser E2E remains pending because isolated verifier environments lacked Playwright Chromium/Clerk configuration.
-- [ ] Integrate current public package routing, promotion pricing, and corrected Clerk account access.
-- [ ] Integrate and verify `/monday` through `/sunday` plus the legacy redirect.
+- [x] Integrate current public package routing, promotion pricing, and corrected Clerk account access.
+  - Package routing #572–#576, booking continuity/recovery #583–#584 and #588/#594–#602, promotion rules/public checkout #608–#609 and #611–#621, and Clerk account access #629–#630 are present.
+  - The staff promotion editor #610 remains excluded because the public server-authoritative checkout path does not import or require it.
+  - Production rejects reserved Clerk test phones; the preview-only persistence support from #561/#581 remains excluded.
+- [x] Integrate and verify `/monday` through `/sunday` plus the legacy redirect.
+  - Source PRs #632–#633 are present; all seven static routes and `/monday-salsa-beginner` compatibility behavior are included.
 - [ ] Prove the final executable release tree matches the intended scoped dev behavior and run focused/full checks plus independent verification.
+  - Status: in progress.
+  - Local evidence: typecheck passed; 398 focused tests passed; scoped ESLint completed with 0 errors and 26 inherited warnings; range `git diff --check` passed.
+  - Reconciliation removed only two invalid source-test assertions: one referenced excluded special-class cash code, and one expected preview-only reserved Clerk test-phone support.
 - [ ] Create and approve the production release issue, publish bounded PRs, merge only after all required checks pass, verify the production deployment, and run a non-destructive live smoke.
 
 ## Source PR Manifest
@@ -61,8 +68,8 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
 - Heritage lifecycle: #551, #552, #553, #554, #555, #556, #557, #558, #559.
 - Campaign/booking corrections: #560, #561, #562, #566, #567, #568, #569, #570.
 - Package routing: #572, #573, #574, #575, #576.
-- Identity and campaign recovery: #583, #588, #594, #595, #598, #599, #600, #601, #602.
-- Public promotion pricing: #608 through #621.
+- Identity and campaign recovery: #583, #584, #588, #594, #595, #598, #599, #600, #601, #602.
+- Public promotion pricing: #608, #609, and #611 through #621; #610 is a staff-only editor and is excluded from this release.
 - Clerk account access: #629 and #630.
 - Weekday routes: #632 and #633.
 

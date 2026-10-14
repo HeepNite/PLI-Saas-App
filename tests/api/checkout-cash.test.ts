@@ -191,7 +191,6 @@ describe("checkout cash route", () => {
     expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
     expect(mockUpsertUser).not.toHaveBeenCalled()
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
-    expect(mockAdmitSpecialClassCashWalkIn).not.toHaveBeenCalled()
   })
 
   it("rejects remote cash despite caller-provided terminal source claims before side effects", async () => {
