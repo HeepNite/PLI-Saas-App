@@ -64,6 +64,7 @@ const defaultInput = (override: Partial<UseEnrollPaymentActionsInput> = {}): Use
   consecutiveAddedCents: 0,
   effectiveConsecutiveOffer: null,
   isCheckInFlow: false,
+  isCheckInExistingFlow: false,
   isKioskTerminalFlow: false,
   isProfileBookingFlow: false,
   isSignedIn: false,
@@ -523,6 +524,38 @@ describe("useEnrollPaymentActions", () => {
       expect(setKioskQrCheckout).toHaveBeenCalledWith(
         expect.objectContaining({ phase: "idle" })
       )
+    })
+  })
+
+  // ---------------------------------------------------------------------
+  // handleSubmit — public existing-customer package path
+  // ---------------------------------------------------------------------
+  describe("handleSubmit — public package reservation", () => {
+    it("reserves an applicable package and skips paid checkout", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ ok: true, kind: "reserved", attendanceId: "attendance_1" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const setSuccess = vi.fn()
+      const setSuccessMessage = vi.fn()
+      const getToken = vi.fn(async () => "session-token")
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        isCheckInFlow: true,
+        isCheckInExistingFlow: true,
+        isSignedIn: true,
+        getToken,
+        setSuccess,
+        setSuccessMessage,
+      }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profile/bookings/reserve-package",
+        expect.objectContaining({ method: "POST" })
+      )
+      expect(setSuccess).toHaveBeenCalledWith(true)
+      expect(setSuccessMessage).toHaveBeenCalledWith(expect.stringContaining("reserved with your package"))
     })
   })
 
