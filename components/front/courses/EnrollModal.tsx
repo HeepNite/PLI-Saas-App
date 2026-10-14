@@ -1,5 +1,6 @@
 "use client"
 import React from "react"
+import Image from "next/image"
 import { demoCourses, type EnrollmentOption } from "@/constants/courses"
 import GlassyCard from "./GlassyCard"
 import { useI18n } from "@/lib/i18n"
@@ -21,6 +22,7 @@ import {
   getPhotoPolicy,
   isPhotoRequiredForAccount,
 } from "@/lib/checkin/photo-context-policy"
+import { getHeritagePinCountryName } from "@/lib/campaigns/heritage-pin"
 import {
   handleEmbeddedSignInSessionCreated,
   notifyPaymentsStepReadyForOpenSession,
@@ -173,6 +175,8 @@ export default function EnrollModal({
   const checkInContextDate = normalizeIsoDate(checkInContext?.date)
   const checkInContextTime = normalizeTime24(checkInContext?.time)
   const checkInContextDuration = normalizeDurationMinutes(checkInContext?.durationMinutes)
+  const bookingSource = checkInContext?.bookingSource
+  const heritagePinCountryCode = checkInContext?.heritagePinCountryCode
   const isCheckInNewFlow = flowVariant === "checkin-new"
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
@@ -403,9 +407,11 @@ export default function EnrollModal({
       "qrBooking=1",
       checkInContextDate && `date=${checkInContextDate}`,
       checkInContextTime && `time=${checkInContextTime}`,
+      bookingSource === "public_booking" && "bookingSource=public_booking",
+      heritagePinCountryCode && `heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}`,
     ].filter(Boolean).join("&")
     return extras ? `${base}&${extras}` : base
-  }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime])
+  }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime, bookingSource, heritagePinCountryCode])
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
   const {
@@ -789,6 +795,8 @@ export default function EnrollModal({
     checkInContextDate,
     checkInContextTime,
     checkInContextDuration,
+    bookingSource,
+    heritagePinCountryCode,
     consecutiveAccepted,
     consecutiveAddedCents,
     effectiveConsecutiveOffer,
@@ -1272,6 +1280,19 @@ export default function EnrollModal({
             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor"><path d="M18.3 5.71a1 1 0 0 0-1.41 0L12 10.59 7.11 5.7A1 1 0 0 0 5.7 7.11L10.59 12l-4.9 4.89a1 1 0 1 0 1.41 1.41L12 13.41l4.89 4.9a1 1 0 0 0 1.41-1.41L13.41 12l4.9-4.89a1 1 0 0 0-.01-1.4z"/></svg>
           </button>
         )}
+
+        {bookingSource === "public_booking" && heritagePinCountryCode ? (
+          <div className="flex items-center gap-3 border-b border-white/10 bg-[#09070d] px-4 py-3 text-white sm:px-6">
+            <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={88} height={35} className="h-auto w-[76px] shrink-0" />
+            <div className="min-w-0 flex-1 border-l border-white/12 pl-3">
+              <p className="truncate text-[10px] font-black uppercase tracking-[0.11em] text-[#ef4b55]">Heritage pin booking</p>
+              <p className="truncate text-xs font-semibold text-white/72">Your country. Your pin. Your community.</p>
+            </div>
+            <span className="shrink-0 rounded-full border border-[#74747c] bg-[#24242a] px-3 py-1.5 text-[10px] font-black text-white">
+              {getHeritagePinCountryName(heritagePinCountryCode)}
+            </span>
+          </div>
+        ) : null}
 
         <div className={[
           isInline ? "grid grid-cols-1 md:grid-cols-1" : "grid grid-cols-1 md:grid-cols-12",

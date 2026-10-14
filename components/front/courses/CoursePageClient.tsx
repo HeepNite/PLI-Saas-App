@@ -1,5 +1,6 @@
 "use client"
 import React from "react"
+import Image from "next/image"
 import { useSearchParams } from "next/navigation"
 import type { CourseData } from "@/constants/courses"
 import CourseAsideLeft from "./CourseAsideLeft"
@@ -213,49 +214,34 @@ export default function CoursePageClient({ course, isQrBooking }: { course: Cour
     if (bootLoader) bootLoader.remove()
   }, [isQrBookingFlow])
 
-  // QR booking flow on mobile: hide the entire course page and show only the booking overlay
+  // Public/QR booking owns the whole viewport on every breakpoint. Keeping the
+  // generic course layout out of this branch prevents a desktop hydration flash.
   if (isQrBookingFlow) {
     return (
-      <div className="min-h-screen bg-background overflow-visible">
-        {/* Mobile: full-screen black background with loader + booking modal */}
-        <div className="lg:hidden fixed inset-0 z-[9999] bg-black">
-          {/* Loader shown immediately while CourseAsideRight mounts and opens the modal */}
-          <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-              <p className="text-sm text-white/70">Loading your booking…</p>
+      <main className="min-h-screen bg-[#09070d] px-3 py-6 font-bricolage text-white sm:px-6 sm:py-10">
+        <div aria-hidden="true" className="pointer-events-none fixed inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_50%_0%,rgba(182,22,22,0.18),transparent_62%)]" />
+        <section className="relative mx-auto w-full max-w-xl">
+          <header className="mb-5 flex flex-col items-center text-center">
+            <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={176} height={70} priority className="h-auto w-36" />
+            <p className="mt-5 rounded-full bg-[#b61616] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em] text-white">
+              Heritage pin booking
+            </p>
+            <h1 className="mt-3 text-2xl font-black tracking-tight text-white">{course.title}</h1>
+            <p className="mt-1 text-sm text-white/55">Your country. Your pin. Your community.</p>
+          </header>
+          <div className="relative min-h-80">
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-[#d51f2b]" />
+                <p className="text-sm text-white/55">Loading your booking…</p>
+              </div>
+            </div>
+            <div className="relative z-10">
+              <CourseAsideRight course={course} />
             </div>
           </div>
-          <div className="relative z-10">
-            <CourseAsideRight course={course} />
-          </div>
-        </div>
-        {/* Desktop: render normally */}
-        <div className="hidden lg:block mx-auto w-full max-w-[1800px] px-0 sm:px-1 lg:px-2 xl:px-3 py-8">
-          <div
-            ref={gridRef}
-            className="grid grid-cols-1 gap-6 overflow-visible relative lg:items-start lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)_minmax(360px,430px)]"
-          >
-            <aside className="lg:self-start lg:h-fit">
-              <div ref={leftStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
-                <div className="space-y-4">
-                  <CourseAsideLeft course={course} />
-                </div>
-              </div>
-            </aside>
-            <section>
-              <div className="pr-1">
-                <CourseSections course={course} />
-              </div>
-            </section>
-            <aside className="lg:self-start lg:h-fit" id="enroll-cta">
-              <div ref={rightStickyRef} className="lg:sticky" style={{ top: stickyTop }}>
-                <CourseAsideRight course={course} />
-              </div>
-            </aside>
-          </div>
-        </div>
-      </div>
+        </section>
+      </main>
     )
   }
 
