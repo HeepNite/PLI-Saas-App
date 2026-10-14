@@ -56,12 +56,15 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Production rejects reserved Clerk test phones; the preview-only persistence support from #561/#581 remains excluded.
 - [x] Integrate and verify `/monday` through `/sunday` plus the legacy redirect.
   - Source PRs #632–#633 are present; all seven static routes and `/monday-salsa-beginner` compatibility behavior are included.
-- [ ] Prove the final executable release tree matches the intended scoped dev behavior and run focused/full checks plus independent verification.
-  - Status: in progress.
+- [x] Prove the final executable release tree matches the intended scoped dev behavior and run focused/full checks plus independent verification.
+  - Status: done.
   - Local evidence: typecheck passed; 398 focused tests passed; scoped ESLint completed with 0 errors and 26 inherited warnings; range `git diff --check` passed.
   - Reconciliation removed only two invalid source-test assertions: one referenced excluded special-class cash code, and one expected preview-only reserved Clerk test-phone support.
   - Independent verification found that the generic checkout endpoint trusted caller-provided `bookingSource` for Heritage acquisition. The fix now derives Heritage provenance only from the server-owned trusted checkout channel; the generic/profile path cannot forge acquisition, while the public wrapper remains covered positively. RED and GREEN were observed, and the 398-test focused set remained green.
+  - Independent re-verification passed five provenance probes covering generic, profile, missing/invalid public country, and normalized trusted-public metadata; 27 focused checkout tests, typecheck, ESLint, and diff check passed.
+  - Native review was unavailable with `package-local-binary-missing`; inspect created no lineage.
 - [ ] Create and approve the production release issue, publish bounded PRs, merge only after all required checks pass, verify the production deployment, and run a non-destructive live smoke.
+  - Status: in progress.
 
 ## Source PR Manifest
 
