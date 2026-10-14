@@ -32,6 +32,7 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
 
 - [x] Create the isolated production-release worktree and freeze release/deferred scope.
   - Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/booking-heritage-production-release`.
+  - Commit: `5ece79a0` (`docs(odd): track booking production release`).
 - [ ] Build an exact source/path manifest and identify production-base conflicts for the scoped release.
 - [ ] Reconstruct the shareable Booking foundation on the production base in reviewable work units.
 - [ ] Integrate the Heritage acquisition and staff-fulfillment lifecycle without the deferred package-credit award.
