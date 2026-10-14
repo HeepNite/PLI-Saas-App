@@ -14,7 +14,7 @@ import {
   parseIsoDate,
   parseTime24,
 } from "@/lib/class-schedule"
-import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import { holdPackageCreditForAttendanceTx } from "@/lib/packages"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { awardPointsFromRule } from "@/lib/points/service"
 import { POINTS_RULE_KEYS } from "@/lib/points/constants"
@@ -207,13 +207,13 @@ export async function POST(req: Request) {
           throw error
         }
 
-        await reservePackageCreditForAttendanceTx(tx, {
+        await holdPackageCreditForAttendanceTx(tx, {
           packagePurchaseId,
           userId: dbUser.id,
           attendanceId: attendance.id,
           courseSlug,
           at: startsAt,
-          reason: "PACKAGE_ASSIGNMENT",
+          reason: "PACKAGE_ASSIGNMENT_HOLD",
         })
 
         createdAttendances.push({

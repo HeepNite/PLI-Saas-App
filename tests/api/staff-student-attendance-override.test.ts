@@ -34,6 +34,7 @@ const mockPrisma = {
   },
   packageUsageLedger: {
     findFirst: vi.fn(),
+    findUnique: vi.fn(),
     create: vi.fn(),
     delete: vi.fn(),
   },
@@ -84,6 +85,7 @@ describe("PATCH /api/staff/students/[userId]/attendance", () => {
     mockPrisma.packagePurchase.findFirst.mockReset()
     mockPrisma.packagePurchase.update.mockReset()
     mockPrisma.packageUsageLedger.findFirst.mockReset()
+    mockPrisma.packageUsageLedger.findUnique.mockReset()
     mockPrisma.packageUsageLedger.create.mockReset()
     mockPrisma.packageUsageLedger.delete.mockReset()
     mockPrisma.purchase.findMany.mockReset()
