@@ -161,9 +161,6 @@ export function HeritageCampaignPromoDialog({ onClose }: { onClose: () => void }
         <p className="mt-3 text-sm font-semibold text-white/68">
           Book online. Choose your country. Pick up your pin.
         </p>
-        <p className="mt-2 text-xs text-white/45">
-          $15 Sunday &amp; Monday classes after pickup.
-        </p>
         <button
           type="button"
           onClick={onClose}

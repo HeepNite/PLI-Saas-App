@@ -15,8 +15,6 @@ import { prisma } from "@/lib/prisma"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
-import { resolveHeritagePinPrice } from "@/lib/campaigns/heritage-pin"
-import { findHeritagePinEntitlementForUser } from "@/lib/campaigns/heritage-pin-entitlement"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 
 export const runtime = "nodejs"
@@ -136,28 +134,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
   }
 
-  const heritagePinEntitlement = await findHeritagePinEntitlementForUser(prisma, dbUser.id)
-  const heritagePinPricing = resolveHeritagePinPrice({
-    entitlement: heritagePinEntitlement,
-    classDate: effectiveSession.date || validation.date,
-    participants: validation.safeParticipants,
-    serviceId: validation.serviceId,
-    packageId: validation.packageId,
-    coupon: validation.coupon,
-    addonCount: validation.addons?.length ?? 0,
-    consecutivePriceCents: validation.consecutivePriceCents ?? null,
-    consecutiveAddOnOnly: validation.consecutiveAddOnOnly ?? false,
-  })
-  const effectiveAmountCents = heritagePinPricing.applied
-    ? heritagePinPricing.amountCents
-    : validation.amountInt
-  const heritagePinPricingMetadata = heritagePinPricing.applied
-    ? {
-        heritagePinPriceApplied: true,
-        heritagePinPriceCents: heritagePinPricing.amountCents,
-        heritagePinEntitlementPurchaseId: heritagePinPricing.entitlementPurchaseId,
-      }
-    : {}
 
   // Prevent duplicate purchases for the same user + class + date/time (drop-in only)
   if (validation.serviceId && effectiveSession.date && effectiveSession.time) {
@@ -199,7 +175,7 @@ export async function POST(req: Request) {
     const consecutiveAmountCents = validation.consecutivePriceCents!
     const consecutiveSlug = validation.consecutiveLinkedCourseSlug!
     const consecutiveTitle = validation.consecutiveCourseTitle || null
-    const primaryAmountCents = effectiveAmountCents - consecutiveAmountCents
+    const primaryAmountCents = validation.amountInt - consecutiveAmountCents
 
     const result = await prisma.$transaction(async (tx) => {
       // Purchase 1: original class
@@ -251,7 +227,6 @@ export async function POST(req: Request) {
             // Consecutive metadata: this purchase has a linked consecutive purchase
             hasConsecutiveLinkedPurchase: true,
             consecutiveLinkedSlug: consecutiveSlug,
-            ...heritagePinPricingMetadata,
           },
         },
       })
@@ -345,7 +320,7 @@ export async function POST(req: Request) {
       userId: dbUser.id,
       courseSlug: validation.courseSlug,
       courseTitle: validation.courseTitle,
-      amount: effectiveAmountCents,
+      amount: validation.amountInt,
       currency: validation.currency,
       status: "pending",
       email: identity.resolvedEmail,
@@ -385,7 +360,6 @@ export async function POST(req: Request) {
         phoneRaw: identity.phoneRaw || "",
         cashNote,
         requiresCardMigration: true,
-        ...heritagePinPricingMetadata,
       },
     },
   })
