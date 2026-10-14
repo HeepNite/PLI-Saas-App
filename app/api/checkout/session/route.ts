@@ -261,7 +261,8 @@ async function handleCheckoutSession(req: Request) {
     kioskSessionToken,
   } = body || {}
   const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
-  const bookingSource = typeof body.bookingSource === "string" ? body.bookingSource.trim() : ""
+  const trustedChannel = getTrustedCheckoutChannel()
+  const bookingSource = trustedChannel === "public_booking" ? "public_booking" : ""
   const heritagePinCountryCode = normalizeHeritagePinCountryCode(body.heritagePinCountryCode)
   if (bookingSource === "public_booking" && isHeritagePinAcquisitionDate(new Date()) && !heritagePinCountryCode) {
     return NextResponse.json({ error: "Select a valid country for the Heritage pin." }, { status: 400 })
@@ -285,7 +286,6 @@ async function handleCheckoutSession(req: Request) {
   if (isApiError(initialValidation)) {
     return toErrorResponse(initialValidation)
   }
-  const trustedChannel = getTrustedCheckoutChannel()
   if (trustedChannel === "public_booking") {
     const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
     if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)

@@ -60,6 +60,7 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Status: in progress.
   - Local evidence: typecheck passed; 398 focused tests passed; scoped ESLint completed with 0 errors and 26 inherited warnings; range `git diff --check` passed.
   - Reconciliation removed only two invalid source-test assertions: one referenced excluded special-class cash code, and one expected preview-only reserved Clerk test-phone support.
+  - Independent verification found that the generic checkout endpoint trusted caller-provided `bookingSource` for Heritage acquisition. The fix now derives Heritage provenance only from the server-owned trusted checkout channel; the generic/profile path cannot forge acquisition, while the public wrapper remains covered positively. RED and GREEN were observed, and the 398-test focused set remained green.
 - [ ] Create and approve the production release issue, publish bounded PRs, merge only after all required checks pass, verify the production deployment, and run a non-destructive live smoke.
 
 ## Source PR Manifest
