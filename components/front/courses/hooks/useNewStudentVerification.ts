@@ -16,7 +16,7 @@ type ExistingIdentifier = "phone" | "email" | "both"
 type VerifyAction =
   | { type: "VERIFY_START" }
   | { type: "VERIFY_EXISTING"; existingIdentifier?: ExistingIdentifier }
-  | { type: "VERIFY_NEW" }
+  | { type: "VERIFY_NEW"; shouldFallbackToRegular: boolean; message: string | null }
   | { type: "VERIFY_ELIGIBLE" }
   | { type: "SMS_SENT" }
   | { type: "SMS_VERIFIED" }
@@ -27,6 +27,8 @@ type VerifyAction =
 type VerificationContext = {
   error: string | null
   existingIdentifier: ExistingIdentifier | null
+  shouldFallbackToRegular: boolean
+  message: string | null
 }
 
 type State = {
@@ -38,14 +40,19 @@ type State = {
 
 export const initialState: State = {
   status: "idle",
-  ctx: { error: null, existingIdentifier: null },
+  ctx: {
+    error: null,
+    existingIdentifier: null,
+    shouldFallbackToRegular: false,
+    message: null,
+  },
 }
 
 export function verificationReducer(state: State, action: VerifyAction): State {
   switch (action.type) {
     case "VERIFY_START":
       // Allow restart from any state (auto-reset for retry scenarios)
-      return { status: "verifying", ctx: { error: null, existingIdentifier: null } }
+      return { status: "verifying", ctx: initialState.ctx }
 
     case "VERIFY_EXISTING":
       return {
@@ -54,7 +61,15 @@ export function verificationReducer(state: State, action: VerifyAction): State {
       }
 
     case "VERIFY_NEW":
-      return { status: "sms_pending", ctx: { ...state.ctx, error: null } }
+      return {
+        status: "sms_pending",
+        ctx: {
+          ...state.ctx,
+          error: null,
+          shouldFallbackToRegular: action.shouldFallbackToRegular,
+          message: action.message,
+        },
+      }
 
     case "VERIFY_ELIGIBLE":
       return { status: "verified", ctx: { ...state.ctx, error: null } }
@@ -85,6 +100,12 @@ export function verificationReducer(state: State, action: VerifyAction): State {
 type VerificationResponse = {
   outcome?: "eligible" | "requires_sms_verification" | "fallback_regular" | "existing_user"
   requiresSmsVerification?: boolean
+  shouldFallbackToRegular?: boolean
+  message?: string
+}
+
+export type PhoneVerificationOptions = {
+  requireSmsVerification?: boolean
 }
 
 export function resolveNewStudentVerificationOutcome(response: unknown): "existing_detected" | "sms_pending" | "verified" {
@@ -117,14 +138,22 @@ export function useNewStudentVerification() {
   const [state, dispatch] = useReducer(verificationReducer, initialState)
 
   const verify = useCallback(
-    async (phone: string, email: string): Promise<VerificationState> => {
+    async (
+      phone: string,
+      email: string,
+      options: PhoneVerificationOptions = {}
+    ): Promise<VerificationState> => {
       dispatch({ type: "VERIFY_START" })
 
       try {
         const res = await fetch("/api/checkin/qr/new-student/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone, email }),
+          body: JSON.stringify({
+            phone,
+            email,
+            requireSmsVerification: options.requireSmsVerification === true,
+          }),
         })
 
         if (!res.ok) {
@@ -144,7 +173,12 @@ export function useNewStudentVerification() {
         }
 
         if (outcome === "sms_pending") {
-          dispatch({ type: "VERIFY_NEW" })
+          const response = data as VerificationResponse
+          dispatch({
+            type: "VERIFY_NEW",
+            shouldFallbackToRegular: response.shouldFallbackToRegular === true,
+            message: typeof response.message === "string" ? response.message : null,
+          })
           return "sms_pending"
         }
 
@@ -155,7 +189,7 @@ export function useNewStudentVerification() {
         return "error"
       }
     },
-    [state.status]
+    []
   )
 
   const onSmsSent = useCallback(() => dispatch({ type: "SMS_SENT" }), [])
@@ -167,6 +201,8 @@ export function useNewStudentVerification() {
     state: state.status,
     error: state.ctx.error,
     existingIdentifier: state.ctx.existingIdentifier,
+    shouldFallbackToRegular: state.ctx.shouldFallbackToRegular,
+    fallbackMessage: state.ctx.message,
     verify,
     onSmsSent,
     onSmsVerified,

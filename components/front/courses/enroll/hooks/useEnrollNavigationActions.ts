@@ -5,7 +5,7 @@ import type { PreparedAccountState } from "@/components/front/courses/enroll/typ
 import type { PhotoPolicy } from "@/lib/checkin/photo-context-policy"
 import type { EnrollStepKey } from "@/lib/checkin/enroll-flow"
 import type { SignInPurpose } from "@/components/front/courses/enroll/model/enroll-flow.types"
-import { isCompleteUSPhone } from "@/components/front/courses/utils/phone"
+import { isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
 import { isEmail } from "@/lib/shared"
 import { isCheckInContactGateStep, handleExistingUserDetected } from "@/lib/checkin/enroll-flow"
 import { isPhotoRequiredForAccount } from "@/lib/checkin/photo-context-policy"
@@ -36,7 +36,13 @@ export type UseEnrollNavigationActionsInput = {
   activeNumericField: "phone" | null
   preparedAccount: PreparedAccountState | null
   onExistingUserDetected?: () => void
-  verifyNewStudent: (phone: string, email: string) => Promise<string>
+  verifyNewStudent: (
+    phone: string,
+    email: string,
+    options?: { requireSmsVerification?: boolean }
+  ) => Promise<string>
+  verifiedPhoneKey: string | null
+  setVerifiedPhoneKey: SetState<string | null>
   resetVerification: () => void
   setContact: SetState<EnrollmentContact>
   setStep: SetState<number>
@@ -63,7 +69,7 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     service, contact, isCheckInFlow, isKioskTerminalFlow, isQrMobileCompactFlow, isSignedIn,
     step, steps, photoPolicy, photoSaved, photoStepIndex, promoStepIndex, packagesStepIndex, paymentsStepIndex,
     usesPhasedInfoForm, activeStepKey, kioskInfoPhase, activeNumericField, preparedAccount,
-    onExistingUserDetected, verifyNewStudent, resetVerification,
+    onExistingUserDetected, verifyNewStudent, verifiedPhoneKey, setVerifiedPhoneKey, resetVerification,
     setContact, setStep, setFormError, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setResumeContactFlowAfterSignIn, setPendingAutoPay, setSignInPurpose,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase, setAddons,
@@ -111,8 +117,22 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
         return
       }
 
-      if (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) {
-        const result = await verifyNewStudent(contact.phone, contact.email)
+      const submittedPhoneKey = toE164Phone(contact.phone) || null
+      const requiresPublicPhoneVerification =
+        isQrMobileCompactFlow && (!submittedPhoneKey || verifiedPhoneKey !== submittedPhoneKey)
+
+      if (requiresPublicPhoneVerification && !isCompleteUSPhone(contact.phone)) {
+        setFormError("Please enter a valid phone number before continuing.")
+        return
+      }
+
+      if (
+        (service === "new-student" && (isKioskTerminalFlow || isQrMobileCompactFlow) && isCompleteUSPhone(contact.phone)) ||
+        requiresPublicPhoneVerification
+      ) {
+        const result = isQrMobileCompactFlow
+          ? await verifyNewStudent(contact.phone, contact.email, { requireSmsVerification: true })
+          : await verifyNewStudent(contact.phone, contact.email)
         if (handleExistingUserDetected({ isKioskTerminalFlow, service, verifyResult: result, onExistingUserDetected })) {
           return
         }
@@ -131,6 +151,14 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
           }
           return
         }
+        if (requiresPublicPhoneVerification && (result === "verified" || result === "existing_detected")) {
+          setVerifiedPhoneKey(submittedPhoneKey)
+          if (service === "new-student" && result === "existing_detected") {
+            showRegularFallbackPopup()
+            return
+          }
+        }
+        if (result === "error") return
       } else if (service === "new-student" && !isKioskTerminalFlow && isCompleteUSPhone(contact.phone)) {
         const verifyResult = await requestNewStudentOutcome()
         if (!verifyResult) return
@@ -205,7 +233,8 @@ export function useEnrollNavigationActions(input: UseEnrollNavigationActionsInpu
     photoSaved, photoStepIndex, preparedAccount, requestAccountPreparation, requestNewStudentOutcome,
     setExistingAccountDetected, setFormError, setRequiresSignIn, setResumeAfterSignInStep,
     setResumeContactFlowAfterSignIn, setSignInPurpose, setStep, service, showRegularFallbackPopup,
-    step, verifyNewStudent, resetVerification, setIdentityCheckBusy, setPendingAutoPay,
+    step, verifyNewStudent, verifiedPhoneKey, setVerifiedPhoneKey, resetVerification,
+    setIdentityCheckBusy, setPendingAutoPay,
   ])
 
   const handleFormStepSubmit = async () => {
