@@ -78,11 +78,7 @@ export type UseEnrollActionsInput = {
   kioskFastPathAdvanceTriggeredRef: React.MutableRefObject<boolean>
   kioskFastPathSubmitTriggeredRef: React.MutableRefObject<boolean>
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>
-  verifyNewStudent: (
-    phone: string,
-    email: string,
-    options?: { requireSmsVerification?: boolean }
-  ) => Promise<string>
+  verifyNewStudent: (phone: string, email: string) => Promise<string>
   verifiedPhoneKey?: string | null
   setVerifiedPhoneKey?: SetState<string | null>
   markSmsVerified: () => void
