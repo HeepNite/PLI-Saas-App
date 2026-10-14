@@ -10,7 +10,14 @@ const { mockPrisma } = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ prisma: mockPrisma }))
 
-import { buildPackagePurchasePayload, reservePackageCreditForAttendanceTx, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import {
+  buildPackagePurchasePayload,
+  consumeHeldPackageCreditForAttendanceTx,
+  holdPackageCreditForAttendanceTx,
+  releasePackageCreditUsageTx,
+  reservePackageCreditForAttendanceTx,
+  syncPackagePurchaseFromPaidPurchase,
+} from "@/lib/packages"
 
 describe("packages helpers", () => {
   beforeEach(() => {
@@ -137,5 +144,112 @@ describe("packages helpers", () => {
     expect(tx.packagePurchase.findFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ purchasedAt: { lte: timestamp } }),
     }))
+  })
+
+  it("holds finite package capacity without decrementing remaining credits", async () => {
+    const pkg = { id: "package_1", userId: "user_1", isUnlimited: false, remainingCredits: 4, status: "active" }
+    const hold = { id: "usage_1", packagePurchaseId: pkg.id, attendanceId: "attendance_1", delta: 0 }
+    const tx = {
+      packageUsageLedger: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        count: vi.fn().mockResolvedValue(1),
+        create: vi.fn().mockResolvedValue(hold),
+      },
+      packagePurchase: {
+        findFirst: vi.fn().mockResolvedValue(pkg),
+        findUnique: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+      },
+    }
+
+    const result = await holdPackageCreditForAttendanceTx(tx as never, {
+      packagePurchaseId: pkg.id,
+      userId: "user_1",
+      attendanceId: "attendance_1",
+      courseSlug: "salsa-night-beginner",
+      at: new Date("2026-10-05T01:10:00.000Z"),
+    })
+
+    expect(result).toMatchObject({ packagePurchase: pkg, usage: hold, held: true })
+    expect(tx.packagePurchase.updateMany).not.toHaveBeenCalled()
+    expect(tx.packageUsageLedger.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ delta: 0, reason: "PUBLIC_BOOKING_HOLD" }),
+    })
+  })
+
+  it("rejects a hold when scheduled holds already exhaust finite package capacity", async () => {
+    const tx = {
+      packageUsageLedger: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        count: vi.fn().mockResolvedValue(2),
+        create: vi.fn(),
+      },
+      packagePurchase: {
+        findFirst: vi.fn().mockResolvedValue({ id: "package_1", userId: "user_1", isUnlimited: false, remainingCredits: 2 }),
+        findUnique: vi.fn(),
+        update: vi.fn(),
+        updateMany: vi.fn(),
+      },
+    }
+
+    await expect(holdPackageCreditForAttendanceTx(tx as never, {
+      packagePurchaseId: "package_1",
+      userId: "user_1",
+      attendanceId: "attendance_1",
+    })).rejects.toThrow("PACKAGE_NO_CREDITS")
+    expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
+  })
+
+  it("converts a scheduled hold into one consumed credit when attendance becomes attended", async () => {
+    const usage = { id: "usage_1", packagePurchaseId: "package_1", attendanceId: "attendance_1", userId: "user_1", delta: 0 }
+    const tx = {
+      packageUsageLedger: {
+        findUnique: vi.fn().mockResolvedValue({ ...usage, packagePurchase: { id: "package_1", isUnlimited: false, remainingCredits: 4 } }),
+        update: vi.fn().mockResolvedValue({ ...usage, delta: -1 }),
+      },
+      packagePurchase: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findUnique: vi.fn().mockResolvedValue({ id: "package_1", isUnlimited: false, remainingCredits: 3, status: "active" }),
+        update: vi.fn(),
+      },
+    }
+
+    const result = await consumeHeldPackageCreditForAttendanceTx(tx as never, {
+      attendanceId: "attendance_1",
+      userId: "user_1",
+      reason: "ATTENDANCE_COMPLETED",
+    })
+
+    expect(result).toMatchObject({ consumed: true })
+    expect(tx.packagePurchase.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ remainingCredits: { decrement: 1 } }),
+    }))
+    expect(tx.packageUsageLedger.update).toHaveBeenCalledWith({
+      where: { id: "usage_1" },
+      data: expect.objectContaining({ delta: -1, reason: "ATTENDANCE_COMPLETED" }),
+    })
+  })
+
+  it("releases an unconsumed hold without incrementing package credits", async () => {
+    const tx = {
+      packageUsageLedger: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: "usage_1",
+          packagePurchaseId: "package_1",
+          attendanceId: "attendance_1",
+          delta: 0,
+          packagePurchase: { id: "package_1", status: "active" },
+        }),
+        delete: vi.fn().mockResolvedValue({ id: "usage_1" }),
+      },
+      packagePurchase: { update: vi.fn() },
+    }
+
+    const result = await releasePackageCreditUsageTx(tx as never, { attendanceId: "attendance_1" })
+
+    expect(result).toEqual({ released: true, restored: false })
+    expect(tx.packagePurchase.update).not.toHaveBeenCalled()
+    expect(tx.packageUsageLedger.delete).toHaveBeenCalledWith({ where: { id: "usage_1" } })
   })
 })

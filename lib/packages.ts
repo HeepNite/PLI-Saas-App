@@ -275,6 +275,136 @@ export const consumePackageCreditForAttendance = async (input: {
   return { packagePurchase: null, usage: null, consumed: false }
 }
 
+export const holdPackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
+  packagePurchaseId: string
+  userId: string
+  attendanceId: string
+  courseSlug?: string
+  at?: Date
+  reason?: string
+}) => {
+  const timestamp = input.at || new Date()
+  const reason = input.reason || "PUBLIC_BOOKING_HOLD"
+  const existingUsage = await tx.packageUsageLedger.findUnique({
+    where: { attendanceId: input.attendanceId },
+  })
+  if (existingUsage) {
+    const linkedPackage = await tx.packagePurchase.findUnique({
+      where: { id: existingUsage.packagePurchaseId },
+    })
+    return { packagePurchase: linkedPackage, usage: existingUsage, held: existingUsage.delta === 0 }
+  }
+
+  const selectedPackage = await tx.packagePurchase.findFirst({
+    where: {
+      id: input.packagePurchaseId,
+      userId: input.userId,
+      status: "active",
+      purchasedAt: { lte: timestamp },
+      OR: [{ expiresAt: null }, { expiresAt: { gt: timestamp } }],
+    },
+  })
+  if (!selectedPackage) throw new Error("PACKAGE_NOT_AVAILABLE")
+
+  if (!selectedPackage.isUnlimited) {
+    const activeHolds = await tx.packageUsageLedger.count({
+      where: {
+        packagePurchaseId: selectedPackage.id,
+        delta: 0,
+        attendance: { is: { status: "scheduled" } },
+      },
+    })
+    if ((selectedPackage.remainingCredits ?? 0) - activeHolds <= 0) {
+      throw new Error("PACKAGE_NO_CREDITS")
+    }
+  }
+
+  const usage = await tx.packageUsageLedger.create({
+    data: {
+      packagePurchaseId: selectedPackage.id,
+      userId: input.userId,
+      attendanceId: input.attendanceId,
+      delta: 0,
+      reason,
+      meta: { courseSlug: input.courseSlug || null },
+    },
+  })
+  return { packagePurchase: selectedPackage, usage, held: true }
+}
+
+export const consumeHeldPackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
+  attendanceId: string
+  userId: string
+  at?: Date
+  reason?: string
+}) => {
+  const timestamp = input.at || new Date()
+  const usage = await tx.packageUsageLedger.findUnique({
+    where: { attendanceId: input.attendanceId },
+    include: { packagePurchase: true },
+  })
+  if (!usage || usage.userId !== input.userId) return { packagePurchase: null, usage: null, consumed: false }
+  if (usage.delta < 0) return { packagePurchase: usage.packagePurchase, usage, consumed: true }
+
+  if (usage.packagePurchase.isUnlimited) {
+    const packagePurchase = await tx.packagePurchase.update({
+      where: { id: usage.packagePurchaseId },
+      data: { lastUsedAt: timestamp },
+    })
+    const updatedUsage = await tx.packageUsageLedger.update({
+      where: { id: usage.id },
+      data: { reason: input.reason || "ATTENDANCE_COMPLETED" },
+    })
+    return { packagePurchase, usage: updatedUsage, consumed: false }
+  }
+
+  const decremented = await tx.packagePurchase.updateMany({
+    where: {
+      id: usage.packagePurchaseId,
+      userId: input.userId,
+      status: "active",
+      remainingCredits: { gt: 0 },
+    },
+    data: { remainingCredits: { decrement: 1 }, lastUsedAt: timestamp },
+  })
+  if (decremented.count === 0) throw new Error("PACKAGE_NO_CREDITS")
+
+  let packagePurchase = await tx.packagePurchase.findUnique({ where: { id: usage.packagePurchaseId } })
+  if (!packagePurchase) throw new Error("PACKAGE_NOT_FOUND")
+  if ((packagePurchase.remainingCredits ?? 0) <= 0 && packagePurchase.status !== "exhausted") {
+    packagePurchase = await tx.packagePurchase.update({
+      where: { id: packagePurchase.id },
+      data: { status: "exhausted" },
+    })
+  }
+  const updatedUsage = await tx.packageUsageLedger.update({
+    where: { id: usage.id },
+    data: { delta: -1, reason: input.reason || "ATTENDANCE_COMPLETED" },
+  })
+  return { packagePurchase, usage: updatedUsage, consumed: true }
+}
+
+export const releasePackageCreditUsageTx = async (tx: PrismaTx, input: { attendanceId: string }) => {
+  const usage = await tx.packageUsageLedger.findUnique({
+    where: { attendanceId: input.attendanceId },
+    include: { packagePurchase: true },
+  })
+  if (!usage) return { released: false, restored: false }
+
+  const shouldRestore = usage.delta < 0 && !usage.packagePurchase.isUnlimited
+  if (shouldRestore) {
+    await tx.packagePurchase.update({
+      where: { id: usage.packagePurchaseId },
+      data: {
+        remainingCredits: { increment: 1 },
+        ...(usage.packagePurchase.status === "exhausted" ? { status: "active" } : {}),
+      },
+    })
+  }
+  await tx.packageUsageLedger.delete({ where: { id: usage.id } })
+  return { released: true, restored: shouldRestore }
+}
+
 export const reservePackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
   packagePurchaseId: string
   userId: string
