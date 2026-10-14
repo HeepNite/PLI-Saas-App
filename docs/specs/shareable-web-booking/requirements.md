@@ -2,7 +2,7 @@
 
 ## Status
 
-`IMPLEMENTED — FEATURE CHECKS PASSED`
+`IMPLEMENTED — PROMOTIONAL LINK EXTENSION IN PROGRESS`
 
 ## Objective
 
@@ -18,12 +18,14 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 - Group filtered occurrences by date and order dates and times chronologically.
 - Hand valid selections to the existing QR booking URL and preserve automatic sign-in plus `/client-profile` completion.
 - Preserve the accepted PLI visual identity and route-scoped floating-chrome suppression.
+- Provide the short promotional route `/monday-salsa-beginner` for future Monday occurrences of the existing `salsa-night-beginner` course.
 
 ### Out of scope
 
 - New database tables, third-party dependencies, alternate authentication/checkout flows, capacity management, or changes to kiosk behavior.
 - An unbounded recurring calendar or reservations beyond the 90-day window.
 - Staff-side schedule/category cleanup; the public filter must work with current sparse metadata.
+- Staff creation or management of promotional aliases; a dashboard is deferred to a later feature.
 
 ## Functional Requirements
 
@@ -43,8 +45,12 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 14. A search field MUST filter occurrences by class title, category/style, normalized class type, or slug without another network request.
 15. The search field MUST occupy the left half of one discovery-toolbar row while the month and class-type filters each occupy one quarter. All three controls MUST remain on that same row on desktop and phone, using compact mobile sizing.
 16. The centered PLI logo MUST be visually larger, and the redundant `BOOK` eyebrow beneath it MUST be removed.
-17. The global assistant/chat and floating Home controls MUST remain hidden on exact `/booking` and unchanged elsewhere.
+17. The global assistant/chat and floating Home controls MUST remain hidden on `/booking`, the exact promotional route `/monday-salsa-beginner`, and the existing campaign handoff; behavior elsewhere MUST remain unchanged.
 18. Loading, API-error, malformed schedule, invalid selection, and duplicate-submit behavior MUST fail safely.
+19. `/monday-salsa-beginner` MUST derive its occurrences from the existing public catalog course `salsa-night-beginner` and show only its future Monday schedule inside the same 90-day horizon; it MUST NOT duplicate or hard-code bookable dates.
+20. The focused promotional route MUST omit broad catalog discovery controls and fail safely when the course is inactive, missing, malformed, or has no future Monday occurrence.
+21. Selecting a promoted occurrence MUST preserve course, date, time, duration, `bookingSource`, and the explicitly selected Heritage country through the canonical QR booking URL.
+22. After country selection, the existing course enrollment flow MUST load the selected class context and personal-data form before checkout; the promotional route MUST NOT introduce a parallel identity or payment flow.
 
 ## Constraints
 
@@ -72,6 +78,9 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 - [ ] Search matches title, category/style, normalized type, and slug; the larger logo renders without the BOOK eyebrow.
 - [ ] New-client automatic sign-in/profile redirect, returning-user behavior, and kiosk behavior remain unchanged.
 - [ ] No migration, new dependency, staff-only API exposure, or parallel booking/auth implementation is introduced.
+- [ ] `/monday-salsa-beginner` shows only future Monday occurrences of `salsa-night-beginner` and omits broad discovery controls.
+- [ ] Country selection from the promotional route loads the existing personal-data form with complete class/date/time/duration/source/country context for checkout.
+- [ ] Missing or inactive promotional course data fails safely without exposing another class.
 
 ## Definition Of Done
 
