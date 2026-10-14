@@ -39,7 +39,7 @@ Promote the verified public Booking and Heritage experience from `codex/develop`
   - Assembly rule: replay each selected PR's first-parent delta in chronological order. Do not copy the current dev files wholesale because current shared files import excluded profile-quote and special-class modules.
   - The selected historical deltas touch 149 unique paths and total roughly 12,400 changed lines against current production, so the hard 400-line PR gate requires a long chained release; the oversized #506 foundation must be re-sliced.
   - Production overlap requiring manual reconciliation: `app/api/checkout/cash/route.ts`, staff payment presentation/types, `lib/phone/index.ts`, and their focused tests. Preserve main's cash sale-day, payment-debt, and strict international-phone fixes.
-  - Commit: pending after this tracker update.
+  - Commit: `c68f1355` (`docs(release): map booking production scope`).
 - [ ] Reconstruct the shareable Booking foundation on the production base in reviewable work units.
 - [ ] Integrate the Heritage acquisition and staff-fulfillment lifecycle without the deferred package-credit award.
 - [ ] Integrate current public package routing, promotion pricing, and corrected Clerk account access.
