@@ -202,15 +202,15 @@ export async function POST(req: Request) {
     const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
     if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
   }
-  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+  const preparedEffectiveSession = resolveKioskEffectiveSessionDateTime({
     photoContext,
-    validation,
+    validation: initialValidation,
   })
   const preparedContextValidation = {
-    ...validation,
-    date: effectiveSession.date ?? validation.date,
-    time: effectiveSession.time ?? validation.time,
-    durationMinutes: validation.kioskCurrentCourseDuration,
+    ...initialValidation,
+    date: preparedEffectiveSession.date ?? initialValidation.date,
+    time: preparedEffectiveSession.time ?? initialValidation.time,
+    durationMinutes: initialValidation.kioskCurrentCourseDuration,
   }
 
   const preparation = await resolveCheckoutPreparation(
@@ -261,7 +261,10 @@ export async function POST(req: Request) {
       terminalId: terminalAuth.terminal.id,
       kioskSessionId: kioskSession.session.id,
       validation: preparedContextValidation,
-      preparedAccount,
+      preparedAccount: {
+        ...preparedAccount,
+        userId: kioskSession.session.user.id,
+      },
       verification,
     })
     source = "prepared"

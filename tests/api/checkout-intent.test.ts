@@ -6,6 +6,7 @@ const mockResolveCheckoutPreparation = vi.fn()
 const mockEnforceNewStudent = vi.fn()
 const mockCreatePaymentIntent = vi.fn()
 const mockClearPreparedCheckout = vi.fn()
+const mockFindHeritagePinEntitlement = vi.fn()
 const mockCreateOrReuseNativePreparedPurchase = vi.fn()
 const mockIssuePreparedNativePurchase = vi.fn()
 const mockCreatePreparedCheckoutContext = vi.fn()
@@ -58,6 +59,10 @@ vi.mock("@/lib/checkout/validation", () => ({
   validateCheckoutPayload: (...args: unknown[]) => mockValidate(...args),
 }))
 
+vi.mock("@/lib/campaigns/heritage-pin-entitlement", () => ({
+  findHeritagePinEntitlementForIdentity: (...args: unknown[]) => mockFindHeritagePinEntitlement(...args),
+}))
+
 vi.mock("@/lib/checkout/native-prepared-purchase", () => ({
   NativePreparedPurchaseError: MockNativePreparedPurchaseError,
   createOrReuseNativePreparedPurchase: (...args: unknown[]) => mockCreateOrReuseNativePreparedPurchase(...args),
@@ -100,6 +105,8 @@ describe("checkout intent route", () => {
     mockEnforceNewStudent.mockReset()
     mockCreatePaymentIntent.mockReset()
     mockClearPreparedCheckout.mockReset()
+    mockFindHeritagePinEntitlement.mockReset()
+    mockFindHeritagePinEntitlement.mockResolvedValue(null)
     mockCreateOrReuseNativePreparedPurchase.mockReset()
     mockIssuePreparedNativePurchase.mockReset()
     mockCreatePreparedCheckoutContext.mockReset()
@@ -110,7 +117,7 @@ describe("checkout intent route", () => {
     mockIsPreparedCheckoutContextEnabled.mockReturnValue(true)
     mockResolveTerminalKioskSession.mockResolvedValue({
       ok: true,
-      session: { id: "server_kiosk_session_1" },
+      session: { id: "server_kiosk_session_1", user: { id: "db_kiosk_user_1" } },
     })
 
     mockValidate.mockReturnValue({
@@ -360,9 +367,9 @@ describe("checkout intent route", () => {
         },
         verification: { hasVerifiedPhone: true },
         preparedAccount: {
-          userId: "user_123", clerkUser: null, resolvedUserId: "user_123",
-          identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
-          account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+          userId: null, clerkUser: null, resolvedUserId: "student_clerk_1",
+          identity: { resolvedEmail: "student@example.com", phoneRaw: "+1 2125550100", phoneNormalized: "2125550100" },
+          account: { clerkUserId: "student_clerk_1", created: false, requiresSignIn: false, hasAvatar: true },
         },
       })
       .mockResolvedValueOnce({
@@ -375,9 +382,9 @@ describe("checkout intent route", () => {
         },
         verification: { hasVerifiedPhone: true },
         preparedAccount: {
-          userId: "user_123", clerkUser: null, resolvedUserId: "user_123",
-          identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
-          account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+          userId: "db_kiosk_user_1", clerkUser: null, resolvedUserId: "student_clerk_1",
+          identity: { resolvedEmail: "student@example.com", phoneRaw: "+1 2125550100", phoneNormalized: "2125550100" },
+          account: { clerkUserId: "student_clerk_1", created: false, requiresSignIn: false, hasAvatar: true },
         },
       })
 
@@ -407,6 +414,7 @@ describe("checkout intent route", () => {
     expect(mockCreatePreparedCheckoutContext).toHaveBeenCalledWith(expect.objectContaining({
       terminalId: "terminal_1",
       kioskSessionId: "server_kiosk_session_1",
+      preparedAccount: expect.objectContaining({ userId: "db_kiosk_user_1" }),
       validation: expect.objectContaining({ date: "2026-02-10", time: "11:00", durationMinutes: 60 }),
     }))
     expect(consoleInfo).toHaveBeenCalledWith(
@@ -420,7 +428,10 @@ describe("checkout intent route", () => {
 
     const native = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", photoContext: "kiosk_terminal" }))
     expect(native.status).toBe(200)
-    expect(mockCreateOrReuseNativePreparedPurchase).toHaveBeenCalledTimes(1)
+    expect(mockCreateOrReuseNativePreparedPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      recipient: expect.objectContaining({ userId: "db_kiosk_user_1", email: "student@example.com" }),
+      fulfillmentMetadata: expect.objectContaining({ userId: "student_clerk_1" }),
+    }))
     expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
   })
 

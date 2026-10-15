@@ -32,6 +32,7 @@ import {
   touchStripeWebhookEventHeartbeat,
 } from "@/lib/stripe/webhook-event-store"
 import { SPECIAL_SALSA_CLASS, isSpecialClassPriceCents } from "@/lib/special-salsa-class/config"
+import { awardHeritagePinFromPaidPurchase } from "@/lib/campaigns/heritage-pin-entitlement"
 import {
   approvedInternalPurchase,
   InternalPurchaseError,

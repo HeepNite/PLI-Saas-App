@@ -357,11 +357,7 @@ class StaffSessionPurchaseApi(
         if (reader.peek() != JsonToken.NUMBER) invalid()
         val lexeme = reader.nextString()
         if (!BASE_TEN_INTEGER.matches(lexeme)) invalid()
-        return try {
-            java.math.BigInteger(lexeme).longValueExact()
-        } catch (_: ArithmeticException) {
-            invalid()
-        }
+        return lexeme.toLongOrNull() ?: invalid()
     }
 
     private fun paymentResult(id: String, status: String, paid: Boolean, secret: String?, recovery: Boolean): PaymentResult {

@@ -247,16 +247,20 @@ describe("stripe webhook checkout session persistence", () => {
     expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
     expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", purchaseId: "purchase_dynamic_1" }) }))
   })
-  it.each([
-    ["extra reserved metadata", (event: any, purchase: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, extra: "no" } } } }), (purchase: any) => purchase],
-    ["partial reserved metadata", (event: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { flowContext: "pli_prepared_native_m2_v1" } } } }), (purchase: any) => purchase],
-    ["amount substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, amount: 1 } } }), (purchase: any) => purchase],
-    ["currency substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, currency: "eur" } } }), (purchase: any) => purchase],
-    ["selection substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, selectionDigest: "a".repeat(64) } } } }), (purchase: any) => purchase],
-    ["idempotency substitution", (event: any) => event, (purchase: any) => ({ ...purchase, idempotencyKey: "native-m2-prepared:other" })],
-    ["PaymentIntent substitution", (event: any) => event, (purchase: any) => ({ ...purchase, stripePaymentIntentId: "pi_other" })],
-    ["Purchase substitution", (event: any) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, purchaseId: "purchase_other" } } } }), (purchase: any) => purchase],
-  ])("fails closed for prepared native %s without ordinary or USD1 fulfillment", async (_caseName, mutateEvent, mutatePurchase) => {
+  type PreparedNativeFixture = Awaited<ReturnType<typeof preparedNativeEvent>>
+  type PreparedNativeEventMutator = (event: PreparedNativeFixture["event"], purchase: PreparedNativeFixture["purchase"]) => unknown
+  type PreparedNativePurchaseMutator = (purchase: PreparedNativeFixture["purchase"]) => unknown
+  const preparedNativeTamperCases: Array<[string, PreparedNativeEventMutator, PreparedNativePurchaseMutator]> = [
+    ["extra reserved metadata", (event) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, extra: "no" } } } }), (purchase) => purchase],
+    ["partial reserved metadata", (event) => ({ ...event, data: { object: { ...event.data.object, metadata: { flowContext: "pli_prepared_native_m2_v1" } } } }), (purchase) => purchase],
+    ["amount substitution", (event) => ({ ...event, data: { object: { ...event.data.object, amount: 1 } } }), (purchase) => purchase],
+    ["currency substitution", (event) => ({ ...event, data: { object: { ...event.data.object, currency: "eur" } } }), (purchase) => purchase],
+    ["selection substitution", (event) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, selectionDigest: "a".repeat(64) } } } }), (purchase) => purchase],
+    ["idempotency substitution", (event) => event, (purchase) => ({ ...purchase, idempotencyKey: "native-m2-prepared:other" })],
+    ["PaymentIntent substitution", (event) => event, (purchase) => ({ ...purchase, stripePaymentIntentId: "pi_other" })],
+    ["Purchase substitution", (event) => ({ ...event, data: { object: { ...event.data.object, metadata: { ...event.data.object.metadata, purchaseId: "purchase_other" } } } }), (purchase) => purchase],
+  ]
+  it.each(preparedNativeTamperCases)("fails closed for prepared native %s without ordinary or USD1 fulfillment", async (_caseName, mutateEvent, mutatePurchase) => {
     const fixture = await preparedNativeEvent()
     mockPurchaseFindUnique.mockResolvedValue(mutatePurchase(fixture.purchase))
     mockConstructEvent.mockReturnValue(mutateEvent(fixture.event, fixture.purchase))
