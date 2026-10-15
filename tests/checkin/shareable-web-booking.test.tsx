@@ -178,6 +178,7 @@ describe("weekday booking page", () => {
     expect(bookButton).not.toBeNull()
 
     await act(async () => bookButton?.click())
+    expect(push).toHaveBeenCalledOnce()
     const handoff = new URL(push.mock.calls[0]?.[0], "https://pli.test")
     expect(handoff.pathname).toBe("/courses/monday-salsa")
     expect(Object.fromEntries(handoff.searchParams)).toMatchObject({
@@ -217,6 +218,86 @@ describe("BookingPageContent", () => {
     )
 
     expect(html).toContain(copy)
+  })
+
+  it("exposes the full class card as a native booking action", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+    const onSelect = vi.fn()
+    const container = document.createElement("div")
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <BookingPageContent
+          status="ready"
+          occurrences={[readyOccurrence]}
+          selectedMonth="2026-06"
+          selectedClassType="all"
+          searchQuery=""
+          onMonthChange={() => undefined}
+          onClassTypeChange={() => undefined}
+          onSearchQueryChange={() => undefined}
+          navigatingId={null}
+          onSelect={onSelect}
+        />
+      )
+    })
+
+    const cardAction = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Book Salsa Timba on 2026-06-11 from class card"]'
+    )
+    expect(cardAction).toBeInstanceOf(HTMLButtonElement)
+
+    await act(async () => cardAction?.click())
+
+    expect(onSelect).toHaveBeenCalledOnce()
+    expect(onSelect).toHaveBeenCalledWith(readyOccurrence)
+
+    root.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it("does not select cards or BOOK actions while navigating", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+    const onSelect = vi.fn()
+    const container = document.createElement("div")
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <BookingPageContent
+          status="ready"
+          occurrences={[readyOccurrence]}
+          selectedMonth="2026-06"
+          selectedClassType="all"
+          searchQuery=""
+          onMonthChange={() => undefined}
+          onClassTypeChange={() => undefined}
+          onSearchQueryChange={() => undefined}
+          navigatingId={readyOccurrence.id}
+          onSelect={onSelect}
+        />
+      )
+    })
+
+    const cardAction = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Book Salsa Timba on 2026-06-11 from class card"]'
+    )
+    const bookButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Book Salsa Timba on 2026-06-11"]'
+    )
+
+    await act(async () => {
+      cardAction?.click()
+      bookButton?.click()
+    })
+
+    expect(cardAction?.disabled).toBe(true)
+    expect(bookButton?.disabled).toBe(true)
+    expect(onSelect).not.toHaveBeenCalled()
+
+    root.unmount()
+    vi.unstubAllGlobals()
   })
 
   it("renders the search/filter toolbar, date groups, and circular BOOK actions", () => {
