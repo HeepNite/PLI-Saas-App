@@ -11,6 +11,10 @@ import {
 import { validateCheckoutPayload, type CheckoutBody, type CheckoutValidation } from "@/lib/checkout/validation"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
+import { createPreparedCheckoutContext, isPreparedCheckoutContextEnabled } from "@/lib/checkout/prepared-context"
+import { resolveTerminalKioskSession } from "@/lib/checkin/kiosk-session"
+import { createOrReuseNativePreparedPurchase, NativePreparedPurchaseError } from "@/lib/checkout/native-prepared-purchase"
+import { issuePreparedNativePurchase, PreparedNativePurchaseError } from "@/lib/stripe/prepared-native-purchase"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 import type { CoursePromotionChannel } from "@/lib/promotions/course-promotions"
@@ -32,6 +36,7 @@ const toErrorResponse = (error: ApiError) =>
   NextResponse.json({ error: error.error, ...(error.code ? { code: error.code } : {}) }, { status: error.status })
 
 const UNKNOWN_PAYMENT_INTENT_ERROR = "Payment intent status is unknown. Verify the terminal payment before retrying."
+const logNativePreparation = (outcome: "prepared" | "rejected", reasonCode: "success" | "precondition_failure" | "purchase_mismatch" | "purchase_persistence_failure" | "prepared_reference_unavailable" | "prepared_reference_persistence_failure") => console.info("[native-m2-prepare]", { outcome, reasonCode })
 
 type EffectiveSession = {
   date: string | null
@@ -151,6 +156,32 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 })
   }
 
+  const rawPaymentSurface = (body as { paymentSurface?: unknown }).paymentSurface
+  if (rawPaymentSurface !== undefined && rawPaymentSurface !== "embedded" && rawPaymentSurface !== "native_m2_prepare") {
+    return NextResponse.json({ error: "Invalid payment surface" }, { status: 400 })
+  }
+  const rawRefreshKioskPreparedContext = body.refreshKioskPreparedContext
+  if (rawRefreshKioskPreparedContext !== undefined && typeof rawRefreshKioskPreparedContext !== "boolean") {
+    return NextResponse.json({ error: "Invalid prepared context refresh intent" }, { status: 400 })
+  }
+  const refreshKioskPreparedContext = rawRefreshKioskPreparedContext === true
+  if (refreshKioskPreparedContext) {
+    if (body.prepareOnly !== true || body.photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL) {
+      return NextResponse.json({ error: "Prepared context refresh requires kiosk prepare-only checkout" }, { status: 400 })
+    }
+    if (!isPreparedCheckoutContextEnabled()) {
+      return NextResponse.json({ error: "Prepared context refresh unavailable" }, { status: 409 })
+    }
+    if (typeof body.kioskSessionToken !== "string" || body.kioskSessionToken.trim().length === 0) {
+      return NextResponse.json({ error: "Kiosk session required for prepared context refresh" }, { status: 400 })
+    }
+  }
+  const isEmbeddedPaymentSurface = rawPaymentSurface === "embedded"
+  const isNativeM2Preparation = rawPaymentSurface === "native_m2_prepare"
+  if (isNativeM2Preparation && (body as { prepareOnly?: unknown }).prepareOnly === true) {
+    return NextResponse.json({ error: "Native preparation cannot be prepare-only" }, { status: 400 })
+  }
+
   const {
     email,
     firstName,
@@ -170,6 +201,16 @@ export async function POST(req: Request) {
   if (trustedChannel === "public_booking") {
     const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
     if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
+  }
+  const effectiveSession = resolveKioskEffectiveSessionDateTime({
+    photoContext,
+    validation,
+  })
+  const preparedContextValidation = {
+    ...validation,
+    date: effectiveSession.date ?? validation.date,
+    time: effectiveSession.time ?? validation.time,
+    durationMinutes: validation.kioskCurrentCourseDuration,
   }
 
   const preparation = await resolveCheckoutPreparation(
@@ -192,15 +233,41 @@ export async function POST(req: Request) {
       // work for truly new students. The staff-session isolation guard in lib/checkout.ts
       // ensures the new user uses the STUDENT's identity, not the staff's.
       deferUserCreation: false,
-      validation: initialValidation,
+      validation: preparedContextValidation,
     }
   )
   if (isApiError(preparation)) {
     return toErrorResponse(preparation)
   }
 
-  const { preparedAccount, verification, source, fallbackReason, terminalAuth, preparedContextId } = preparation
-  const { clerkUser, resolvedUserId, identity, account } = preparedAccount
+  const { preparedAccount, verification, terminalAuth, preparedContextId } = preparation
+  let { source, fallbackReason } = preparation
+  const { clerkUser, resolvedUserId, identity, account, userId } = preparedAccount
+  let preparedContextRefreshed = false
+
+  if (refreshKioskPreparedContext) {
+    if (!terminalAuth?.ok) {
+      return NextResponse.json({ error: "Terminal session required for prepared context refresh" }, { status: 401 })
+    }
+    const kioskSession = await resolveTerminalKioskSession(kioskSessionToken, {
+      terminalAuth,
+      touch: false,
+    })
+    if (!kioskSession.ok) {
+      return NextResponse.json({ error: kioskSession.error }, { status: kioskSession.status })
+    }
+
+    await createPreparedCheckoutContext({
+      terminalId: terminalAuth.terminal.id,
+      kioskSessionId: kioskSession.session.id,
+      validation: preparedContextValidation,
+      preparedAccount,
+      verification,
+    })
+    source = "prepared"
+    fallbackReason = undefined
+    preparedContextRefreshed = true
+  }
 
   if (prepareOnly) {
     console.info("[staff-terminal-checkout-latency] checkout-intent", {
@@ -213,6 +280,7 @@ export async function POST(req: Request) {
       ok: true,
       prepareOnly: true,
       account,
+      ...(preparedContextRefreshed ? { source, preparedContextRefreshed: true } : {}),
     })
   }
 
@@ -295,7 +363,44 @@ export async function POST(req: Request) {
     ...promotionPricing.promotionMetadata,
   }
 
+  if (isNativeM2Preparation) {
+    if (
+      photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL ||
+      source !== "prepared" ||
+      !preparedContextId ||
+      !userId ||
+      !terminalAuth?.ok ||
+      !terminalAuth.terminal.id ||
+      !terminalAuth.sessionId
+    ) {
+      logNativePreparation("rejected", "precondition_failure")
+      return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
+    }
+
+    let purchase: { id: string }
+    try {
+      purchase = await createOrReuseNativePreparedPurchase({
+        preparedContextId,
+        recipient: { userId, email: identity.resolvedEmail, name: name || [firstName, lastName].filter(Boolean).join(" ") || null, phone: identity.phoneNormalized || null },
+        selection: { courseSlug: validation.courseSlug, courseTitle: validation.courseTitle, amount: validation.amountInt, currency: validation.currency, packageId: validation.packageId, serviceId: validation.serviceId, addons: validation.addons, participants: validation.safeParticipants, coupon: validation.coupon },
+        fulfillmentMetadata: metadata,
+      })
+    } catch (error) {
+      logNativePreparation("rejected", error instanceof NativePreparedPurchaseError ? "purchase_mismatch" : "purchase_persistence_failure")
+      return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
+    }
+    try {
+      const preparedPurchaseReference = await issuePreparedNativePurchase({ purchaseId: purchase.id, terminalId: terminalAuth.terminal.id, sessionId: terminalAuth.sessionId })
+      logNativePreparation("prepared", "success")
+      return NextResponse.json({ preparedPurchaseReference, state: "prepared" })
+    } catch (error) {
+      logNativePreparation("rejected", error instanceof PreparedNativePurchaseError ? "prepared_reference_unavailable" : "prepared_reference_persistence_failure")
+      return NextResponse.json({ error: "Native preparation unavailable" }, { status: 409 })
+    }
+  }
+
   const shouldDelegateTerminalPaymentIntent =
+    !isEmbeddedPaymentSurface &&
     photoContext === FLOW_CONTEXT.KIOSK_TERMINAL &&
     source === "prepared" &&
     Boolean(terminalAuth?.ok) &&

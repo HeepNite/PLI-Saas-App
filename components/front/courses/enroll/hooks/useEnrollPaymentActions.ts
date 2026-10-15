@@ -14,6 +14,11 @@ import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
 import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
 import { createKioskSessionCheckoutPayloadFields } from "@/lib/checkin/enroll-flow"
 import {
+  handOffPreparedPurchase,
+  isNativePaymentBridgeAvailable,
+  isPreparedPurchaseResponse,
+} from "@/components/front/courses/enroll/effects/native-payment-bridge"
+import {
   requestCheckoutCashApi,
   requestCheckoutIntentApi,
   requestCheckoutQuoteApi,
@@ -100,6 +105,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup, setResumeContactFlowAfterSignIn,
     t,
   } = input
+  const nativeAttemptRef = React.useRef(false)
 
   const isPublicQuoteEligible =
     bookingSource === "public_booking" &&
@@ -160,8 +166,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       photoFlowContext,
       checkInContextDate,
       checkInContextTime,
-      bookingSource,
-      heritagePinCountryCode,
+      checkInContextDuration,
       infoStepIndex,
       pkg,
       kioskSessionToken,
@@ -172,57 +177,21 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   )
 
   React.useEffect(() => {
-    const requestId = ++publicQuoteRequest.current
-    let active = true
-
-    if (!isPublicQuoteEligible) {
-      setPublicQuote(null)
-      setPublicQuoteLoading(false)
-      setPublicQuoteError(null)
-      return () => {
-        active = false
-      }
-    }
-
-    setPublicQuote(null)
-    setPublicQuoteLoading(true)
-    setPublicQuoteError(null)
-
-    void (async () => {
+    const target = window as typeof window & { pliNativeAttemptState?: unknown }
+    if (!isKioskTerminalFlow || "pliNativeAttemptState" in target) return
+    const unresolved = { state: "payment_unresolved" as const }
+    const reader = async () => {
       try {
-        const token = isSignedIn ? await getToken({ skipCache: true }) : null
-        const { res, data } = await requestCheckoutQuoteApi({
-          token,
-          payload: buildCheckoutPayload(),
-        })
-        if (!active || publicQuoteRequest.current !== requestId) return
-        if (
-          !res.ok ||
-          !data ||
-          !("amountCents" in data) ||
-          typeof data.amountCents !== "number" ||
-          !Number.isFinite(data.amountCents) ||
-          typeof data.currency !== "string"
-        ) {
-          setPublicQuoteError("We couldn't refresh the current price. Please try again.")
-          return
-        }
-        setPublicQuote(data)
-      } catch {
-        if (active && publicQuoteRequest.current === requestId) {
-          setPublicQuoteError("We couldn't refresh the current price. Please try again.")
-        }
-      } finally {
-        if (active && publicQuoteRequest.current === requestId) {
-          setPublicQuoteLoading(false)
-        }
-      }
-    })()
-
-    return () => {
-      active = false
+        const response = await fetch("/api/checkout/native-attempt-state", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(buildCheckoutPayload({ kioskCurrentCourseDuration: checkInContextDuration })) })
+        const value: unknown = await response.json()
+        if (!response.ok || !value || typeof value !== "object" || Array.isArray(value)) return unresolved
+        const record = value as Record<string, unknown>
+        return Object.keys(record).length === 1 && typeof record.state === "string" && ["absent", "pending_without_payment", "payment_unresolved", "paid", "rejected"].includes(record.state) ? { state: record.state as typeof unresolved.state } : unresolved
+      } catch { return unresolved }
     }
-  }, [buildCheckoutPayload, getToken, isPublicQuoteEligible, isSignedIn])
+    target.pliNativeAttemptState = reader
+    return () => { if (target.pliNativeAttemptState === reader) delete target.pliNativeAttemptState }
+  }, [buildCheckoutPayload, checkInContextDuration, isKioskTerminalFlow])
 
   const requestNewStudentOutcome = React.useCallback(async (): Promise<NewStudentVerifyResponse | null> => {
     const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
@@ -237,9 +206,17 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     return data as NewStudentVerifyResponse
   }, [contact.phone, setFormError])
 
-  const requestAccountPreparation = React.useCallback(async (): Promise<PreparedAccountState | null> => {
+  const requestAccountPreparation = React.useCallback(async (
+    options: { refreshKioskPreparedContext?: boolean } = {}
+  ): Promise<PreparedAccountState | null> => {
     const { res, data } = await requestCheckoutIntentApi({
-      payload: buildCheckoutPayload({ prepareOnly: true }),
+      payload: buildCheckoutPayload({
+        prepareOnly: true,
+        ...(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+        ...(options.refreshKioskPreparedContext === true
+          ? { refreshKioskPreparedContext: true, kioskCurrentCourseDuration: checkInContextDuration }
+          : {}),
+      }),
     })
     const account = data?.account as PreparedAccountState | undefined
     if (!res.ok || !account || typeof account.hasAvatar !== "boolean") {
@@ -252,7 +229,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
     setPreparedAccount(account)
     return account
-  }, [buildCheckoutPayload, setFormError, setPreparedAccount])
+  }, [buildCheckoutPayload, checkInContextDuration, isKioskTerminalFlow, setFormError, setPreparedAccount])
 
   const showRegularFallbackPopup = React.useCallback(
     (message?: string) => {
@@ -374,7 +351,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
   ) => {
     if (e) e.preventDefault()
-    if (processing) return
+    if (processing || nativeAttemptRef.current) return
     setFormError(null)
     if (deps) {
       const validationIssue = deps.validateBeforeSubmit()
@@ -395,62 +372,6 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       return
     }
     setProcessing(true)
-
-    if (paymentMethod === "stripe" && isKioskTerminalFlow) {
-      try {
-        await startKioskQrCheckout()
-      } catch (err) {
-        console.error(err)
-        setKioskQrCheckout({
-          ...createEmptyKioskQrCheckoutState(),
-          phase: "error",
-          error: "We couldn't start the QR payment. Please try again.",
-        })
-        alert("We couldn't start the QR payment. Please try again.")
-      } finally {
-        setProcessing(false)
-      }
-      return
-    }
-
-    if (
-      bookingSource === "public_booking" &&
-      isCheckInExistingFlow &&
-      isSignedIn &&
-      !pkg &&
-      participants === 1 &&
-      addons.length === 0 &&
-      !appliedCoupon &&
-      !consecutiveAccepted
-    ) {
-      try {
-        const token = await getToken({ skipCache: true })
-        const { res, data } = await requestPublicPackageReservationApi({
-          token,
-          payload: { courseSlug: course.slug, date, time },
-        })
-        if (res.ok && data?.ok === true) {
-          setSuccessMessage("Class reserved with your package. Your credit will be used after attendance is completed.")
-          setSuccess(true)
-          setProcessing(false)
-          return
-        }
-        if (!res.ok) {
-          setFormError(
-            typeof data?.error === "string"
-              ? data.error
-              : "We couldn't verify your package. Please try again."
-          )
-          setProcessing(false)
-          return
-        }
-      } catch (error) {
-        console.error("Unable to reserve public booking with package", error)
-        setFormError("We couldn't verify your package. Please try again.")
-        setProcessing(false)
-        return
-      }
-    }
 
     // Mobile-QR check-in (new student OR existing customer, NOT the staff kiosk
     // terminal): use Stripe HOSTED checkout (full-page redirect) instead of the
@@ -625,17 +546,63 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
 
     if (paymentMethod === "stripe") {
+      if (isKioskTerminalFlow && isNativePaymentBridgeAvailable()) {
+        nativeAttemptRef.current = true
+        let nativeHandoffStarted = false
+        try {
+          // The context used by native_m2_prepare must be freshly created at final
+          // confirmation; earlier setup can expire while the customer reviews it.
+          const refreshedAccount = await requestAccountPreparation({ refreshKioskPreparedContext: true })
+          if (!refreshedAccount) {
+            nativeAttemptRef.current = false
+            setProcessing(false)
+            return
+          }
+
+          const token = isSignedIn ? await getToken({ skipCache: true }) : null
+          const prepared = await requestCheckoutIntentApi({
+            token,
+            payload: buildCheckoutPayload({
+              paymentSurface: "native_m2_prepare",
+              kioskCurrentCourseDuration: checkInContextDuration,
+            }),
+          })
+          if (!prepared.res.ok || !isPreparedPurchaseResponse(prepared.data)) {
+            setFormError("We couldn't prepare native payment. Please try again.")
+            nativeAttemptRef.current = false
+            setProcessing(false)
+            return
+          }
+
+          nativeHandoffStarted = true
+          const handoff = await handOffPreparedPurchase(prepared.data.preparedPurchaseReference)
+          if (handoff.state === "rejected") setFormError("We couldn't start the payment. Please try again.")
+          return
+        } catch {
+          if (nativeHandoffStarted) return
+          setFormError("We couldn't prepare native payment. Please try again.")
+          nativeAttemptRef.current = false
+          setProcessing(false)
+          return
+        }
+      }
       try {
         const endpoint = bookingSource === "public_booking" ? "/api/public/checkout/intent" : undefined
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutIntentApi({ token, payload: buildCheckoutPayload(), endpoint })
+        let result = await requestCheckoutIntentApi({
+          token,
+          payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+        })
         const code = typeof result.data?.code === "string" ? result.data.code : undefined
         if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
           await new Promise((resolve) => window.setTimeout(resolve, 350))
           const refreshed = await getToken({ skipCache: true })
           if (refreshed) {
             token = refreshed
-            result = await requestCheckoutIntentApi({ token, payload: buildCheckoutPayload(), endpoint })
+            result = await requestCheckoutIntentApi({
+              token,
+              payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+            })
           }
         }
         if (!result.res.ok) {

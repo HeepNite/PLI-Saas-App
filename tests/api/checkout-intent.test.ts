@@ -6,7 +6,13 @@ const mockResolveCheckoutPreparation = vi.fn()
 const mockEnforceNewStudent = vi.fn()
 const mockCreatePaymentIntent = vi.fn()
 const mockClearPreparedCheckout = vi.fn()
-const mockFindHeritagePinEntitlement = vi.fn()
+const mockCreateOrReuseNativePreparedPurchase = vi.fn()
+const mockIssuePreparedNativePurchase = vi.fn()
+const mockCreatePreparedCheckoutContext = vi.fn()
+const mockIsPreparedCheckoutContextEnabled = vi.fn()
+const mockResolveTerminalKioskSession = vi.fn()
+class MockNativePreparedPurchaseError extends Error {}
+class MockPreparedNativePurchaseError extends Error {}
 
 const ENV_KEYS = [
   "NEST_GATEWAY_ENABLED",
@@ -52,8 +58,23 @@ vi.mock("@/lib/checkout/validation", () => ({
   validateCheckoutPayload: (...args: unknown[]) => mockValidate(...args),
 }))
 
-vi.mock("@/lib/campaigns/heritage-pin-entitlement", () => ({
-  findHeritagePinEntitlementForIdentity: (...args: unknown[]) => mockFindHeritagePinEntitlement(...args),
+vi.mock("@/lib/checkout/native-prepared-purchase", () => ({
+  NativePreparedPurchaseError: MockNativePreparedPurchaseError,
+  createOrReuseNativePreparedPurchase: (...args: unknown[]) => mockCreateOrReuseNativePreparedPurchase(...args),
+}))
+
+vi.mock("@/lib/stripe/prepared-native-purchase", () => ({
+  PreparedNativePurchaseError: MockPreparedNativePurchaseError,
+  issuePreparedNativePurchase: (...args: unknown[]) => mockIssuePreparedNativePurchase(...args),
+}))
+
+vi.mock("@/lib/checkout/prepared-context", () => ({
+  createPreparedCheckoutContext: (...args: unknown[]) => mockCreatePreparedCheckoutContext(...args),
+  isPreparedCheckoutContextEnabled: (...args: unknown[]) => mockIsPreparedCheckoutContextEnabled(...args),
+}))
+
+vi.mock("@/lib/checkin/kiosk-session", () => ({
+  resolveTerminalKioskSession: (...args: unknown[]) => mockResolveTerminalKioskSession(...args),
 }))
 
 vi.mock("stripe", () => ({
@@ -79,8 +100,18 @@ describe("checkout intent route", () => {
     mockEnforceNewStudent.mockReset()
     mockCreatePaymentIntent.mockReset()
     mockClearPreparedCheckout.mockReset()
-    mockFindHeritagePinEntitlement.mockReset()
-    mockFindHeritagePinEntitlement.mockResolvedValue(null)
+    mockCreateOrReuseNativePreparedPurchase.mockReset()
+    mockIssuePreparedNativePurchase.mockReset()
+    mockCreatePreparedCheckoutContext.mockReset()
+    mockIsPreparedCheckoutContextEnabled.mockReset()
+    mockResolveTerminalKioskSession.mockReset()
+    mockCreateOrReuseNativePreparedPurchase.mockResolvedValue({ id: "purchase_1" })
+    mockIssuePreparedNativePurchase.mockResolvedValue("prepared-reference")
+    mockIsPreparedCheckoutContextEnabled.mockReturnValue(true)
+    mockResolveTerminalKioskSession.mockResolvedValue({
+      ok: true,
+      session: { id: "server_kiosk_session_1" },
+    })
 
     mockValidate.mockReturnValue({
       courseSlug: "salsa-femenina-matutina",
@@ -296,6 +327,173 @@ describe("checkout intent route", () => {
     expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
   })
 
+  it("refreshes a missing kiosk context before returning prepare-only, then the next native prepare uses prepared source", async () => {
+    mockValidate.mockReturnValueOnce({
+      courseSlug: "salsa-femenina-matutina",
+      courseTitle: "Course booking",
+      amountInt: 2000,
+      currency: "usd",
+      date: "2026-02-10",
+      time: "11:00",
+      packageId: "",
+      serviceId: "dropin",
+      addons: [],
+      safeParticipants: 1,
+      coupon: "",
+      pkg: null,
+      packageTotalCredits: null,
+      packageIsUnlimited: false,
+      packageCadence: "",
+      packageMakeUps: 0,
+      packageValidDays: 180,
+      kioskCurrentCourseDuration: 60,
+    })
+    mockResolveCheckoutPreparation
+      .mockResolvedValueOnce({
+        source: "fallback",
+        fallbackReason: "missing_prepared_context",
+        preparedContextId: undefined,
+        terminalAuth: {
+          ok: true,
+          sessionId: "terminal_session_1",
+          terminal: { id: "terminal_1", slug: "terminal-1", name: "Terminal 1", location: null, defaultCourseSlug: null, active: true },
+        },
+        verification: { hasVerifiedPhone: true },
+        preparedAccount: {
+          userId: "user_123", clerkUser: null, resolvedUserId: "user_123",
+          identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+          account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+        },
+      })
+      .mockResolvedValueOnce({
+        source: "prepared",
+        preparedContextId: "prepared_ctx_refreshed",
+        terminalAuth: {
+          ok: true,
+          sessionId: "terminal_session_1",
+          terminal: { id: "terminal_1", slug: "terminal-1", name: "Terminal 1", location: null, defaultCourseSlug: null, active: true },
+        },
+        verification: { hasVerifiedPhone: true },
+        preparedAccount: {
+          userId: "user_123", clerkUser: null, resolvedUserId: "user_123",
+          identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+          account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+        },
+      })
+
+    const consoleInfo = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const refresh = await POST(createRouteRequest({
+      prepareOnly: true,
+      refreshKioskPreparedContext: true,
+      photoContext: "kiosk_terminal",
+      kioskSessionToken: "untrusted-kiosk-token",
+      kioskCurrentCourseDate: "2026-02-10",
+      kioskCurrentCourseTime: "11:00",
+      kioskCurrentCourseDuration: 60,
+    }))
+
+    expect(refresh.status).toBe(200)
+    await expect(refresh.json()).resolves.toMatchObject({
+      ok: true,
+      prepareOnly: true,
+      source: "prepared",
+      preparedContextRefreshed: true,
+    })
+    expect(mockResolveTerminalKioskSession).toHaveBeenCalledWith("untrusted-kiosk-token", {
+      terminalAuth: expect.objectContaining({ terminal: expect.objectContaining({ id: "terminal_1" }) }),
+      touch: false,
+    })
+    expect(mockCreatePreparedCheckoutContext).toHaveBeenCalledWith(expect.objectContaining({
+      terminalId: "terminal_1",
+      kioskSessionId: "server_kiosk_session_1",
+      validation: expect.objectContaining({ date: "2026-02-10", time: "11:00", durationMinutes: 60 }),
+    }))
+    expect(consoleInfo).toHaveBeenCalledWith(
+      "[staff-terminal-checkout-latency] checkout-intent",
+      expect.objectContaining({ segment: "prepare_only", source: "prepared", fallbackReason: null })
+    )
+    consoleInfo.mockRestore()
+    expect(mockEnforceNewStudent).not.toHaveBeenCalled()
+    expect(mockCreateOrReuseNativePreparedPurchase).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+
+    const native = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", photoContext: "kiosk_terminal" }))
+    expect(native.status).toBe(200)
+    expect(mockCreateOrReuseNativePreparedPurchase).toHaveBeenCalledTimes(1)
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+  })
+
+  it("keeps ordinary prepare-only requests unchanged when refresh intent is absent", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ prepareOnly: true, photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ ok: true, prepareOnly: true })
+    expect(mockCreatePreparedCheckoutContext).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["non-kiosk", { prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "qr_phone", kioskSessionToken: "kiosk_session_1" }, true, 400],
+    ["wrong photo context", { prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "external_web", kioskSessionToken: "kiosk_session_1" }, true, 400],
+    ["ordinary payment", { refreshKioskPreparedContext: true, photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" }, true, 400],
+    ["missing kiosk session", { prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "kiosk_terminal" }, true, 400],
+    ["blank kiosk session", { prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "kiosk_terminal", kioskSessionToken: "  " }, true, 400],
+    ["disabled feature", { prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1" }, false, 409],
+  ])("rejects refresh intent without writing for %s", async (_case, body, enabled, status) => {
+    mockIsPreparedCheckoutContextEnabled.mockReturnValue(enabled)
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest(body))
+
+    expect(res.status).toBe(status)
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockCreatePreparedCheckoutContext).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+  })
+
+  it("rejects refresh intent without writing when terminal authorization fails", async () => {
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({ status: 401, error: "Terminal session required for kiosk checkout." })
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({
+      prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1",
+    }))
+
+    expect(res.status).toBe(401)
+    expect(mockCreatePreparedCheckoutContext).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+  })
+
+  it("rejects refresh intent when preparation lacks terminal authorization", async () => {
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: "fallback",
+      terminalAuth: null,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: "user_123", clerkUser: null, resolvedUserId: "user_123",
+        identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+        account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+      },
+    })
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({
+      prepareOnly: true, refreshKioskPreparedContext: true, photoContext: "kiosk_terminal", kioskSessionToken: "kiosk_session_1",
+    }))
+
+    expect(res.status).toBe(401)
+    expect(mockCreatePreparedCheckoutContext).not.toHaveBeenCalled()
+  })
+
+  it.each(["true", 1, {}, []])("rejects non-boolean prepared-context refresh intent %j", async (refreshKioskPreparedContext) => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ refreshKioskPreparedContext }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid prepared context refresh intent" })
+    expect(mockValidate).not.toHaveBeenCalled()
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockCreatePreparedCheckoutContext).not.toHaveBeenCalled()
+  })
+
   it("delegates prepared kiosk terminal intents to Nest with deterministic idempotency and class metadata", async () => {
     enableTerminalPaymentGateway()
 
@@ -350,6 +548,102 @@ describe("checkout intent route", () => {
     expect(gatewayPayload.metadata).not.toHaveProperty("consecutiveLinkedCourseSlug")
     expect(gatewayPayload.metadata).not.toHaveProperty("consecutiveCourseTitle")
     expect(gatewayPayload.metadata).not.toHaveProperty("consecutiveLinkedCourseTime")
+  })
+
+  it("keeps an explicitly embedded prepared kiosk intent local when the terminal gateway is enabled", async () => {
+    enableTerminalPaymentGateway()
+    const fetchMock = vi.fn()
+    vi.stubGlobal("fetch", fetchMock)
+
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(
+      createRouteRequest({
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "kiosk_session_1",
+        paymentSurface: "embedded",
+      })
+    )
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ clientSecret: "pi_secret_123" })
+    expect(mockCreatePaymentIntent).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("rejects native preparation requests that also request ordinary prepareOnly", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", prepareOnly: true }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Native preparation cannot be prepare-only" })
+    expect(mockValidate).not.toHaveBeenCalled()
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockCreateOrReuseNativePreparedPurchase).not.toHaveBeenCalled()
+    expect(mockIssuePreparedNativePurchase).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+  })
+
+  it("prepares only the validated prepared kiosk purchase and exposes no checkout internals", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({
+      paymentSurface: "native_m2_prepare",
+      photoContext: "kiosk_terminal",
+      kioskSessionToken: "kiosk_session_1",
+      courseSlug: "client-claim",
+      amount: 1,
+    }))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ preparedPurchaseReference: "prepared-reference", state: "prepared" })
+    expect(mockCreateOrReuseNativePreparedPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      preparedContextId: "prepared_ctx_1",
+      recipient: expect.objectContaining({ userId: "user_123" }),
+      selection: expect.objectContaining({
+        courseSlug: "salsa-femenina-matutina", amount: 2000, currency: "usd", serviceId: "dropin",
+      }),
+      fulfillmentMetadata: expect.objectContaining({ courseSlug: "salsa-femenina-matutina", userId: "user_123" }),
+    }))
+    expect(mockIssuePreparedNativePurchase).toHaveBeenCalledWith({
+      purchaseId: "purchase_1", terminalId: "terminal_1", sessionId: "terminal_session_1",
+    })
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+    expect(mockClearPreparedCheckout).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["fallback context", { source: "fallback", preparedContextId: undefined, terminalAuth: null, userId: "user_123" }],
+    ["missing existing database user", { source: "prepared", preparedContextId: "prepared_ctx_1", terminalAuth: undefined, userId: null }],
+  ])("fails closed before capability or provider creation for %s", async (_case, override) => {
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: override.source,
+      preparedContextId: override.preparedContextId,
+      terminalAuth: override.terminalAuth,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: override.userId,
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+        account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+      },
+    })
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", photoContext: "kiosk_terminal" }))
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ error: "Native preparation unavailable" })
+    expect(mockCreateOrReuseNativePreparedPurchase).not.toHaveBeenCalled()
+    expect(mockIssuePreparedNativePurchase).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
+  })
+
+  it("rejects unknown payment surfaces", async () => {
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const res = await POST(createRouteRequest({ paymentSurface: "gateway" }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: "Invalid payment surface" })
+    expect(mockValidate).not.toHaveBeenCalled()
   })
 
   it("clears prepared context after a successful card fast path", async () => {
@@ -484,6 +778,25 @@ describe("checkout intent route", () => {
 
     consoleInfo.mockRestore()
     dateNow.mockRestore()
+  })
+
+  it.each([
+    ["precondition_failure", () => mockResolveCheckoutPreparation.mockResolvedValueOnce({ source: "fallback", terminalAuth: null, verification: { hasVerifiedPhone: true }, preparedAccount: { userId: "user_123", clerkUser: null, resolvedUserId: "user_123", identity: { resolvedEmail: "test@example.com", phoneNormalized: "9293876584" }, account: {} } })],
+    ["purchase_mismatch", () => mockCreateOrReuseNativePreparedPurchase.mockRejectedValueOnce(new MockNativePreparedPurchaseError("secret purchase"))],
+    ["purchase_persistence_failure", () => mockCreateOrReuseNativePreparedPurchase.mockRejectedValueOnce(new Error("secret purchase"))],
+    ["prepared_reference_unavailable", () => mockIssuePreparedNativePurchase.mockRejectedValueOnce(new MockPreparedNativePurchaseError("secret reference"))],
+    ["prepared_reference_persistence_failure", () => mockIssuePreparedNativePurchase.mockRejectedValueOnce(new Error("secret reference"))],
+  ])("keeps native preparation responses generic while logging only allowlisted %s", async (reasonCode, arrange) => {
+    arrange()
+    const log = vi.spyOn(console, "info").mockImplementation(() => {})
+    const { POST } = await import("@/app/api/checkout/intent/route")
+    const response = await POST(createRouteRequest({ paymentSurface: "native_m2_prepare", photoContext: "kiosk_terminal" }))
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({ error: "Native preparation unavailable" })
+    const event = log.mock.calls.find(([eventName]) => eventName === "[native-m2-prepare]")
+    expect(event).toEqual(["[native-m2-prepare]", { outcome: "rejected", reasonCode }])
+    expect(JSON.stringify(event)).not.toMatch(/secret|purchase_1|prepared-reference|terminal_session_1/i)
+    log.mockRestore()
   })
 
   it("does not clear prepared context when delegated checkout falls back locally and Stripe is not configured", async () => {

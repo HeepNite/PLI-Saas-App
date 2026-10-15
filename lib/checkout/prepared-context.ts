@@ -105,6 +105,13 @@ export const createPreparedCheckoutContext = async (input: {
   })
 }
 
+export const findPreparedCheckoutContextForReconciliation = async (input: {
+  id: string
+  terminalId: string
+  kioskSessionId: string
+  classSlotKey: string
+}) => preparedCheckoutContextTable.findFirst({ where: input })
+
 export const deletePreparedCheckoutContext = async (input: {
   terminalId: string
   kioskSessionId: string
