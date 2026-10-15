@@ -220,7 +220,7 @@ describe("BookingPageContent", () => {
     expect(html).toContain(copy)
   })
 
-  it("opens booking when the class card is clicked", async () => {
+  it("exposes the full class card as a native booking action", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
     const onSelect = vi.fn()
     const container = document.createElement("div")
@@ -243,7 +243,12 @@ describe("BookingPageContent", () => {
       )
     })
 
-    await act(async () => container.querySelector("article")?.click())
+    const cardAction = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Book Salsa Timba on 2026-06-11 from class card"]'
+    )
+    expect(cardAction).toBeInstanceOf(HTMLButtonElement)
+
+    await act(async () => cardAction?.click())
 
     expect(onSelect).toHaveBeenCalledOnce()
     expect(onSelect).toHaveBeenCalledWith(readyOccurrence)
@@ -275,14 +280,19 @@ describe("BookingPageContent", () => {
       )
     })
 
-    const article = container.querySelector("article")
-    const bookButton = container.querySelector<HTMLButtonElement>("article button")
+    const cardAction = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Book Salsa Timba on 2026-06-11 from class card"]'
+    )
+    const bookButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Book Salsa Timba on 2026-06-11"]'
+    )
 
     await act(async () => {
-      article?.click()
+      cardAction?.click()
       bookButton?.click()
     })
 
+    expect(cardAction?.disabled).toBe(true)
     expect(bookButton?.disabled).toBe(true)
     expect(onSelect).not.toHaveBeenCalled()
 

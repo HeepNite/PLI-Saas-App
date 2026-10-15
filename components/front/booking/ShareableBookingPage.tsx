@@ -281,13 +281,19 @@ export function BookingPageContent({
                   return (
                     <article
                       key={occurrence.id}
-                      onClick={() => {
-                        if (!isDisabled) onSelect(occurrence)
-                      }}
-                      className={`grid grid-cols-[48px_minmax(0,1fr)_52px] items-center gap-2.5 rounded-2xl border border-white/12 bg-[#1d1b21] px-3 py-3 shadow-sm transition sm:grid-cols-[56px_minmax(0,1fr)_60px] sm:gap-4 sm:px-4 ${isDisabled ? "cursor-wait" : "cursor-pointer hover:border-white/25"}`}
+                      className={`relative grid grid-cols-[48px_minmax(0,1fr)_52px] items-center gap-2.5 rounded-2xl border border-white/12 bg-[#1d1b21] px-3 py-3 shadow-sm transition sm:grid-cols-[56px_minmax(0,1fr)_60px] sm:gap-4 sm:px-4 ${isDisabled ? "cursor-wait" : "hover:border-white/25"}`}
                     >
-                      <CourseThumbnail occurrence={occurrence} />
-                      <div className="min-w-0 leading-tight">
+                      <button
+                        type="button"
+                        aria-label={`Book ${occurrence.title} on ${occurrence.date} from class card`}
+                        disabled={isDisabled}
+                        onClick={() => onSelect(occurrence)}
+                        className="absolute inset-0 z-0 cursor-pointer rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-[#ef4b55] focus-visible:ring-offset-2 focus-visible:ring-offset-[#09070d] disabled:cursor-wait"
+                      />
+                      <div className="pointer-events-none relative z-10">
+                        <CourseThumbnail occurrence={occurrence} />
+                      </div>
+                      <div className="pointer-events-none relative z-10 min-w-0 leading-tight">
                         <p className="truncate text-sm font-bold text-white sm:text-base">{occurrence.title}</p>
                         <p className="mt-1 truncate text-xs font-semibold tabular-nums text-white/68 sm:text-sm">
                           {formatTime(occurrence.time)}
@@ -296,13 +302,15 @@ export function BookingPageContent({
                         {occurrence.promotionLabels?.[0] ? <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.08em] text-[#ff7a82]">{occurrence.promotionLabels[0]}</p> : null}
                         <p className="mt-1 truncate text-[10px] text-white/42 sm:text-xs">{occurrence.instructorName}</p>
                       </div>
-                      <HeritageBookButton
-                        occurrence={occurrence}
-                        decorativeIndex={decorativeFlagIndexes.get(occurrence.id)}
-                        busy={isNavigating}
-                        disabled={isDisabled}
-                        onSelect={() => onSelect(occurrence)}
-                      />
+                      <div className="relative z-10">
+                        <HeritageBookButton
+                          occurrence={occurrence}
+                          decorativeIndex={decorativeFlagIndexes.get(occurrence.id)}
+                          busy={isNavigating}
+                          disabled={isDisabled}
+                          onSelect={() => onSelect(occurrence)}
+                        />
+                      </div>
                     </article>
                   )
                 })}

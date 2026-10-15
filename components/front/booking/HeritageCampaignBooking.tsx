@@ -166,10 +166,7 @@ export function HeritageBookButton({
       type="button"
       aria-label={label}
       disabled={disabled}
-      onClick={(event) => {
-        event.stopPropagation()
-        onSelect()
-      }}
+      onClick={onSelect}
       className="group h-[52px] w-[52px] rounded-full [perspective:600px] disabled:cursor-not-allowed disabled:opacity-45 sm:h-[60px] sm:w-[60px]"
     >
       <span className="relative block h-full w-full rounded-full transition-transform duration-500 [transform-style:preserve-3d] motion-safe:group-hover:[transform:rotateY(180deg)] motion-safe:group-focus-visible:[transform:rotateY(180deg)] motion-reduce:transition-colors">

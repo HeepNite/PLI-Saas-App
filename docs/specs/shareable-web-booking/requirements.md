@@ -42,7 +42,7 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 10. Selecting a valid occurrence MUST navigate through `buildQrBookingUrl` with slug, date, time, and duration.
 11. Successful personal completion MUST activate any pending Clerk session and redirect to `/client-profile`.
 12. The PLI logo and introductory information MUST be centered.
-13. Every available occurrence MUST use a three-column row: course photo on the left, three compact center rows (class title; time plus duration; instructor name), and a visible circular red `BOOK` action on the right. Clicking anywhere on an enabled occurrence row MUST trigger the same booking selection as its `BOOK` action.
+13. Every available occurrence MUST use a three-column row: course photo on the left, three compact center rows (class title; time plus duration; instructor name), and a visible circular red `BOOK` action on the right. The full enabled occurrence row MUST be a native keyboard-accessible booking action that triggers the same selection as its visible `BOOK` action.
 14. A search field MUST filter occurrences by class title, category/style, normalized class type, or slug without another network request.
 15. The search field MUST occupy the left half of one discovery-toolbar row while the month and class-type filters each occupy one quarter. All three controls MUST remain on that same row on desktop and phone, using compact mobile sizing.
 16. The centered PLI logo MUST be visually larger, and the redundant `BOOK` eyebrow beneath it MUST be removed.
@@ -81,7 +81,7 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 - [ ] A visitor can choose any represented month within the next 90 days.
 - [ ] A visitor can filter by All classes, Salsa Cubana, Salsa On2, Bachata, or Other when represented.
 - [ ] Future occurrences are grouped and globally chronological; past occurrences are absent.
-- [ ] A visible circular `BOOK` action and a click anywhere on its enabled class row produce the same canonical QR booking handoff.
+- [ ] A visible circular `BOOK` action and the full native keyboard-accessible class-row action produce the same canonical QR booking handoff.
 - [ ] Centered PLI branding and route-scoped chat/Home suppression remain intact.
 - [ ] Search and filters compose one 2:1:1 toolbar row on desktop and phone, with compact controls and smaller mobile text.
 - [ ] Month options omit the year, and every card shows title, time/duration, and instructor as three compact metadata rows.
