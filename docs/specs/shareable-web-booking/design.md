@@ -2,7 +2,7 @@
 
 ## Intent
 
-Turn the existing branded selector into a bounded public schedule browser. The page owns recurrence expansion, discovery filters, grouping, and navigation only; the established QR course flow owns booking and identity transitions.
+Turn the existing branded selector into a bounded public schedule browser and expose its schedule through stable weekday URLs. `/booking` retains discovery; each weekday page owns only New York weekday filtering over the same bounded occurrences. The established QR course flow owns booking and identity transitions.
 
 ## Reuse Strategy
 
@@ -14,7 +14,7 @@ Turn the existing branded selector into a bounded public schedule browser. The p
 | `CourseAsideRight` / `EnrollModal` | Preserve new/returning client behavior, checkout, session activation, and profile redirect. |
 | Profile package booking services | Resolve an applicable owned package and create a scheduled attendance without a parallel identity flow. |
 | Attendance status transitions | Finalize a held package credit only when scheduled attendance becomes attended; release the hold on cancellation. |
-| `useHideFloatingChrome` | Keep chat and Home controls hidden only on `/booking`. |
+| `useHideFloatingChrome` | Keep chat and Home controls hidden on `/booking` and the explicit weekday routes. |
 
 ## Affected Areas
 
@@ -22,6 +22,7 @@ Turn the existing branded selector into a bounded public schedule browser. The p
 - Add an optional public course category field to the existing course mapping/type if useful for classification.
 - Add month/type filter state and grouped rendering to the existing booking client.
 - Extend focused unit/component and Playwright coverage.
+- Add shared weekday-route configuration, seven explicit static route files, and a legacy redirect from `/monday-salsa-beginner` to `/monday`.
 
 ## Architecture Constraints
 
@@ -31,6 +32,9 @@ Turn the existing branded selector into a bounded public schedule browser. The p
 - Respect `scheduleRules` day-specific times first and the catalog's Mon-based fallback schedule second.
 - Exclude malformed schedules and past occurrences defensively.
 - Use stable identifiers composed from slug, date, and time.
+- Filter weekday occurrences by their `America/New_York` calendar weekday after the shared 90-day expansion. Do not gate this filter on promotions.
+- Keep `/booking` as-is. Build seven explicit static weekday routes from shared configuration; do not add a broad top-level `[weekday]` dynamic route.
+- Render a deterministic empty state when a weekday has no matching occurrences.
 
 ## Data Model
 
@@ -46,11 +50,11 @@ Filters are derived from the occurrence set:
 - month: current month by default, represented months, and `all`
 - type: `all` plus represented normalized types
 
-The UI derives grouped dates after both filters are applied.
+The UI derives grouped dates after both filters are applied. A weekday route instead derives its view from the complete weekday-matched occurrence set so no discovery filter suppresses a matching occurrence.
 
 ## Visual Notes
 
-- Center the white PLI logo, `BOOK` eyebrow, heading, and supporting copy.
+- Center the white PLI logo, heading, and supporting copy; do not render a redundant `BOOK` eyebrow.
 - Keep the existing near-black/red palette and compact occurrence cards.
 - Add one responsive discovery toolbar above the first date group using a 2:1:1 grid: 50% search, 25% month, and 25% class type. Keep all three controls on one row at every supported width, with compact mobile text/padding.
 - Search the already-expanded occurrence set locally across normalized title, category/style, class-type label, and slug.

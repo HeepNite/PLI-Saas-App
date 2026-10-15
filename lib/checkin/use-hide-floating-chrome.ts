@@ -8,7 +8,8 @@ import { detectQrFlow } from "./qr-flow"
  * True while global floating chrome (the chat/assistant widget and the
  * back-to-top button) should be hidden to keep checkout distraction-free.
  *
- * Two triggers, OR-ed:
+ * Three triggers, OR-ed:
+ * - Public booking routes, including the seven explicit weekday routes.
  * - `detectQrFlow()` — the URL is part of the QR-mobile flow (`?fromQr` / `?qrBooking`).
  * - A full-screen modal has locked body scroll (`document.body.style.overflow === "hidden"`).
  *   The EnrollModal booking sets this while open, so it reliably covers every step
@@ -19,7 +20,9 @@ import { detectQrFlow } from "./qr-flow"
  */
 export const shouldHideFloatingChromeForPath = (pathname: string | null | undefined) => {
   const normalizedPath = pathname?.replace(/\/+$/, "")
-  return normalizedPath === "/booking" || normalizedPath === "/monday-salsa-beginner"
+  return normalizedPath === "/booking"
+    || normalizedPath === "/monday-salsa-beginner"
+    || /^\/(monday|tuesday|wednesday|thursday|friday|saturday|sunday)$/.test(normalizedPath ?? "")
 }
 
 export function useHideFloatingChrome(): boolean {
