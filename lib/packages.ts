@@ -357,6 +357,9 @@ export const holdPackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
     const linkedPackage = await tx.packagePurchase.findUnique({
       where: { id: existingUsage.packagePurchaseId },
     })
+    if (linkedPackage && !await guardPackagePurchaseEligibleForCreditTx(tx, linkedPackage)) {
+      throw new Error("PACKAGE_PURCHASE_INELIGIBLE")
+    }
     return { packagePurchase: linkedPackage, usage: existingUsage, held: existingUsage.delta === 0 }
   }
 
@@ -370,6 +373,9 @@ export const holdPackageCreditForAttendanceTx = async (tx: PrismaTx, input: {
     },
   })
   if (!selectedPackage) throw new Error("PACKAGE_NOT_AVAILABLE")
+  if (!await guardPackagePurchaseEligibleForCreditTx(tx, selectedPackage)) {
+    throw new Error("PACKAGE_PURCHASE_INELIGIBLE")
+  }
 
   if (!selectedPackage.isUnlimited) {
     const activeHolds = await tx.packageUsageLedger.count({
@@ -409,6 +415,9 @@ export const consumeHeldPackageCreditForAttendanceTx = async (tx: PrismaTx, inpu
     include: { packagePurchase: true },
   })
   if (!usage || usage.userId !== input.userId) return { packagePurchase: null, usage: null, consumed: false }
+  if (!await guardPackagePurchaseEligibleForCreditTx(tx, usage.packagePurchase)) {
+    throw new Error("PACKAGE_PURCHASE_INELIGIBLE")
+  }
   if (usage.delta < 0) return { packagePurchase: usage.packagePurchase, usage, consumed: true }
 
   if (usage.packagePurchase.isUnlimited) {

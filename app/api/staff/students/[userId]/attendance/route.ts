@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server"
-import { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { authorizeOwnerOrAdminRequest } from "@/lib/security/staff-portal-auth"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
-import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
+import { getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
-import { asObject, asText } from "@/lib/shared"
 import { ATTENDANCE_STATUS, ATTENDED_CHECKIN_STATUSES } from "@/lib/attendance-constants"
-import { guardPackagePurchaseEligibleForCreditTx, reservePackageCreditForAttendanceTx } from "@/lib/packages"
+import {
+  consumeHeldPackageCreditForAttendanceTx,
+  guardPackagePurchaseEligibleForCreditTx,
+  releasePackageCreditUsageTx,
+  reservePackageCreditForAttendanceTx,
+} from "@/lib/packages"
 
 export const runtime = "nodejs"
 
@@ -129,6 +132,10 @@ async function applyRemove(
   const valueBefore = { status: attendance.status, sessionId }
 
   // Collect related records BEFORE deleting attendance.
+  const usageEntry = await tx.packageUsageLedger.findFirst({
+    where: { attendanceId: attendance.id },
+    include: { packagePurchase: true },
+  })
   const linkedPurchases = await tx.purchase.findMany({
     where: {
       userId,
@@ -141,6 +148,9 @@ async function applyRemove(
   if (usageEntry && (!usageEntry.packagePurchase || !await guardPackagePurchaseEligibleForCreditTx(tx, usageEntry.packagePurchase))) {
     return { error: "Package credit requires manual resolution.", status: 409 }
   }
+
+  // Release a scheduled hold, or restore a credit only when it had already been consumed.
+  await releasePackageCreditUsageTx(tx, { attendanceId: attendance.id })
 
   // Now delete the attendance
   await tx.attendance.delete({
@@ -223,21 +233,14 @@ async function applyUpdate(
     return { error: "Package credit requires manual resolution.", status: 409 }
   }
 
-  const updated = await tx.attendance.update({
+  await tx.attendance.update({
     where: { userId_sessionId: { userId, sessionId } },
     data: { status },
   })
 
-  // Handle credit restoration/consumption based on status change
+  // Handle credit restoration/consumption based on status change.
   if (usageEntry) {
-    await tx.packagePurchase.update({
-      where: { id: usageEntry.packagePurchaseId },
-      data: { remainingCredits: { increment: 1 } },
-    })
-
-    await tx.packageUsageLedger.delete({
-      where: { id: usageEntry.id },
-    })
+    await releasePackageCreditUsageTx(tx, { attendanceId: attendance.id })
   } else if (!wasAttended && isAttended) {
     // A public/profile reservation owns a zero-delta hold. Complete that exact hold
     // before falling back to the legacy staff-selected active package behavior.
@@ -246,14 +249,16 @@ async function applyUpdate(
       userId,
       reason: "ATTENDANCE_COMPLETED",
     })
-
-    if (activePackage && activePackage.remainingCredits! > 0) {
-      await reservePackageCreditForAttendanceTx(tx, {
-        packagePurchaseId: activePackage.id,
-        userId,
-        attendanceId: attendance.id,
-        at: new Date(),
-        reason: "staff_override_update_attendance",
+    if (!heldResult.usage) {
+      const activePackages = await tx.packagePurchase.findMany({
+        where: {
+          userId,
+          status: "active",
+          isUnlimited: false,
+          remainingCredits: { gt: 0 },
+          OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        },
+        orderBy: { purchasedAt: "desc" },
       })
       let activePackage: (typeof activePackages)[number] | null = null
       for (const candidate of activePackages) {
@@ -271,20 +276,12 @@ async function applyUpdate(
       }
 
       if (activePackage && activePackage.remainingCredits! > 0) {
-        await tx.packagePurchase.update({
-          where: { id: activePackage.id },
-          data: { remainingCredits: { decrement: 1 }, lastUsedAt: new Date() },
-        })
-
-        await tx.packageUsageLedger.create({
-          data: {
-            packagePurchaseId: activePackage.id,
-            userId,
-            attendanceId: attendance.id,
-            delta: -1,
-            reason: "staff_override_update_attendance",
-            meta: { sessionId, overriddenBy: authResult.userId },
-          },
+        await reservePackageCreditForAttendanceTx(tx, {
+          packagePurchaseId: activePackage.id,
+          userId,
+          attendanceId: attendance.id,
+          at: new Date(),
+          reason: "staff_override_update_attendance",
         })
       }
     }
