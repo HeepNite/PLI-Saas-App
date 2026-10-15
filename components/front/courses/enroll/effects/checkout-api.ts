@@ -1,10 +1,23 @@
 type FetchImpl = typeof fetch
 
+export type CheckoutPayload = Record<string, unknown>
+
+export type PublicCheckoutQuoteResponse =
+  | { amountCents: number; currency: string; promotionLabel?: string }
+  | { error: string }
+
 type RequestOptions = {
   token?: string | null
-  payload: Record<string, unknown>
+  payload: CheckoutPayload
   fetchImpl?: FetchImpl
-  endpoint?: "/api/checkout/session" | "/api/profile/checkout/session"
+}
+
+type CheckoutIntentRequestOptions = RequestOptions & {
+  endpoint?: "/api/checkout/intent" | "/api/public/checkout/intent"
+}
+
+type CheckoutSessionRequestOptions = RequestOptions & {
+  endpoint?: "/api/checkout/session" | "/api/profile/checkout/session" | "/api/public/checkout/session"
 }
 
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
@@ -13,6 +26,18 @@ const createJsonHeaders = (token?: string | null) => ({
   "Content-Type": "application/json",
   ...(token ? { Authorization: `Bearer ${token}` } : {}),
 })
+
+const isPublicCheckoutQuoteResponse = (value: unknown): value is PublicCheckoutQuoteResponse => {
+  if (!value || typeof value !== "object") return false
+  if ("error" in value && typeof value.error === "string") return true
+  return (
+    "amountCents" in value &&
+    typeof value.amountCents === "number" &&
+    "currency" in value &&
+    typeof value.currency === "string" &&
+    (!("promotionLabel" in value) || typeof value.promotionLabel === "string")
+  )
+}
 
 export const requestNewStudentOutcomeApi = async ({
   phone,
@@ -32,8 +57,25 @@ export const requestNewStudentOutcomeApi = async ({
   return { res, data }
 }
 
-export const requestCheckoutIntentApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
-  const res = await resolveFetch(fetchImpl)("/api/checkout/intent", {
+export const requestCheckoutQuoteApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
+  const res = await resolveFetch(fetchImpl)("/api/public/checkout/quote", {
+    method: "POST",
+    headers: createJsonHeaders(token),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  })
+  const response = await res.json().catch(() => null)
+  const data = isPublicCheckoutQuoteResponse(response) ? response : null
+  return { res, data }
+}
+
+export const requestCheckoutIntentApi = async ({
+  token,
+  payload,
+  fetchImpl,
+  endpoint = "/api/checkout/intent",
+}: CheckoutIntentRequestOptions) => {
+  const res = await resolveFetch(fetchImpl)(endpoint, {
     method: "POST",
     headers: createJsonHeaders(token),
     credentials: "include",
@@ -43,7 +85,12 @@ export const requestCheckoutIntentApi = async ({ token, payload, fetchImpl }: Re
   return { res, data }
 }
 
-export const requestCheckoutSessionApi = async ({ token, payload, fetchImpl, endpoint = "/api/checkout/session" }: RequestOptions) => {
+export const requestCheckoutSessionApi = async ({
+  token,
+  payload,
+  fetchImpl,
+  endpoint = "/api/checkout/session",
+}: CheckoutSessionRequestOptions) => {
   const res = await resolveFetch(fetchImpl)(endpoint, {
     method: "POST",
     headers: createJsonHeaders(token),
