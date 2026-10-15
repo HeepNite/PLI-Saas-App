@@ -60,9 +60,29 @@ describe("EnrollFormFooter", () => {
     expect(buttonLabels(html)).toEqual(["Back", "Continue"])
   })
 
-  it("replaces Cancel with Back after the first step", () => {
+  it("replaces Cancel with Back and preserves the QR fallback after the first step", () => {
     const html = renderFooter({ step: 1, activeStepKey: "datetime" })
 
     expect(buttonLabels(html)).toEqual(["Back", "Show QR"])
+  })
+
+  it.each(["expired", "error"] as const)("retains Create new QR for %s", (phase) => {
+    const html = renderFooter({
+      step: 1,
+      activeStepKey: "datetime",
+      kioskQrCheckout: { ...createEmptyKioskQrCheckoutState(), phase },
+    })
+
+    expect(buttonLabels(html)).toEqual(["Back", "Create new QR"])
+  })
+
+  it("labels the final action Confirm when the native payment bridge is available", () => {
+    vi.stubGlobal("window", { pliNativeBridge: { postMessage: vi.fn() } })
+    try {
+      const html = renderFooter({ step: 1, activeStepKey: "datetime" })
+      expect(buttonLabels(html)).toEqual(["Back", "Confirm"])
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

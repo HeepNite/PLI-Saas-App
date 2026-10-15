@@ -3,6 +3,7 @@ import React from "react"
 import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { I18nKey } from "@/lib/i18n-dict"
+import { isNativePaymentBridgeAvailable } from "@/components/front/courses/enroll/effects/native-payment-bridge"
 
 type Props = {
   step: number
@@ -87,7 +88,13 @@ export default function EnrollFormFooter({
               ? "Processing..."
               : consecutiveOfferLoading && activeStepKey === "payments"
                 ? "Checking promotions..."
-                : t("confirm")}
+                : isKioskTerminalFlow && paymentMethod === "stripe"
+                  ? isNativePaymentBridgeAvailable()
+                    ? t("confirm")
+                    : kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
+                      ? "Create new QR"
+                      : "Show QR"
+                  : t("confirm")}
           </button>
         )}
     </div>

@@ -97,12 +97,12 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     checkInContextDate, checkInContextTime, checkInContextDuration,
     bookingSource, heritagePinCountryCode, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
     isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
-    paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
+    paymentsStepIndex, regularServiceId, regularServicePrice,
     getToken,
     setService, setStep, setSuccess, setSuccessMessage, setProcessing, setFormError,
     setRequiresSignIn, setExistingAccountDetected, setResumeAfterSignInStep, setPendingAutoPay,
-    setKioskQrCheckout, setSignInPurpose, setStripeClientSecret, setShowStripeModal,
-    setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup, setResumeContactFlowAfterSignIn,
+    setKioskQrCheckout, setStripeClientSecret, setShowStripeModal,
+    setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup,
     t,
   } = input
   const nativeAttemptRef = React.useRef(false)
@@ -151,23 +151,19 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       }),
     [
       addons,
-      appliedCoupon?.code,
-      contact.email,
-      contact.firstName,
-      contact.lastName,
-      contact.phone,
+      appliedCoupon,
+      contact,
       consecutiveAccepted,
       consecutiveAddedCents,
       effectiveConsecutiveOffer,
-      course.slug,
-      course.title,
+      course,
       date,
       participants,
       photoFlowContext,
       checkInContextDate,
       checkInContextTime,
-      checkInContextDuration,
-      infoStepIndex,
+      bookingSource,
+      heritagePinCountryCode,
       pkg,
       kioskSessionToken,
       service,
@@ -175,6 +171,59 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       total,
     ]
   )
+
+  React.useEffect(() => {
+    const requestId = ++publicQuoteRequest.current
+    let active = true
+
+    if (!isPublicQuoteEligible) {
+      setPublicQuote(null)
+      setPublicQuoteLoading(false)
+      setPublicQuoteError(null)
+      return () => {
+        active = false
+      }
+    }
+
+    setPublicQuote(null)
+    setPublicQuoteLoading(true)
+    setPublicQuoteError(null)
+
+    void (async () => {
+      try {
+        const token = isSignedIn ? await getToken({ skipCache: true }) : null
+        const { res, data } = await requestCheckoutQuoteApi({
+          token,
+          payload: buildCheckoutPayload(),
+        })
+        if (!active || publicQuoteRequest.current !== requestId) return
+        if (
+          !res.ok ||
+          !data ||
+          !("amountCents" in data) ||
+          typeof data.amountCents !== "number" ||
+          !Number.isFinite(data.amountCents) ||
+          typeof data.currency !== "string"
+        ) {
+          setPublicQuoteError("We couldn't refresh the current price. Please try again.")
+          return
+        }
+        setPublicQuote(data)
+      } catch {
+        if (active && publicQuoteRequest.current === requestId) {
+          setPublicQuoteError("We couldn't refresh the current price. Please try again.")
+        }
+      } finally {
+        if (active && publicQuoteRequest.current === requestId) {
+          setPublicQuoteLoading(false)
+        }
+      }
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [buildCheckoutPayload, getToken, isPublicQuoteEligible, isSignedIn])
 
   React.useEffect(() => {
     const target = window as typeof window & { pliNativeAttemptState?: unknown }
@@ -372,6 +421,62 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       return
     }
     setProcessing(true)
+
+    if (paymentMethod === "stripe" && isKioskTerminalFlow && !isNativePaymentBridgeAvailable()) {
+      try {
+        await startKioskQrCheckout()
+      } catch (err) {
+        console.error(err)
+        setKioskQrCheckout({
+          ...createEmptyKioskQrCheckoutState(),
+          phase: "error",
+          error: "We couldn't start the QR payment. Please try again.",
+        })
+        alert("We couldn't start the QR payment. Please try again.")
+      } finally {
+        setProcessing(false)
+      }
+      return
+    }
+
+    if (
+      bookingSource === "public_booking" &&
+      isCheckInExistingFlow &&
+      isSignedIn &&
+      !pkg &&
+      participants === 1 &&
+      addons.length === 0 &&
+      !appliedCoupon &&
+      !consecutiveAccepted
+    ) {
+      try {
+        const token = await getToken({ skipCache: true })
+        const { res, data } = await requestPublicPackageReservationApi({
+          token,
+          payload: { courseSlug: course.slug, date, time },
+        })
+        if (res.ok && data?.ok === true) {
+          setSuccessMessage("Class reserved with your package. Your credit will be used after attendance is completed.")
+          setSuccess(true)
+          setProcessing(false)
+          return
+        }
+        if (!res.ok) {
+          setFormError(
+            typeof data?.error === "string"
+              ? data.error
+              : "We couldn't verify your package. Please try again."
+          )
+          setProcessing(false)
+          return
+        }
+      } catch (error) {
+        console.error("Unable to reserve public booking with package", error)
+        setFormError("We couldn't verify your package. Please try again.")
+        setProcessing(false)
+        return
+      }
+    }
 
     // Mobile-QR check-in (new student OR existing customer, NOT the staff kiosk
     // terminal): use Stripe HOSTED checkout (full-page redirect) instead of the
@@ -592,6 +697,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         let result = await requestCheckoutIntentApi({
           token,
           payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+          endpoint,
         })
         const code = typeof result.data?.code === "string" ? result.data.code : undefined
         if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
@@ -602,6 +708,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             result = await requestCheckoutIntentApi({
               token,
               payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+              endpoint,
             })
           }
         }

@@ -546,41 +546,165 @@ describe("useEnrollPaymentActions", () => {
   })
 
   // ---------------------------------------------------------------------
-  // handleSubmit — staff terminal stripe (embedded PaymentElement) path
+  // authoritative public quote
   // ---------------------------------------------------------------------
-  describe("handleSubmit — staff terminal stripe path", () => {
-    it("uses a checkout intent and opens the embedded modal instead of starting kiosk QR checkout", async () => {
-      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(
-        async () => jsonResponse({ clientSecret: "terminal_secret" })
+  describe("authoritative public quote", () => {
+    it("does not request a quote off the payments step or for non-public bookings", async () => {
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+
+      await renderHook(defaultInput({ bookingSource: "public_booking", step: 0 }))
+      await flushEffects()
+      expect(fetchMock).not.toHaveBeenCalled()
+
+      await renderHook(defaultInput())
+      await flushEffects()
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it("quotes anonymously, then refreshes with a signed-in Clerk token", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ amountCents: 1500, currency: "usd" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const getToken = vi.fn(async () => "fresh-clerk-token")
+      const { getResult, rerender } = await renderHook(defaultInput({ bookingSource: "public_booking", getToken }))
+      await flushEffects()
+
+      expect(fetchMock.mock.calls[0][0]).toBe("/api/public/checkout/quote")
+      expect((fetchMock.mock.calls[0][1].headers as Record<string, string>).Authorization).toBeUndefined()
+      expect(getResult().publicQuote).toEqual({ amountCents: 1500, currency: "usd" })
+
+      await rerender(defaultInput({ bookingSource: "public_booking", isSignedIn: true, getToken }))
+      await flushEffects()
+      expect(getToken).toHaveBeenCalledWith({ skipCache: true })
+      expect((fetchMock.mock.calls[1][1].headers as Record<string, string>).Authorization).toBe("Bearer fresh-clerk-token")
+    })
+
+    it("clears and refetches the quote when checkout payload inputs change", async () => {
+      const nextQuote = deferred<Response>()
+      let quoteRequests = 0
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(() => {
+        quoteRequests += 1
+        return quoteRequests === 1
+          ? Promise.resolve(jsonResponse({ amountCents: 1500, currency: "usd" }))
+          : nextQuote.promise
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const input = defaultInput({ bookingSource: "public_booking", service: "regular" })
+      const { getResult, rerender } = await renderHook(input)
+      await flushEffects()
+      expect(getResult().publicQuoteLoading).toBe(false)
+
+      await rerender({ ...input, service: "new-student" })
+      expect(getResult().publicQuote).toBeNull()
+      expect(getResult().publicQuoteLoading).toBe(true)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(String(fetchMock.mock.calls[1][1].body))).toMatchObject({ serviceId: "new-student" })
+      await act(async () => nextQuote.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
+    })
+
+    it("keeps the latest quote when an earlier request resolves last", async () => {
+      const first = deferred<Response>()
+      const second = deferred<Response>()
+      const fetchMock = vi.fn(() => fetchMock.mock.calls.length === 1 ? first.promise : second.promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const input = defaultInput({ bookingSource: "public_booking", date: "2026-07-10" })
+      const { getResult, rerender } = await renderHook(input)
+
+      await rerender({ ...input, date: "2026-07-11" })
+      await act(async () => second.resolve(jsonResponse({ amountCents: 1700, currency: "usd" })))
+      expect(getResult().publicQuote).toEqual({ amountCents: 1700, currency: "usd" })
+
+      await act(async () => first.resolve(jsonResponse({ amountCents: 1500, currency: "usd" })))
+      expect(getResult().publicQuote).toEqual({ amountCents: 1700, currency: "usd" })
+    })
+
+    it("exposes a generic quote error and blocks public card submission while loading or errored", async () => {
+      const pending = deferred<Response>()
+      const fetchMock = vi.fn(() => pending.promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const setFormError = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ bookingSource: "public_booking", setFormError }))
+
+      await getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(setFormError).toHaveBeenCalled()
+
+      await act(async () => pending.resolve(jsonResponse({ error: "sensitive server failure" }, { status: 400, ok: false })))
+      expect(getResult().publicQuoteError).toBe("We couldn't refresh the current price. Please try again.")
+      await getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    })
+
+    it("submits only after a successful quote, retaining local amount and the public intent endpoint", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => (
+        url === "/api/public/checkout/quote"
+          ? jsonResponse({ amountCents: 1500, currency: "usd" })
+          : jsonResponse({ clientSecret: "secret_abc" })
+      ))
+      vi.stubGlobal("fetch", fetchMock)
+      const { getResult } = await renderHook(defaultInput({ bookingSource: "public_booking", total: 49.99 }))
+      await flushEffects()
+
+      await getResult().handleSubmit()
+      const [url, request] = fetchMock.mock.calls[1]
+      expect(url).toBe("/api/public/checkout/intent")
+      expect(JSON.parse(request.body as string)).toMatchObject({ amount: 4999, bookingSource: "public_booking" })
+    })
+  })
+
+  // ---------------------------------------------------------------------
+  // handleSubmit — public existing-customer package path
+  // ---------------------------------------------------------------------
+  describe("handleSubmit — public package reservation", () => {
+    it("reserves an applicable package and skips paid checkout", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ ok: true, kind: "reserved", attendanceId: "attendance_1" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const setSuccess = vi.fn()
+      const setSuccessMessage = vi.fn()
+      const getToken = vi.fn(async () => "session-token")
+      const { getResult } = await renderHook(defaultInput({
+        bookingSource: "public_booking",
+        isCheckInFlow: true,
+        isCheckInExistingFlow: true,
+        isSignedIn: true,
+        getToken,
+        setSuccess,
+        setSuccessMessage,
+      }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profile/bookings/reserve-package",
+        expect.objectContaining({ method: "POST" })
       )
+      expect(setSuccess).toHaveBeenCalledWith(true)
+      expect(setSuccessMessage).toHaveBeenCalledWith(expect.stringContaining("reserved with your package"))
+    })
+  })
+
+  // ---------------------------------------------------------------------
+  // handleSubmit — kiosk terminal QR/card fallback path
+  // ---------------------------------------------------------------------
+  describe("handleSubmit — kiosk terminal stripe (QR) path", () => {
+    it("starts kiosk QR checkout when the native bridge is unavailable", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ sessionId: "s", url: "https://pay" }))
       vi.stubGlobal("fetch", fetchMock)
       const setProcessing = vi.fn()
-      const setStripeClientSecret = vi.fn()
-      const setShowStripeModal = vi.fn()
       const { getResult } = await renderHook(
         defaultInput({
+          bookingSource: "public_booking",
           paymentMethod: "stripe",
           isKioskTerminalFlow: true,
           setProcessing,
-          setStripeClientSecret,
-          setShowStripeModal,
         })
       )
 
       await getResult().handleSubmit()
 
-      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
-      expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/session", expect.anything())
-      const intentCall = fetchMock.mock.calls[0]
-      expect(JSON.parse(intentCall[1].body as string)).toMatchObject({
-        amount: 2500,
-        courseSlug: "bjj-fundamentals",
-        serviceId: "regular",
-        packageId: "",
-        paymentSurface: "embedded",
-      })
-      expect(setStripeClientSecret).toHaveBeenCalledWith("terminal_secret")
-      expect(setShowStripeModal).toHaveBeenCalledWith(true)
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
       expect(setProcessing).toHaveBeenCalledWith(true)
       expect(setProcessing).toHaveBeenLastCalledWith(false)
     })
@@ -617,13 +741,13 @@ describe("useEnrollPaymentActions", () => {
     })
 
     it("proceeds when the optional validateBeforeSubmit dep returns no issue", async () => {
-      const fetchMock = vi.fn(async () => jsonResponse({ clientSecret: "terminal_secret" }))
+      const fetchMock = vi.fn(async () => jsonResponse({ sessionId: "s", url: "https://pay" }))
       vi.stubGlobal("fetch", fetchMock)
       const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true }))
 
       await getResult().handleSubmit(undefined, { validateBeforeSubmit: () => null })
 
-      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
     })
 
     it("does not open the modal when the terminal checkout intent fails", async () => {
