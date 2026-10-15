@@ -279,7 +279,13 @@ export function BookingPageContent({
                   const isDisabled = navigatingId !== null
 
                   return (
-                    <article key={occurrence.id} className="grid grid-cols-[48px_minmax(0,1fr)_52px] items-center gap-2.5 rounded-2xl border border-white/12 bg-[#1d1b21] px-3 py-3 shadow-sm sm:grid-cols-[56px_minmax(0,1fr)_60px] sm:gap-4 sm:px-4">
+                    <article
+                      key={occurrence.id}
+                      onClick={() => {
+                        if (!isDisabled) onSelect(occurrence)
+                      }}
+                      className={`grid grid-cols-[48px_minmax(0,1fr)_52px] items-center gap-2.5 rounded-2xl border border-white/12 bg-[#1d1b21] px-3 py-3 shadow-sm transition sm:grid-cols-[56px_minmax(0,1fr)_60px] sm:gap-4 sm:px-4 ${isDisabled ? "cursor-wait" : "cursor-pointer hover:border-white/25"}`}
+                    >
                       <CourseThumbnail occurrence={occurrence} />
                       <div className="min-w-0 leading-tight">
                         <p className="truncate text-sm font-bold text-white sm:text-base">{occurrence.title}</p>
