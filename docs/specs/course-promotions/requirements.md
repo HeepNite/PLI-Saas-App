@@ -38,31 +38,37 @@ Let staff configure reusable course promotions in the course wizard while keepin
 
 1. The client MUST NOT authorize a promotion or final amount.
 2. The server MUST load promotions from the authoritative course record and normalize them before evaluation.
-3. Package reservation takes precedence over paid promotional checkout.
+3. Package reservation takes precedence over paid promotional checkout. An explicit package selection uses the existing package reservation/handling flow; paid public quote and intent routes MUST NOT probe ownership or automatically divert to it. The separate reservation endpoint retains its existing auto-detection.
 4. Without an applicable package, the server MUST compare all independently authorized price candidates and charge exactly one lowest price.
 5. Promotions MUST NOT stack with each other, coupons, addons, or consecutive-class pricing.
 6. Promotions apply only to one-participant drop-in bookings. Package purchases and unrelated services are ineligible.
 7. A percentage discount MUST use the authoritative regular drop-in price as its base and round to the nearest cent.
 8. Fixed or calculated paid prices MUST satisfy the payment processor minimum; this version does not create free checkouts.
 9. Equal-price ties SHOULD preserve the existing non-promotional price reason rather than claiming an unnecessary promotion.
-10. Checkout metadata MUST record the applied promotion identifier, label, price, pricing mode, audience, and date basis without trusting client metadata.
+10. Ordinary public booking MUST obtain a read-only authoritative quote before displaying a final price. `everyone` promotions MAY quote anonymously; a restricted final price requires exact authenticated identity and entitlement validation. Profile retains its existing authenticated authoritative checkout-session path and does not receive a new quote.
+11. The ordinary-public-booking quote MUST NOT create a Stripe intent or session, purchase, reservation, or payment state.
+12. Final PaymentIntent creation MUST re-evaluate authoritative course, date, identity, entitlement, package, and booking-shape state; it MUST NOT trust a client quote or amount.
+13. Checkout metadata MUST record the applied promotion identifier, label, price, pricing mode, audience, and date basis without trusting client metadata.
+14. Trusted public-booking quote, PaymentIntent, and checkout-session contexts MUST accept only USD, use lowercase `usd` server-side, and reject malformed currency, non-real `YYYY-MM-DD`, invalid `HH:mm`, or date/time values absent from the refreshed authoritative schedule before creating payment state.
 
 ## Eligibility Requirements
 
 1. Class-date promotions use the selected authoritative class occurrence date.
 2. Purchase-date promotions use the server clock in New York.
-3. `everyone` requires no customer entitlement.
+3. `everyone` requires no customer identity or entitlement and MAY quote anonymously.
 4. `heritage_pin_delivered` requires a valid delivered Heritage entitlement resolved from the exact authenticated booking identity.
 5. Pending, malformed, missing, or identity-mismatched Heritage entitlements are ineligible.
-6. Public booking and profile promotions MUST preserve exact-phone ownership and existing identity gates.
-7. Kiosk promotions MUST require the existing trusted terminal/session authority; a caller-provided channel flag is insufficient.
+6. Restricted public booking and profile promotions MUST preserve exact-phone ownership and existing identity gates; submitted public email or phone MUST NOT establish quote identity.
+7. The public booking channel MUST derive from its dedicated server route/context, not a client body or query channel claim.
+8. Kiosk promotions MUST require the existing trusted terminal/session authority; a caller-provided channel flag is insufficient.
 
 ## Presentation Requirements
 
 1. Public booking and profile class selection SHOULD show the public promotion label when an active promotion may apply to that occurrence and channel.
 2. Restricted promotions MUST NOT display an unconditional promotional price before identity and entitlement validation.
-3. The final promotional price MUST appear only after server-side eligibility resolution.
+3. In ordinary public booking, an `everyone` final promotional price MAY appear after the payment-free authoritative quote; a restricted final promotional price requires server-side exact-identity and eligibility resolution through that quote. Profile retains its existing authenticated authoritative checkout-session path.
 4. Inactive, expired, future, malformed, or channel-inapplicable promotions MUST NOT be advertised as currently available.
+5. Ordinary remote public booking MUST hide cash and the server MUST reject remote public cash attempts; trusted kiosk cash remains available under its existing authority.
 
 ## Heritage Configuration
 
@@ -82,7 +88,13 @@ Let staff configure reusable course promotions in the course wizard while keepin
 - [ ] Public labels are occurrence- and channel-aware without exposing an unverified restricted price.
 - [ ] Package booking remains first priority.
 - [ ] Checkout applies exactly one lowest authorized price and records server-generated metadata.
-- [ ] Delivered Heritage holders receive US$15 for the two configured October classes from booking or profile.
-- [ ] Pending or missing Heritage entitlements receive no Heritage price.
-- [ ] Client payload changes cannot forge audience, channel, dates, or amount.
+- [ ] An anonymous caller receives an authoritative `everyone` public quote without identity or entitlement.
+- [ ] An eligible exact-identity holder with a delivered Heritage pin receives a US$15 authoritative price for either configured October class: through the payment-free quote in ordinary public booking and through profile's existing authenticated authoritative checkout-session path.
+- [ ] Pending, missing, or identity-mismatched Heritage entitlements receive no Heritage price, without exposing account or delivered-pin lookup details in the public quote.
+- [ ] The Heritage price is unavailable outside its October class-date window.
+- [ ] An applicable package takes precedence over the Heritage price, and no promotion stacks with packages, coupons, addons, or consecutive offers.
+- [ ] The ordinary-public-booking quote creates no Stripe intent or session, purchase, reservation, or payment state; profile retains its existing authenticated authoritative checkout-session path.
+- [ ] PaymentIntent creation freshly revalidates entitlement, promotion, date, package, and booking shape after a quote; if any changes, the fresh authoritative result wins over the quote.
+- [ ] Ordinary remote public cash is hidden in the UI and rejected server-side, while trusted kiosk cash remains available under its existing authority.
+- [ ] Client payload changes cannot forge audience, channel, dates, amount, quote, or cash authority.
 - [ ] Existing first-class, package, coupon, addon, consecutive, cash, and identity boundaries remain intact.
