@@ -103,6 +103,22 @@ describe("90-day public booking occurrences", () => {
       "/courses/salsa-timba?enroll=1&qrBooking=1&date=2026-06-18&time=19%3A00&durationMinutes=60"
     )
   })
+
+  it("exposes only occurrence- and public-channel-applicable promotion labels", () => {
+    const course = makeCourse({ scheduleRules: {
+      rules: [{ weekday: 4, times: ["19:00"] }],
+      promotions: [{
+        id: "heritage", label: "Heritage pin benefit", active: true,
+        pricing: { kind: "fixed", amountCents: 1500 },
+        window: { basis: "class_date", startDate: "2026-06-11", endDate: "2026-06-18" },
+        audience: "heritage_pin_delivered", channels: ["public_booking"],
+      }],
+    } })
+
+    const occurrences = buildShareableBookingOccurrences([course], new Date("2026-06-11T16:00:00-04:00"))
+    expect(occurrences.find(({ date }) => date === "2026-06-11")?.promotionLabels).toEqual(["Heritage pin benefit"])
+    expect(occurrences.find(({ date }) => date === "2026-06-25")?.promotionLabels).toEqual([])
+  })
 })
 
 describe("booking discovery filters", () => {

@@ -22,25 +22,25 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
   - Status: done
   - Checks: spec consistency, stale-contract grep, `git diff --check`, 381 changed lines
   - Commit: `6b18db1d`
-- [ ] 2. Add the typed promotion model, normalization, persistence contract, and server-side price resolver with focused tests.
-  - Status: in progress
-  - Checks: focused domain/API tests, typecheck, diff check
-  - Commit: pending
+- [x] 2. Add the typed promotion model, normalization, persistence contract, and server-side price resolver with focused tests.
+  - Status: done
+  - Checks: 23 focused tests, typecheck, `git diff --check`, 330 changed lines
+  - Commit: `efa23ee4`
 - [ ] 3. Add the dedicated Promotions wizard step, migrate the dormant special-discount controls, and cover UI behavior.
-  - Status: pending
-  - Checks: focused component tests, typecheck, lint, diff check
-  - Commit: pending
-- [ ] 4. Integrate promotion labels and authoritative pricing into public booking, profile, and trusted checkout paths.
-  - Status: pending
-  - Checks: focused checkout/booking/profile tests, typecheck, lint, diff check
-  - Commit: pending
-- [ ] 5. Configure the Heritage promotion and prepare a reversible catalog rollout for the two new courses and package applicability.
-  - Status: pending
-  - Checks: dry-run, mode-0600 backup, environment proof, rollback material; no remote mutation without fresh authorization
-  - Commit: pending
-- [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, and perform live read-only checks.
-  - Status: pending
-  - Checks: CI-equivalent verification, review receipt, deployment readiness, live HTTP/catalog/price evidence
+  - Status: omitted from the scoped production release; the public server-authoritative path does not depend on the editor.
+  - Checks: not applicable to this release branch
+  - Commit: not ported
+- [x] 4. Integrate promotion labels and authoritative pricing into public booking, profile, and trusted checkout paths.
+  - Status: done in the source chain; the scoped production port continues through the authoritative public-pricing fixes.
+  - Checks: source chain passed focused checkout/booking/profile tests, typecheck, lint, and diff checks.
+  - Commit: source `fadaf866`; production port `3fdad602`
+- [x] 5. Prepare the Heritage promotion and reversible catalog rollout for the two new courses and package applicability.
+  - Status: rollout documentation ported; remote application remains separately gated.
+  - Checks: source dry-run, backup, environment proof, and rollback evidence retained.
+  - Commit: source `63edf837`
+- [ ] 6. Run independent verification, native review if enabled, slice PRs below 400 changed lines, deploy, request any required catalog-mutation authorization, and perform live checks.
+  - Status: pending for the production release.
+  - Checks: CI-equivalent verification, review evidence, deployment readiness, and live HTTP/catalog/price evidence.
   - Commit: pending
 
 ## Constraints
@@ -53,5 +53,11 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
 
 ## Evidence
 
-- Branch: `feat/course-promotions`
-- Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/public-booking-package-routing`
+- Historical aggregate branch: `feat/course-promotions`
+- Delivery tracker branch: `feat/course-promotions-chain` at cached `origin/codex/develop`
+- Corrected delivery tip: `docs/course-promotions-rollout-chain`
+- Slice order: contract → rules → editor → checkout → rollout
+- Draft PRs: `#603` → `#604` → `#605` → `#606` → `#607`
+- Each PR links approved issue `#539`, has exactly one `type:*` label, and excludes `.atl/skill-registry.md`
+- Tracker PR remains deferred while its branch intentionally matches `codex/develop`
+- Worktree: `/Users/marianobarrionuevo/WebstormProjects/PLI-Saas-App-worktrees/course-promotions-05-rollout`

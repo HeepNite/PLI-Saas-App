@@ -1,6 +1,7 @@
 import React from "react"
 import { X } from "lucide-react"
 import type { CourseData } from "@/constants/courses"
+import { getPotentialCoursePromotionLabels } from "@/lib/promotions/course-promotions"
 import {
   getAvailableTimesForCourseDateFromCourse,
   formatTime12h,
@@ -13,6 +14,7 @@ type UpcomingClass = {
   time: string
   dayLabel: string
   timeLabel: string
+  promotionLabels: string[]
 }
 
 type CoursePickerModalProps = {
@@ -75,6 +77,14 @@ export function CoursePickerModal({
             time,
             dayLabel: getDateLabel(dateIso, todayIso, tomorrowIso),
             timeLabel: formatTime12h(time),
+            promotionLabels: getPotentialCoursePromotionLabels({
+              promotions: course.scheduleRules && typeof course.scheduleRules === "object"
+                ? (course.scheduleRules as Record<string, unknown>).promotions
+                : [],
+              channel: "profile",
+              classDate: dateIso,
+              purchaseDate: todayIso,
+            }),
           })
         }
       }
@@ -170,6 +180,7 @@ export function CoursePickerModal({
                         <div className="flex-1 min-w-0">
                           <p className="truncate text-sm font-semibold text-white">{cls.course.title}</p>
                           <p className="mt-0.5 text-xs text-white/50">{cls.course.level}</p>
+                          {cls.promotionLabels[0] ? <p className="mt-1 truncate text-[10px] font-bold uppercase tracking-[0.08em] text-[#ff7a82]">{cls.promotionLabels[0]}</p> : null}
                         </div>
 
                         {/* Loading / Preferred badge */}
