@@ -186,21 +186,7 @@ describe("checkout session route", () => {
     })
   })
 
-  it("rejects a public campaign checkout without a valid country", async () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
-    const { POST } = await import("@/app/api/checkout/session/route")
-    const response = await POST(new Request("http://localhost/api/checkout/session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingSource: "public_booking", heritagePinCountryCode: "ZZ" }),
-    }))
-
-    expect(response.status).toBe(400)
-    expect(mockCreateCheckoutSession).not.toHaveBeenCalled()
-  })
-
-  it("adds normalized Heritage pin intent to public booking Stripe metadata", async () => {
+  it("does not authorize Heritage acquisition from caller-provided provenance", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
     const { POST } = await import("@/app/api/checkout/session/route")
@@ -212,9 +198,8 @@ describe("checkout session route", () => {
 
     expect(response.status).toBe(200)
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
-      metadata: expect.objectContaining({
-        heritagePinIntent: "latin-heritage-2026",
-        heritagePinCountryCode: "MX",
+      metadata: expect.not.objectContaining({
+        heritagePinIntent: expect.any(String),
         heritagePinSource: "public_booking",
       }),
     }))

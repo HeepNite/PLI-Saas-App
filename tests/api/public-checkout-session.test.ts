@@ -91,8 +91,24 @@ describe("public checkout session route", () => {
       metadata: expect.objectContaining({
         coursePromotionId: "heritage-october",
         coursePromotionPriceCents: "1500",
+        heritagePinIntent: "latin-heritage-2026",
+        heritagePinCountryCode: "MX",
+        heritagePinSource: "public_booking",
       }),
     }))
+  })
+
+  it("rejects an active-campaign public checkout without a valid Heritage country", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-03T16:00:00.000Z"))
+    const { POST } = await import("@/app/api/public/checkout/session/route")
+    const response = await POST(new Request("http://localhost/api/public/checkout/session", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heritagePinCountryCode: "ZZ" }),
+    }))
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: "Select a valid country for the Heritage pin." })
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled()
   })
 
   it("uses the refreshed authoritative course promotion and price after identity preparation", async () => {
@@ -114,7 +130,7 @@ describe("public checkout session route", () => {
 
     const { POST } = await import("@/app/api/public/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/session", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heritagePinCountryCode: "MX" }),
     }))
 
     expect(response.status).toBe(200)
@@ -133,7 +149,7 @@ describe("public checkout session route", () => {
     mockValidate.mockResolvedValueOnce(promotionValidation()).mockResolvedValueOnce(promotionValidation(overrides))
     const { POST } = await import("@/app/api/public/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/session", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ heritagePinCountryCode: "MX" }),
     }))
 
     expect(response.status).toBe(400)
