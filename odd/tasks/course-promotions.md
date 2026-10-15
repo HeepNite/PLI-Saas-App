@@ -18,12 +18,12 @@ Add a reusable, server-authoritative Promotions step to the course wizard and us
 
 ## Tasks
 
-- [ ] 1. Reconcile the course-promotions and Heritage specifications, including migration and precedence rules.
-  - Status: in progress
-  - Checks: spec consistency and changed-scope review
-  - Commit: pending
+- [x] 1. Reconcile the course-promotions and Heritage specifications, including migration and precedence rules.
+  - Status: done
+  - Checks: spec consistency, stale-contract grep, `git diff --check`, 381 changed lines
+  - Commit: `6b18db1d`
 - [ ] 2. Add the typed promotion model, normalization, persistence contract, and server-side price resolver with focused tests.
-  - Status: pending
+  - Status: in progress
   - Checks: focused domain/API tests, typecheck, diff check
   - Commit: pending
 - [ ] 3. Add the dedicated Promotions wizard step, migrate the dormant special-discount controls, and cover UI behavior.
