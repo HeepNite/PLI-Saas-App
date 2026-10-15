@@ -143,13 +143,13 @@ describe("checkout cash route", () => {
     })
   })
 
-  it("creates a cash purchase for valid request", async () => {
+  it("creates a cash purchase for a trusted kiosk request", async () => {
     const { POST } = await import("@/app/api/checkout/cash/route")
     const res = await POST(
       new Request("http://localhost/api/checkout/cash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ photoContext: "kiosk_terminal" }),
       })
     )
 
@@ -177,7 +177,40 @@ describe("checkout cash route", () => {
     })
   })
 
-  it("rejects remote cash when no authorized terminal session was resolved", async () => {
+  it("rejects public cash before validation, account preparation, or checkout side effects", async () => {
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "external_web", bookingSource: "public_booking", checkoutKind: "special-salsa-class", specialClassId: "special_class_1" }),
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "Cash payment is available only from a studio terminal." })
+    expect(mockValidate).not.toHaveBeenCalled()
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    expect(mockAdmitSpecialClassCashWalkIn).not.toHaveBeenCalled()
+  })
+
+  it("rejects remote cash despite caller-provided terminal source claims before side effects", async () => {
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "qr_phone", bookingSource: "kiosk_terminal", flowContext: "kiosk_terminal" }),
+    }))
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "Cash payment is available only from a studio terminal." })
+    expect(mockValidate).not.toHaveBeenCalled()
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockUpsertUser).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects kiosk cash when no authorized terminal session was resolved", async () => {
     mockResolveCheckoutPreparation.mockResolvedValueOnce({
       source: "fallback",
       terminalAuth: null,
@@ -194,7 +227,7 @@ describe("checkout cash route", () => {
     const response = await POST(new Request("http://localhost/api/checkout/cash", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photoContext: "qr_phone" }),
+      body: JSON.stringify({ photoContext: "kiosk_terminal" }),
     }))
 
     expect(response.status).toBe(403)
@@ -280,6 +313,7 @@ describe("checkout cash route", () => {
     expect(purchase?.metadata).not.toHaveProperty("heritagePinEntitlementPurchaseId")
   })
 
+
   it("stamps the sale day on a package bought without a class", async () => {
     mockValidate.mockResolvedValue({
       courseSlug: "",
@@ -305,7 +339,7 @@ describe("checkout cash route", () => {
       new Request("http://localhost/api/checkout/cash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ photoContext: "kiosk_terminal" }),
       })
     )
 
@@ -349,7 +383,7 @@ describe("checkout cash route", () => {
       new Request("http://localhost/api/checkout/cash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ photoContext: "kiosk_terminal" }),
       })
     )
 
@@ -478,7 +512,7 @@ describe("checkout cash route", () => {
       new Request("http://localhost/api/checkout/cash", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ photoContext: "kiosk_terminal" }),
       })
     )
 
@@ -489,7 +523,7 @@ describe("checkout cash route", () => {
       consecutivePurchaseId: "purchase_consecutive",
     })
     expect(mockPrisma.purchase.findFirst).toHaveBeenCalled()
-    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2)
     expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(2)
     expect(mockPrisma.purchase.create.mock.calls[0]?.[0]).toMatchObject({
       data: {

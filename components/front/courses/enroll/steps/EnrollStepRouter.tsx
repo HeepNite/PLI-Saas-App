@@ -30,6 +30,7 @@ type EnrollStepRouterProps = {
   isNewStudent: boolean
   isCheckInExistingFlow: boolean
   isProfileBookingFlow: boolean
+  isOrdinaryPublicBooking?: boolean
   skipContactStep: boolean
   availableServices: EnrollmentOption[]
   hasNewStudentService: boolean
@@ -89,6 +90,10 @@ type EnrollStepRouterProps = {
   addonsOpts: EnrollmentOption[]
   paymentMethod: PaymentMethod
   setPaymentMethod: (value: React.SetStateAction<PaymentMethod>) => void
+  isPublicQuoteBooking?: boolean
+  publicQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
+  publicQuoteLoading?: boolean
+  publicQuoteError?: string | null
   paymentMethodLabel: string
   formatPackageMeta: (option?: EnrollmentOption | null) => string | undefined
   activeNumericField: ActiveNumericField
@@ -245,6 +250,7 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
         <StepPayments
           isCheckInFlow={props.isCheckInFlow}
           isKioskTerminalFlow={props.isKioskTerminalFlow}
+          isOrdinaryPublicBooking={props.isOrdinaryPublicBooking}
           course={props.course}
           pkg={props.pkg}
           service={props.service}
@@ -269,6 +275,10 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           addonsOpts={props.addonsOpts}
           paymentMethod={props.paymentMethod}
           setPaymentMethod={props.setPaymentMethod}
+          isPublicQuoteBooking={props.isPublicQuoteBooking}
+          publicQuote={props.publicQuote}
+          publicQuoteLoading={props.publicQuoteLoading}
+          publicQuoteError={props.publicQuoteError}
           t={props.t}
         />
       )}
