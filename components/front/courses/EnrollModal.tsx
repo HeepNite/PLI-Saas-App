@@ -1027,10 +1027,18 @@ export default function EnrollModal({
 
     if (resumeContactFlowAfterSignIn) {
       setResumeContactFlowAfterSignIn(false)
+      // Email access authenticates the existing account but cannot prove that
+      // it owns a different submitted phone. Keep the booking mounted without
+      // linking identifiers; the visitor can correct the phone and retry.
+      if (verification.existingIdentifier === "email") {
+        setFormError("Your account is signed in. To continue, enter the phone number verified on that account.")
+        return
+      }
       void advanceFromContactStepRef.current()
     }
   }, [
     existingAccountDetected,
+    verification.existingIdentifier,
     isQrMobileCompactFlow,
     isSignedIn,
     regularServiceId,
@@ -1262,7 +1270,9 @@ export default function EnrollModal({
       : signInPurpose === "account_preparation"
         ? "Sign in with your phone to upload your profile photo before payment."
         : showAccountExistsSignInCopy
-          ? "Sign in to access the account linked to this phone number."
+          ? verification.existingIdentifier === "email"
+            ? "Sign in with the email you submitted to access your account."
+            : "Sign in to access the account linked to this phone number."
           : t("sign_in_modal_subtitle")
 
   if (!open && !isInline) return null
@@ -1729,6 +1739,8 @@ export default function EnrollModal({
           variant={signInModalVariant}
           signInReturnTo={signInReturnTo}
           phoneE164={toE164Phone(contact.phone)}
+          emailAddress={contact.email}
+          useEmailCode={verification.existingIdentifier === "email"}
           isKioskTerminalFlow={isKioskTerminalFlow}
           isCheckInFlow={isCheckInFlow}
           onDismiss={handleSignInDismiss}
