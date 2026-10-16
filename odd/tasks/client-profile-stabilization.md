@@ -34,11 +34,11 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
 
 ## Tasks
 
-- [ ] T1 — Define and reconcile the active profile stabilization specification against current `codex/develop`.
-  - Status: in progress.
-  - Evidence: pending.
+- [x] T1 — Define and reconcile the active profile stabilization specification against current `codex/develop`.
+  - Status: done.
+  - Evidence: `bb09becba94cdb7f738b938bc4de5c7956bd4927` (`docs(profile): define stabilization contract`).
 - [ ] T2 — Correct New York session timestamp construction and render booked classes in the profile calendar.
-  - Status: pending.
+  - Status: in progress.
   - Verification: RED/GREEN timezone boundary tests, profile booking API tests, calendar component tests, live Development fixture.
   - Evidence: pending.
 - [ ] T3 — Restore the mobile completion prompt and remove Student Moments, Analytics, and Gear from profile composition.
