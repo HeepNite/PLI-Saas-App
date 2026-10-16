@@ -226,6 +226,29 @@ test("mobile incomplete profile opens the completion modal and existing form", a
   await expect(page.getByRole("heading", { name: "Complete your profile and earn points", exact: true })).toBeVisible()
 })
 
+test("profile wizard stays linear and resets on reopen across viewports", async ({ page }) => {
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 430, height: 900 }]) {
+    await page.setViewportSize(viewport)
+    await page.unrouteAll({ behavior: "wait" })
+    await setupProfileApiMocks(page, false)
+    await page.goto(PROFILE_URL)
+
+    const completionDialog = page.getByRole("dialog", { name: "Complete profile", exact: true })
+    if (viewport.width < 768) {
+      await completionDialog.getByRole("button", { name: "Complete profile", exact: true }).click()
+    }
+
+    await expect(page.getByRole("heading", { name: "Personal information", exact: true })).toBeVisible()
+    await page.getByRole("button", { name: "Next", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "Emergency contact", exact: true })).toBeVisible()
+    await expect(page.getByRole("button", { name: "Save profile", exact: true })).toHaveCount(0)
+
+    await page.getByRole("button", { name: "Close" }).first().click()
+    await page.getByRole("button", { name: "Edit profile", exact: true }).click()
+    await expect(page.getByRole("heading", { name: "Personal information", exact: true })).toBeVisible()
+  }
+})
+
 test("completion modal stays absent for desktop and complete mobile profiles", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await setupProfileApiMocks(page, false)
