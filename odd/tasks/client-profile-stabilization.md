@@ -41,12 +41,12 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
   - Status: done.
   - Verification: RED/GREEN timezone, host-independence, calendar visibility, pending interaction, profile booking API, and component tests. Live Development fixture remains for T6.
   - Evidence: `16eb6c65` (New York instants), `9e78a3e3` (agenda projection), `a8f021f4` (scheduled calendar rendering); 69/69 focused tests, typecheck, ESLint, diff check, and independent verification approved. Full suite: 3,681 tests passed; seven integration files unavailable without `DATABASE_URL`.
-- [ ] T3 — Restore the mobile completion prompt and remove Student Moments, Analytics, and Gear from profile composition.
-  - Status: in progress.
-  - Verification: focused component tests, profile E2E, responsive visual checks.
-  - Evidence: pending.
+- [x] T3 — Restore the mobile completion prompt and remove Student Moments, Analytics, and Gear from profile composition.
+  - Status: done.
+  - Verification: 7/7 focused component tests, typecheck, ESLint (four inherited hook warnings), diff check, and three new responsive Playwright scenarios passed on an isolated worktree server. The full profile E2E file retains five unrelated baseline failures.
+  - Evidence: `3c86f5b1` (`fix(profile): restore mobile completion prompt`).
 - [ ] T4 — Add approved-country international phone entry to public booking and identity boundaries.
-  - Status: pending.
+  - Status: in progress.
   - Verification: E.164 tests for all eleven countries, Clerk identity routing, checkout validation, live non-destructive Development smoke.
   - Evidence: pending.
 - [ ] T5 — Specify and implement the profile information wizard over existing fields and APIs.

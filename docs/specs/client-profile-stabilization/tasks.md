@@ -4,7 +4,7 @@
 
 - [x] 1. Reconcile accepted behavior with current `codex/develop` and record requirements, analysis, decisions, and design.
 - [x] 2. Correct New York timestamp construction and booked-class calendar visibility using test-first changes.
-- [ ] 3. Restore the profile-completion modal and remove unused profile sections from composition.
+- [x] 3. Restore the profile-completion modal and remove unused profile sections from composition.
 - [ ] 4. Integrate the approved eleven-country phone flow into public booking and identity boundaries.
 - [ ] 5. Resolve wizard interaction decisions, then implement it over the existing profile form contract.
 - [ ] 6. Run integrated Development verification, remove the controlled fixture, and prepare bounded delivery slices.
