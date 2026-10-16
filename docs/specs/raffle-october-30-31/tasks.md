@@ -34,7 +34,7 @@
 - [x] Commit the reviewable work unit: `117a689b` (`feat(raffle): prepare October event entrances`). Native assessment: high after explicit Risk item 1 escalation, independent verifier required and completed; native review not due because the 229-line candidate is under budget.
 - [x] Preflight exact DEV environment and migration/schema state. Vercel CLI could not pull the encrypted branch `DATABASE_URL`; the established local DEV binding was instead identified by its sanitized fingerprint, known Latino Night data, and complete 3-table/27-column/6-index/3-FK raffle schema. Both target slugs were absent. No migration was run.
 - [x] Seed and verify both independent DEV events without exposing keys. Both events were created in one transaction with zero entries, one temporary open draw each, distinct token hashes, and exact midnight instants. Raw keys were captured directly to separate macOS Keychain items and independently hash-verified.
-- [ ] Publish the committed route work to `codex/develop`, verify `/rifa/30` and `/rifa/31`, and record residual final-prize work. Generic public pages already return 200 with the entry form, and unauthorized screen-state requests return 404; the aliases correctly remain 404 until delivery is authorized.
+- [x] Publish the committed route work to `codex/develop`, verify `/rifa/30` and `/rifa/31`, and record residual final-prize work. Contract PR #683 and behavior PR #684 merged with green checks; post-merge CI and CodeQL passed on `1c952535`. Deployment `dpl_8F73iNoUo3CPRMviE9MNqUtjWncr` is Ready and aliases `dev.palladiumlatin.art`.
 
 ## Operational Evidence
 
@@ -44,4 +44,7 @@
 - October 31 event: `2026-10-31T04:00:00.000Z`, draw `2026-11-01T04:00:00.000Z`, zero entries, one open temporary draw.
 - Keychain services: `pli-dev-raffle-october-30-2026` and `pli-dev-raffle-october-31-2026`; both readable, distinct, and matched the stored hashes without exposing raw values.
 - Live generic routes: both `/raffle/<slug>` pages returned 200 with the exact title and entry form; both unauthenticated screen-state requests returned 404.
-- Delivery blocker: `/rifa/30` and `/rifa/31` return 404 because this branch has not been pushed, opened as a PR, or merged; those are separate user decisions.
+- Live tablet entrances: `/rifa/30` and `/rifa/31` each returned 200 with the correct title and password form. Each Keychain token completed the existing exchange, issued only its slug-scoped Secure cookie, reached the clean staff screen, and loaded screen-state 200 with zero entries, one open draw, and the exact midnight instant.
+- Isolation: the October 30 token against the October 31 exchange returned 404. Raw keys were not printed, committed, or stored in evidence.
+- Delivery: issue #682 is approved; PR #683 (265 lines) and PR #684 (262 lines) passed size, tests, typecheck, lint, secret scan, CodeQL, and Vercel checks and merged to `codex/develop`. Post-merge CI also passed.
+- Residual product input: replace each temporary prize label with the final ordered prize list before the event; no final prize was invented here.
