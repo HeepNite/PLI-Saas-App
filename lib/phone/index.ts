@@ -35,6 +35,11 @@ export type PhoneCountryCatalogEntry = {
   callingCode: string
 }
 
+export const PUBLIC_BOOKING_PHONE_COUNTRIES = [
+  "US", "PR", "AR", "PE", "MX", "CL", "EC", "BR", "DO", "CO", "CA",
+] as const satisfies readonly CountryCode[]
+
+const publicBookingPhoneCountrySet = new Set<CountryCode>(PUBLIC_BOOKING_PHONE_COUNTRIES)
 const supportedCountries = getCountries()
 const supportedCountrySet = new Set<CountryCode>(supportedCountries)
 
@@ -69,6 +74,15 @@ const toParsedPhone = (phone: PhoneNumber): PhoneParseResult => {
 
 export const getPhoneCountryCatalog = (): PhoneCountryCatalogEntry[] =>
   phoneCountryCatalog.map((entry) => ({ ...entry }))
+
+export const getPublicBookingPhoneCountryCatalog = (): PhoneCountryCatalogEntry[] =>
+  PUBLIC_BOOKING_PHONE_COUNTRIES.map((country) => ({
+    country,
+    callingCode: getCountryCallingCode(country),
+  }))
+
+export const isPublicBookingPhoneCountry = (country: CountryCode) =>
+  publicBookingPhoneCountrySet.has(country)
 
 export const parseNationalPhone = (
   input: string,

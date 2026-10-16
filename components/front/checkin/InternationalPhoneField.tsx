@@ -30,12 +30,26 @@ const countryName = (country: PhoneCountry) => {
   }
 }
 
-const countries: CountryOption[] = phoneDomain.getPhoneCountryCatalog()
+const allCountries: CountryOption[] = phoneDomain.getPhoneCountryCatalog()
   .map(({ country, callingCode }) => {
     const name = countryName(country)
     return { country, callingCode, name, searchText: normalizeSearch(`${name} ${country} ${callingCode}`) }
   })
   .sort((left, right) => left.name.localeCompare(right.name))
+
+const CLERK_TEST_US_PHONE = /^55555501\d{2}$/
+
+const clerkTestPhoneValue = (nationalNumber: string, touched: boolean): InternationalPhoneFieldValue | null => {
+  if (!CLERK_TEST_US_PHONE.test(nationalNumber)) return null
+  return {
+    country: "US",
+    nationalInput: phoneDomain.formatNationalDraft(nationalNumber, "US"),
+    canonicalPhone: `+1${nationalNumber}`,
+    touched,
+    validation: "valid",
+    requiresReentry: false,
+  }
+}
 
 const emptyValue = (country: PhoneCountry | null, touched = false): InternationalPhoneFieldValue => ({
   country,
@@ -46,12 +60,21 @@ const emptyValue = (country: PhoneCountry | null, touched = false): Internationa
   requiresReentry: false,
 })
 
-export const createInternationalPhoneFieldValue = (prefill = ""): InternationalPhoneFieldValue => {
-  if (!prefill.trim()) return emptyValue("US")
+export const createInternationalPhoneFieldValue = (
+  prefill = "",
+  allowedCountries?: readonly PhoneCountry[],
+): InternationalPhoneFieldValue => {
+  const defaultCountry = allowedCountries?.[0] || "US"
+  if (!prefill.trim()) return emptyValue(defaultCountry)
+  const clerkTestValue = clerkTestPhoneValue(prefill.replace(/\D/g, "").replace(/^1(?=55555501\d{2}$)/, ""), false)
+  if (clerkTestValue) return clerkTestValue
 
   try {
     const parsed = phoneDomain.parseCanonicalPhone(prefill)
     if (parsed.ok) {
+      if (allowedCountries && !allowedCountries.includes(parsed.phone.country)) {
+        return { ...emptyValue(null), validation: "unsupported_country", requiresReentry: true }
+      }
       return { country: parsed.phone.country, nationalInput: parsed.phone.nationalDisplay, canonicalPhone: parsed.phone.e164, touched: false, validation: "valid", requiresReentry: false }
     }
     return { ...emptyValue(null), validation: parsed.reason, requiresReentry: true }
@@ -81,8 +104,13 @@ const deriveValue = (
     if (!phoneDomain.isNationalPhoneDraft(input)) {
       return { country, nationalInput: input, canonicalPhone: null, touched, validation: "invalid", requiresReentry: false }
     }
+    const digits = input.replace(/\D/g, "")
     const nationalInput = phoneDomain.formatNationalDraft(input, country)
     const parsed = phoneDomain.parseNationalPhone(nationalInput, country)
+    if (!parsed.ok && country === "US") {
+      const clerkTestValue = clerkTestPhoneValue(digits, touched)
+      if (clerkTestValue) return clerkTestValue
+    }
     return { country, nationalInput, canonicalPhone: parsed.ok ? parsed.phone.e164 : null, touched, validation: parsed.ok ? "valid" : parsed.reason, requiresReentry: false }
   } catch {
     return { country, nationalInput: input, canonicalPhone: null, touched, validation: "error", requiresReentry: false }
@@ -104,14 +132,29 @@ type InternationalPhoneFieldProps = {
   busy?: boolean
   error?: string | null
   id?: string
+  allowedCountries?: readonly PhoneCountry[]
+  showKeypad?: boolean
 }
 
-export default function InternationalPhoneField({ value, onChange, busy = false, error = null, id = "international-phone-number" }: InternationalPhoneFieldProps) {
+export default function InternationalPhoneField({
+  value,
+  onChange,
+  busy = false,
+  error = null,
+  id = "international-phone-number",
+  allowedCountries,
+  showKeypad = true,
+}: InternationalPhoneFieldProps) {
   const [open, setOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [activeIndex, setActiveIndex] = React.useState(0)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const searchRef = React.useRef<HTMLInputElement>(null)
+  const countries = React.useMemo(() => {
+    if (!allowedCountries) return allCountries
+    const allowed = new Set<PhoneCountry>(allowedCountries)
+    return allCountries.filter((option) => allowed.has(option.country))
+  }, [allowedCountries])
   const selected = countries.find((option) => option.country === value.country)
   const query = normalizeSearch(search)
   const filtered = countries.filter((option) => !query || option.searchText.includes(query))
@@ -141,7 +184,11 @@ export default function InternationalPhoneField({ value, onChange, busy = false,
 
   const selectCountry = (country: PhoneCountry) => {
     if (busy) return
-    onChange(deriveValue(value.nationalInput.replace(/\D/g, ""), country))
+    const countryChanged = value.country !== country
+    const hadDigits = Boolean(value.nationalInput.replace(/\D/g, ""))
+    onChange(countryChanged
+      ? { ...emptyValue(country, true), requiresReentry: hadDigits }
+      : value)
     close()
   }
 
@@ -220,10 +267,12 @@ export default function InternationalPhoneField({ value, onChange, busy = false,
       <p role="status" aria-live="polite" className="sr-only">
         {value.validation === "valid" ? `${selected?.name || value.country} phone number is valid.` : selected ? `Selected ${selected.name}.` : "Country selection required."}
       </p>
-      <KioskNumericKeypad onDigit={(digit) => updateDigits(`${currentDigits}${digit}`)}
-        onBackspace={() => updateDigits(currentDigits.slice(0, -1))}
-        onClear={() => onChange(emptyValue(value.country, true))} disabled={busy} size="modal"
-      />
+      {showKeypad && (
+        <KioskNumericKeypad onDigit={(digit) => updateDigits(`${currentDigits}${digit}`)}
+          onBackspace={() => updateDigits(currentDigits.slice(0, -1))}
+          onClear={() => onChange(emptyValue(value.country, true))} disabled={busy} size="modal"
+        />
+      )}
     </section>
   )
 }
