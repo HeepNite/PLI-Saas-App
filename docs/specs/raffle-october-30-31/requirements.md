@@ -59,20 +59,20 @@ The existing generic raffle routes, domain logic, seed script, and token exchang
 
 ## Acceptance Criteria
 
-- [ ] `/rifa/30` renders October 30 access and redirects only with the October 30 cookie/key.
-- [ ] `/rifa/31` renders October 31 access and redirects only with the October 31 cookie/key.
-- [ ] Existing `/rifa` behavior remains covered.
-- [ ] Both JSON configs validate and resolve to the exact midnight UTC instants above.
-- [ ] DEV contains two independent empty events with distinct screen-token hashes and temporary open draw data.
-- [ ] Public pages and tablet entrances return successful responses after the DEV deployment.
-- [ ] Unauthorized screen-state requests still return 404.
+- [x] `/rifa/30` renders October 30 access and redirects only with the October 30 cookie/key.
+- [x] `/rifa/31` renders October 31 access and redirects only with the October 31 cookie/key.
+- [x] Existing `/rifa` behavior remains covered.
+- [x] Both JSON configs validate and resolve to the exact midnight UTC instants above.
+- [x] DEV contains two independent empty events with distinct screen-token hashes and temporary open draw data.
+- [x] Public pages and tablet entrances return successful responses after the DEV deployment.
+- [x] Unauthorized screen-state requests still return 404.
 
 ## Definition Of Done
 
-- [ ] Implementation matches the accepted behavior.
-- [ ] Focused tests and the relevant suite pass.
-- [ ] Migration and DEV preflight evidence is recorded.
-- [ ] Temporary prizes and any publishing step still requiring a human decision are explicit.
+- [x] Implementation matches the accepted behavior.
+- [x] Focused tests and the relevant suite pass.
+- [x] Migration and DEV preflight evidence is recorded.
+- [x] Temporary prizes and the remaining final-prize decision are explicit; no publishing step remains.
 
 ## Open Questions
 
