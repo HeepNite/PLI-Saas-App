@@ -1,7 +1,7 @@
 import React from "react"
 import type { ActionRequestItem, ActionRequestType, ActivityStats, BookingItem } from "../profile-types"
 import { formatDateTimeInTimeZone, getPendingProcessLabel } from "../profile-formatters"
-import { mockProfile } from "../mock-profile"
+import { getDateKeyInTimeZone, getTodayNewYork } from "@/lib/class-schedule"
 
 type CalendarDay = { day: number; isCurrent: boolean }
 type BookingEvent = { id: string; time: string; courseTitle: string }
@@ -30,10 +30,10 @@ export type AgendaCalendarState = {
 }
 
 const buildCalendar = (year: number, monthIndex: number): CalendarDay[] => {
-  const firstDay = new Date(year, monthIndex, 1)
-  const lastDay = new Date(year, monthIndex + 1, 0)
-  const startWeekday = firstDay.getDay()
-  const totalDays = lastDay.getDate()
+  const firstDay = new Date(Date.UTC(year, monthIndex, 1))
+  const lastDay = new Date(Date.UTC(year, monthIndex + 1, 0))
+  const startWeekday = firstDay.getUTCDay()
+  const totalDays = lastDay.getUTCDate()
   const days: CalendarDay[] = []
   for (let i = 0; i < startWeekday; i += 1) {
     days.push({ day: 0, isCurrent: false })
@@ -51,19 +51,20 @@ export function useAgendaCalendar({
   visibleBookings,
   pendingBookings,
   classRequestsByAttendance,
-  activityStats,
 }: UseAgendaCalendarParams): AgendaCalendarState {
+  const currentNewYorkDate = getTodayNewYork().split("-").map(Number)
   const [mobileAgendaOpenDay, setMobileAgendaOpenDay] = React.useState<number | null>(null)
-  const [agendaMonth, setAgendaMonth] = React.useState(() => new Date().getMonth())
-  const [agendaYear, setAgendaYear] = React.useState(() => new Date().getFullYear())
+  const [agendaMonth, setAgendaMonth] = React.useState(() => currentNewYorkDate[1] - 1)
+  const [agendaYear, setAgendaYear] = React.useState(() => currentNewYorkDate[0])
 
   const calendarDays = React.useMemo(() => buildCalendar(agendaYear, agendaMonth), [agendaYear, agendaMonth])
   const agendaMonthLabel = React.useMemo(() => {
-    const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long" }).format(new Date(agendaYear, agendaMonth, 1))
+    const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" })
+      .format(new Date(Date.UTC(agendaYear, agendaMonth, 1)))
     return monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1)
   }, [agendaMonth, agendaYear])
   const agendaYears = React.useMemo(() => {
-    const current = new Date().getFullYear()
+    const current = Number(getTodayNewYork().slice(0, 4))
     return Array.from({ length: 7 }, (_, index) => current - 1 + index)
   }, [])
   const bookingEventsByDay = React.useMemo(() => {
@@ -71,8 +72,8 @@ export function useAgendaCalendar({
     for (const booking of visibleBookings) {
       const startsAt = new Date(booking.startsAt)
       if (Number.isNaN(startsAt.getTime())) continue
-      if (startsAt.getFullYear() !== agendaYear || startsAt.getMonth() !== agendaMonth) continue
-      const day = startsAt.getDate()
+      const [year, month, day] = getDateKeyInTimeZone(startsAt).split("-").map(Number)
+      if (year !== agendaYear || month - 1 !== agendaMonth) continue
       const list = grouped.get(day) || []
       list.push({
         id: booking.id,
@@ -88,9 +89,9 @@ export function useAgendaCalendar({
     for (const booking of pendingBookings) {
       const startsAt = new Date(booking.startsAt)
       if (Number.isNaN(startsAt.getTime())) continue
-      if (startsAt.getFullYear() !== agendaYear || startsAt.getMonth() !== agendaMonth) continue
+      const [year, month, day] = getDateKeyInTimeZone(startsAt).split("-").map(Number)
+      if (year !== agendaYear || month - 1 !== agendaMonth) continue
       const request = classRequestsByAttendance.get(booking.id)
-      const day = startsAt.getDate()
       const list = grouped.get(day) || []
       list.push({
         id: booking.id,
@@ -105,18 +106,12 @@ export function useAgendaCalendar({
   }, [agendaMonth, agendaYear, classRequestsByAttendance, pendingBookings])
   const nextBookedClass = React.useMemo(() => {
     if (!visibleBookings.length) {
-      return {
-        scheduleLabel: activityStats.lastClassLabel || mockProfile.schedule.nextClass,
-        courseTitle: "",
-      }
+      return { scheduleLabel: "No upcoming class", courseTitle: "" }
     }
     const next = visibleBookings.find((booking) => new Date(booking.startsAt).getTime() >= Date.now()) || visibleBookings[0]
     const startsAt = new Date(next.startsAt)
     if (Number.isNaN(startsAt.getTime())) {
-      return {
-        scheduleLabel: activityStats.lastClassLabel || mockProfile.schedule.nextClass,
-        courseTitle: next.courseTitle || "",
-      }
+      return { scheduleLabel: "Schedule unavailable", courseTitle: next.courseTitle || "" }
     }
     return {
       scheduleLabel: formatDateTimeInTimeZone(startsAt, {
@@ -128,23 +123,20 @@ export function useAgendaCalendar({
       }),
       courseTitle: next.courseTitle || "",
     }
-  }, [activityStats.lastClassLabel, visibleBookings])
+  }, [visibleBookings])
 
   React.useEffect(() => {
     if (mobileAgendaOpenDay === null) return
-    const hasEventsForDay = visibleBookings.some((booking) => {
+    const hasEventsForDay = [...visibleBookings, ...pendingBookings].some((booking) => {
       const startsAt = new Date(booking.startsAt)
       if (Number.isNaN(startsAt.getTime())) return false
-      return (
-        startsAt.getFullYear() === agendaYear &&
-        startsAt.getMonth() === agendaMonth &&
-        startsAt.getDate() === mobileAgendaOpenDay
-      )
+      const [year, month, day] = getDateKeyInTimeZone(startsAt).split("-").map(Number)
+      return year === agendaYear && month - 1 === agendaMonth && day === mobileAgendaOpenDay
     })
     if (!hasEventsForDay) {
       setMobileAgendaOpenDay(null)
     }
-  }, [agendaMonth, agendaYear, mobileAgendaOpenDay, visibleBookings])
+  }, [agendaMonth, agendaYear, mobileAgendaOpenDay, pendingBookings, visibleBookings])
 
   return {
     mobileAgendaOpenDay,

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
+  buildSessionStartsAt,
   findOverlappingRoomSession,
   formatReadableDate,
   getTodayNewYork,
@@ -13,6 +14,17 @@ describe("class schedule time-zone helpers", () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it("builds winter and summer class times as New York instants", () => {
+    expect(buildSessionStartsAt("2026-01-16", "19:00")?.toISOString()).toBe("2026-01-17T00:00:00.000Z")
+    expect(buildSessionStartsAt("2026-10-16", "19:00")?.toISOString()).toBe("2026-10-16T23:00:00.000Z")
+  })
+
+  it("rejects nonexistent, ambiguous, and invalid New York wall-clock times", () => {
+    expect(buildSessionStartsAt("2026-03-08", "02:30")).toBeNull()
+    expect(buildSessionStartsAt("2026-11-01", "01:30")).toBeNull()
+    expect(buildSessionStartsAt("2026-02-31", "19:00")).toBeNull()
   })
 
   it("marks slots as past in New York time", () => {
