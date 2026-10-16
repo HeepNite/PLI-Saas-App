@@ -28,10 +28,10 @@
 
 ## Phase 5 - Validation
 
-- [ ] Run focused tests.
-- [ ] Run the relevant suite, typecheck, and scoped lint.
-- [ ] Run independent verification for the high-risk data and shared-route surfaces.
-- [ ] Commit the reviewable work unit and record its hash.
+- [x] Run focused tests: 3 files and 41 tests passed after the expected RED failures.
+- [x] Run the relevant suite and static checks: independent relevant suite 18 files/163 tests passed; TypeScript passed after Prisma generation; full lint passed with 112 existing warnings and zero errors. A broader local run passed 198 assertions but reported two unavailable Prisma-client suites before generation; it was not used as passing evidence.
+- [x] Run independent verification for the high-risk data and shared-route surfaces: READY for S2–S6 code, with S3 and live keys explicitly pending T4.
+- [x] Commit the reviewable work unit: `117a689b` (`feat(raffle): prepare October event entrances`). Native assessment: high after explicit Risk item 1 escalation, independent verifier required and completed; native review not due because the 229-line candidate is under budget.
 - [ ] Preflight exact DEV environment and migration/schema state.
 - [ ] Seed and verify both independent DEV events without exposing keys.
 - [ ] Record publishing/deployment status and residual final-prize work.
