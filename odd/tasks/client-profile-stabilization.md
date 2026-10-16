@@ -37,12 +37,12 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
 - [x] T1 — Define and reconcile the active profile stabilization specification against current `codex/develop`.
   - Status: done.
   - Evidence: `bb09becba94cdb7f738b938bc4de5c7956bd4927` (`docs(profile): define stabilization contract`).
-- [ ] T2 — Correct New York session timestamp construction and render booked classes in the profile calendar.
-  - Status: in progress.
-  - Verification: RED/GREEN timezone boundary tests, profile booking API tests, calendar component tests, live Development fixture.
-  - Evidence: pending.
+- [x] T2 — Correct New York session timestamp construction and render booked classes in the profile calendar.
+  - Status: done.
+  - Verification: RED/GREEN timezone, host-independence, calendar visibility, pending interaction, profile booking API, and component tests. Live Development fixture remains for T6.
+  - Evidence: `16eb6c65` (New York instants), `9e78a3e3` (agenda projection), `a8f021f4` (scheduled calendar rendering); 69/69 focused tests, typecheck, ESLint, diff check, and independent verification approved. Full suite: 3,681 tests passed; seven integration files unavailable without `DATABASE_URL`.
 - [ ] T3 — Restore the mobile completion prompt and remove Student Moments, Analytics, and Gear from profile composition.
-  - Status: pending.
+  - Status: in progress.
   - Verification: focused component tests, profile E2E, responsive visual checks.
   - Evidence: pending.
 - [ ] T4 — Add approved-country international phone entry to public booking and identity boundaries.
