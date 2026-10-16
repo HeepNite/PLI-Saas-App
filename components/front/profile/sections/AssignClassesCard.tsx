@@ -1,6 +1,7 @@
 import React from "react"
 import GlassyCard from "@/components/front/courses/GlassyCard"
 import CalendarPicker from "@/components/front/ui/CalendarPicker"
+import { buildSessionStartsAt, getTodayNewYork } from "@/lib/class-schedule"
 import { formatDateTimeInTimeZone } from "../profile-formatters"
 import type { ActionRequestItem, AssignablePackage, BookingItem } from "../profile-types"
 import type { AssignClassesFlowState } from "../hooks/useAssignClassesFlow"
@@ -41,6 +42,104 @@ type AssignClassesCardProps = {
   pendingBookings: BookingItem[]
   visibleBookings: BookingItem[]
   classRequestsByAttendance: Map<string, ActionRequestItem>
+}
+
+const formatQueuedSlot = (date: string, time: string) => {
+  const startsAt = buildSessionStartsAt(date, time)
+  return startsAt ? formatDateTimeInTimeZone(startsAt) : `${date} ${time}`
+}
+
+function ScheduledClassesCalendar({ agendaState }: { agendaState: AgendaCalendarState }) {
+  const {
+    mobileAgendaOpenDay,
+    setMobileAgendaOpenDay,
+    agendaMonth,
+    setAgendaMonth,
+    agendaYear,
+    setAgendaYear,
+    calendarDays,
+    agendaMonthLabel,
+    bookingEventsByDay,
+    pendingBookingEventsByDay,
+  } = agendaState
+
+  const changeMonth = (delta: number) => {
+    const next = new Date(Date.UTC(agendaYear, agendaMonth + delta, 1))
+    setAgendaMonth(next.getUTCMonth())
+    setAgendaYear(next.getUTCFullYear())
+  }
+
+  const showToday = () => {
+    const [year, month] = getTodayNewYork().split("-").map(Number)
+    setAgendaYear(year)
+    setAgendaMonth(month - 1)
+  }
+
+  return (
+    <div className="mt-3 rounded-xl border border-black/10 bg-black/[0.03] p-3 dark:border-white/10 dark:bg-white/5">
+      <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+        <span>{agendaMonthLabel} {agendaYear}</span>
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => changeMonth(-1)} aria-label="Previous scheduled classes month" className="rounded-full border border-black/10 px-2 py-1 dark:border-white/10">‹</button>
+          <button type="button" onClick={showToday} className="rounded-full border border-black/10 px-2 py-1 text-xs dark:border-white/10">Today</button>
+          <button type="button" onClick={() => changeMonth(1)} aria-label="Next scheduled classes month" className="rounded-full border border-black/10 px-2 py-1 dark:border-white/10">›</button>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-7 text-center text-[10px] uppercase tracking-[0.12em] text-zinc-500 dark:text-white/40">
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => <span key={label}>{label}</span>)}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-px rounded-lg border border-black/10 bg-black/5 dark:border-white/10 dark:bg-white/5">
+        {calendarDays.map((calendarDay, index) => {
+          const events = calendarDay.day ? bookingEventsByDay.get(calendarDay.day) || [] : []
+          const pendingEvents = calendarDay.day ? pendingBookingEventsByDay.get(calendarDay.day) || [] : []
+          const hasDayEvents = events.length > 0 || pendingEvents.length > 0
+          const mobileOpen = mobileAgendaOpenDay === calendarDay.day && hasDayEvents
+          return (
+            <div key={`scheduled-day-${index}`} className="relative min-h-16 bg-white/60 p-1 text-xs dark:bg-[#16111a]/80">
+              {calendarDay.isCurrent && (
+                <>
+                  <button
+                    type="button"
+                    disabled={!hasDayEvents}
+                    onClick={() => setMobileAgendaOpenDay((openDay) => openDay === calendarDay.day ? null : calendarDay.day)}
+                    aria-label={hasDayEvents ? `View scheduled classes for day ${calendarDay.day}` : undefined}
+                    aria-expanded={hasDayEvents ? mobileOpen : undefined}
+                    className="w-full text-right disabled:cursor-default"
+                  >
+                    {calendarDay.day}
+                  </button>
+                  {events.map((event) => (
+                    <div key={event.id} className="mt-1 rounded bg-[var(--brand,#b61616)]/80 px-1 py-0.5 text-[9px] leading-tight text-white" title={event.courseTitle}>
+                      <span className="block truncate">Class {event.time}</span>
+                      <span className="block truncate opacity-80">{event.courseTitle}</span>
+                    </div>
+                  ))}
+                  {pendingEvents.map((event) => {
+                    const tone = getProcessTypeTone(event.processType)
+                    return (
+                      <div key={`pending-${event.id}`} className="mt-1 truncate rounded border px-1 py-0.5 text-[9px]" style={{ borderColor: tone.border, background: tone.bg, color: tone.text }}>
+                        {event.processLabel}
+                      </div>
+                    )
+                  })}
+                  {mobileOpen && (
+                    <div className="absolute left-1/2 top-8 z-30 w-44 -translate-x-1/2 rounded-lg border border-white/10 bg-[#16111a] p-2 text-left shadow-xl sm:hidden">
+                      {events.map((event) => <p key={`mobile-${event.id}`} className="text-[10px] text-white">{event.courseTitle} · {event.time}</p>)}
+                      {pendingEvents.map((event) => (
+                        <p key={`mobile-pending-${event.id}`} className="text-[10px] text-white">
+                          {event.processLabel} · {event.courseTitle} · {event.time}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 export function AssignClassesCard({
@@ -102,6 +201,7 @@ export function AssignClassesCard({
             <span className="ml-2 text-zinc-600 dark:text-white/65">· {nextBookedClass.courseTitle}</span>
           )}
         </p>
+        <ScheduledClassesCalendar agendaState={agendaState} />
       </div>
       {pendingBookings.length > 0 && (
         <div className="mt-3 rounded-lg border border-black/10 bg-black/[0.03] px-3 py-3 text-sm dark:border-white/10 dark:bg-white/5">
@@ -129,7 +229,7 @@ export function AssignClassesCard({
           </div>
         </div>
       )}
-      {visibleBookings.length === 0 && (
+      {visibleBookings.length === 0 && pendingBookings.length === 0 && (
         <div className="mt-3 rounded-lg border border-[var(--brand,#b61616)]/40 bg-[rgba(182,22,22,0.1)] px-3 py-3 text-sm">
           You do not have scheduled classes. Would you like to book now?
         </div>
@@ -282,9 +382,7 @@ export function AssignClassesCard({
                 key={`assign-list-${slot.date}-${slot.time}-${idx}`}
                 className="flex items-center justify-between gap-2 rounded-md border border-white/10 bg-black/[0.04] px-3 py-2 text-sm dark:bg-white/5"
               >
-                <span>
-                  {formatDateTimeInTimeZone(`${slot.date}T${slot.time}:00`)}
-                </span>
+                <span>{formatQueuedSlot(slot.date, slot.time)}</span>
                 <button
                   type="button"
                   onClick={() => removeAssignSlot(idx)}
