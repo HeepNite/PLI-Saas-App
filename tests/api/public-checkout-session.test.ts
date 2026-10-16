@@ -82,10 +82,19 @@ describe("public checkout session route", () => {
     const { POST } = await import("@/app/api/public/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/session", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingSource: "public_booking", heritagePinCountryCode: "MX" }),
+      body: JSON.stringify({
+        bookingSource: "public_booking",
+        heritagePinCountryCode: "MX",
+        phone: "+525512345678",
+      }),
     }))
 
     expect(response.status).toBe(200)
+    expect(mockResolveCheckoutPreparation).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({ phone: "+525512345678" }),
+      expect.any(Object)
+    )
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith(expect.objectContaining({
       line_items: [expect.objectContaining({ price_data: expect.objectContaining({ currency: "usd", unit_amount: 1500 }) })],
       metadata: expect.objectContaining({
@@ -123,6 +132,20 @@ describe("public checkout session route", () => {
       line_items: [expect.objectContaining({ price_data: expect.objectContaining({ unit_amount: 1300 }) })],
       metadata: expect.objectContaining({ coursePromotionId: "heritage-refreshed" }),
     }))
+  })
+
+  it("rejects a phone outside the public-booking country allowlist", async () => {
+    const { POST } = await import("@/app/api/public/checkout/session/route")
+    const response = await POST(new Request("http://localhost/api/public/checkout/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: "+4930123456" }),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "Missing or invalid phone" })
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockCreateCheckoutSession).not.toHaveBeenCalled()
   })
 
   it.each([

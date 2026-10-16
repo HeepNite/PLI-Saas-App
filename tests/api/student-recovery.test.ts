@@ -15,9 +15,9 @@ vi.mock("@/lib/student-recovery", () => ({
 }))
 vi.mock("@/lib/phone", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/phone")>()
-  return { ...actual, parseServerPhoneInput: (value: string) => {
+  return { ...actual, parsePublicBookingPhoneInput: (value: string) => {
     if (value === "parser-exception") throw new Error("metadata unavailable")
-    return actual.parseServerPhoneInput(value)
+    return actual.parsePublicBookingPhoneInput(value)
   } }
 })
 const post = (url: string, body: unknown) => new Request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
@@ -44,7 +44,7 @@ describe("student recovery API boundaries", () => {
   it("rejects invalid and non-geographic phones before recovery persistence", async () => {
     const { POST } = await import("@/app/api/checkin/qr/new-student/recovery-draft/route")
 
-    for (const phone of ["not-a-phone", "+80012345678", "parser-exception"]) {
+    for (const phone of ["not-a-phone", "+4930123456", "+80012345678", "parser-exception"]) {
       const response = await POST(post("http://localhost/recovery", { phone, source: "qr_mobile" }))
       expect(response.status).toBe(400)
     }
