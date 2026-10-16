@@ -41,22 +41,19 @@ import { useProfileBookings } from "./hooks/useProfileBookings"
 import { useRescheduleFlow } from "./hooks/useRescheduleFlow"
 import { useAssignClassesFlow } from "./hooks/useAssignClassesFlow"
 import { useActionRequestModal } from "./hooks/useActionRequestModal"
-import { useAnalyticsChartData } from "./hooks/useAnalyticsChartData"
 import { useAgendaCalendar } from "./hooks/useAgendaCalendar"
-import { StudentMomentsCard } from "./sections/StudentMomentsCard"
 import { PliCoinsCard } from "./sections/PliCoinsCard"
 import { PointsHistoryCard } from "./sections/PointsHistoryCard"
 import { MedalsCard } from "./sections/MedalsCard"
-import { GearCard } from "./sections/GearCard"
 import { ProfileLeftRail } from "./sections/ProfileLeftRail"
 import { ProfileFormCard } from "./sections/ProfileFormCard"
 import { MobileActionCards } from "./sections/MobileActionCards"
-import { AnalyticsCard } from "./sections/AnalyticsCard"
 import { AssignClassesCard } from "./sections/AssignClassesCard"
 import { ProfileRightRail } from "./sections/ProfileRightRail"
 import { RescheduleModal } from "./modals/RescheduleModal"
 import { ActionRequestModal } from "./modals/ActionRequestModal"
 import { CoursePickerModal } from "./modals/CoursePickerModal"
+import { ProfileCompletionModal } from "./modals/ProfileCompletionModal"
 
 const EnrollModal = dynamic(() => import("../courses/EnrollModal"), { ssr: false })
 
@@ -194,25 +191,7 @@ export default function ProfilePageClient() {
     actionRequests, actionRequestsLoading, actionRequestsError, loadActionRequests,
   } = useActionRequests(canLoadProtectedData)
 
-  const { packagesData, packagesSummary, activityStats, monthlyAttendance } = useProfilePackages(canLoadProtectedData)
-  const {
-    activeMetric,
-    setActiveMetric,
-    hoverPoint,
-    setHoverPoint,
-    chartWidth,
-    chartHeight,
-    paddingX,
-    paddingY,
-    points,
-    targetValues,
-    targetPoints,
-    pathD,
-    targetPathD,
-    yTicks,
-    pieSegments,
-    pieGradient,
-  } = useAnalyticsChartData(monthlyAttendance)
+  const { packagesData, packagesSummary, activityStats } = useProfilePackages(canLoadProtectedData)
 
   const onPointsBalanceChange = React.useCallback((balance: number) => {
     setPointsBalanceFromPoints(balance)
@@ -227,6 +206,12 @@ export default function ProfilePageClient() {
     completionPercent, avatarSrc,
     handleAvatarUpload, handleProfileSave,
   } = useProfileForm(canLoadProtectedData, user, onPointsBalanceChange, loadPointsHistory)
+  const [isMobileProfile, setIsMobileProfile] = React.useState(false)
+  const [showProfileCompletionModal, setShowProfileCompletionModal] = React.useState(true)
+  const handleCompleteProfileModal = React.useCallback(() => {
+    setShowProfileCompletionModal(false)
+    setShowProfileForm(true)
+  }, [setShowProfileForm])
 
   const [selectedBookingId, setSelectedBookingId] = React.useState<string>("")
   const [assignPackageId, setAssignPackageId] = React.useState("")
@@ -248,7 +233,6 @@ export default function ProfilePageClient() {
   })
   const currentCoins = Math.max(0, pointsBalance)
   const progress = Math.min(100, Math.round((currentCoins / Math.max(1, freeClassThreshold)) * 100))
-  const shoeProgress = Math.min(100, Math.round((mockProfile.shoeTracking.km / mockProfile.shoeTracking.maxKm) * 100))
   const stickyTop = 76
   const { gridRef, leftRailRef, rightRailRef } = useStickyRails(stickyTop)
   useFloatingFooterOffset()
@@ -580,7 +564,9 @@ export default function ProfilePageClient() {
     if (typeof document === "undefined") return
     const update = () => {
       document.body.dataset.profilePage = "true"
-      document.body.dataset.profileMobile = window.innerWidth < 1024 ? "true" : "false"
+      const isMobile = window.innerWidth < 1024
+      document.body.dataset.profileMobile = isMobile ? "true" : "false"
+      setIsMobileProfile(isMobile)
     }
     update()
     window.addEventListener("resize", update)
@@ -605,6 +591,11 @@ export default function ProfilePageClient() {
 
   return (
     <main className="min-h-[70vh] bg-background">
+      <ProfileCompletionModal
+        isOpen={!profileLoading && isMobileProfile && !profileComplete && showProfileCompletionModal}
+        onComplete={handleCompleteProfileModal}
+      />
+
       {/* Package credit success toast */}
       {checkInSuccess && (
         <div className="fixed top-6 left-1/2 z-[200] -translate-x-1/2 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -666,28 +657,6 @@ export default function ProfilePageClient() {
               latestActionRequests={latestActionRequests}
             />
 
-            <StudentMomentsCard moments={mockProfile.moments} />
-
-            <AnalyticsCard
-              activeMetric={activeMetric}
-              activityStats={activityStats}
-              chartWidth={chartWidth}
-              chartHeight={chartHeight}
-              paddingX={paddingX}
-              paddingY={paddingY}
-              points={points}
-              targetValues={targetValues}
-              targetPoints={targetPoints}
-              pathD={pathD}
-              targetPathD={targetPathD}
-              yTicks={yTicks}
-              pieSegments={pieSegments}
-              pieGradient={pieGradient}
-              hoverPoint={hoverPoint}
-              onMetricChange={setActiveMetric}
-              onHoverPointChange={setHoverPoint}
-            />
-
             <PliCoinsCard
               pointsToNextFreeClass={pointsToNextFreeClass}
               freeClassThreshold={freeClassThreshold}
@@ -747,13 +716,6 @@ export default function ProfilePageClient() {
               pendingBookings={pendingBookings}
               visibleBookings={visibleBookings}
               classRequestsByAttendance={classRequestsByAttendance}
-            />
-
-            <GearCard
-              model={mockProfile.shoeTracking.model}
-              usedKm={mockProfile.shoeTracking.km}
-              maxKm={mockProfile.shoeTracking.maxKm}
-              shoeProgress={shoeProgress}
             />
           </section>
 
