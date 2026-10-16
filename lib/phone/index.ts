@@ -168,6 +168,13 @@ export const parseServerPhoneInput = (input: string): PhoneParseResult => {
   return parseNationalPhone(digits.slice(1), "US")
 }
 
+export const parsePublicBookingPhoneInput = (input: string): PhoneParseResult => {
+  const parsed = parseServerPhoneInput(input)
+  if (!parsed.ok) return parsed
+  if (!isPublicBookingPhoneCountry(parsed.phone.country)) return failure("unsupported_country")
+  return parsed
+}
+
 export const isNationalPhoneDraft = (input: string) => /^[\d\s().-]*$/.test(input)
 
 export const formatNationalDraft = (input: string, country: CountryCode): string => {

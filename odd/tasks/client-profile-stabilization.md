@@ -45,10 +45,10 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
   - Status: done.
   - Verification: 7/7 focused component tests, typecheck, ESLint (four inherited hook warnings), diff check, and three new responsive Playwright scenarios passed on an isolated worktree server. The full profile E2E file retains five unrelated baseline failures.
   - Evidence: `3c86f5b1` (`fix(profile): restore mobile completion prompt`).
-- [ ] T4 — Add approved-country international phone entry to public booking and identity boundaries.
-  - Status: in progress.
-  - Verification: E.164 tests for all eleven countries, Clerk identity routing, checkout validation, live non-destructive Development smoke.
-  - Evidence: pending.
+- [x] T4 — Add approved-country international phone entry to public booking and identity boundaries.
+  - Status: done; live Development smoke remains intentionally grouped with T6 deployment verification.
+  - Verification: RED/GREEN coverage for the exact eleven-country catalog, E.164 UI propagation, country-change re-entry, Clerk identity routing, exact legacy candidates, recovery, public checkout intent/session fail-closed boundaries, and environment-gated Clerk test phones. 143/143 focused tests, typecheck, ESLint, and diff check passed. Independent verification initially found two boundary defects; correction `63e282fd` closed both and re-verification approved with 202/202 verifier checks. Full suite: 3,718 tests passed and 41 skipped; seven integration files (eight test failures) remain unavailable without `DATABASE_URL`.
+  - Evidence: `31cdeff3` (country catalog and field), `d06f926a` (booking UI and E.164 propagation), `224cef73` (server allowlist boundaries), `63e282fd` (strict checkout and Clerk test-host guards).
 - [ ] T5 — Specify and implement the profile information wizard over existing fields and APIs.
   - Status: pending; step structure requires a focused user decision after field inventory.
   - Verification: step validation, persistence, resume/edit behavior, mobile and desktop E2E.

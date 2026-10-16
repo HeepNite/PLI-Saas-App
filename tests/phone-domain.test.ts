@@ -8,6 +8,7 @@ import {
   isPublicBookingPhoneCountry,
   parseCanonicalPhone,
   parseNationalPhone,
+  parsePublicBookingPhoneInput,
   parseServerPhoneInput,
   type ParsedPhone,
   type PhoneParseResult,
@@ -137,6 +138,31 @@ describe("phone domain", () => {
     })
   })
 
+  describe("public booking parsing", () => {
+    it.each([
+      ["US", "+12025550123"],
+      ["PR", "+17872345678"],
+      ["AR", "+5491123456789"],
+      ["PE", "+51987654321"],
+      ["MX", "+525512345678"],
+      ["CL", "+56961234567"],
+      ["EC", "+593991234567"],
+      ["BR", "+5511961234567"],
+      ["DO", "+18092345678"],
+      ["CO", "+573211234567"],
+      ["CA", "+14165550123"],
+    ] as const)("accepts an approved %s canonical phone", (country, e164) => {
+      expect(expectParsedPhone(parsePublicBookingPhoneInput(e164))).toMatchObject({ country, e164 })
+    })
+
+    it("rejects countries outside the public-booking allowlist", () => {
+      expect(parsePublicBookingPhoneInput("+4930123456")).toEqual({
+        ok: false,
+        reason: "unsupported_country",
+      })
+    })
+  })
+
   describe("guarded Clerk test numbers", () => {
     const enableCodexDemo = () => {
       vi.stubEnv("VERCEL_ENV", "preview")
@@ -147,7 +173,7 @@ describe("phone domain", () => {
     it("accepts Clerk's reserved range only in the codex/develop test preview", () => {
       enableCodexDemo()
 
-      expect(expectParsedPhone(parseServerPhoneInput("+1 (555) 555-0111"))).toMatchObject({
+      expect(expectParsedPhone(parsePublicBookingPhoneInput("+1 (555) 555-0111"))).toMatchObject({
         country: "US",
         e164: "+15555550111",
         digits: "15555550111",

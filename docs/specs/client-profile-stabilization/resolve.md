@@ -14,6 +14,11 @@
 | Phone storage/boundary | New valid values cross identity, checkout, and persistence boundaries as E.164. |
 | Legacy identity | Resolve only an unambiguous user; ambiguous countryless legacy matches fail closed. |
 | Wizard architecture | Reuse `ProfileFormState`, `useProfileForm`, completion logic, and `PUT /api/profile`; presentation only. |
+| Wizard steps | Use three ordered groups: Personal information, Emergency contact, then optional Billing address. Email and phone remain read-only account context, not wizard inputs. |
+| Wizard navigation | Use linear Back/Next navigation. A step advances only when its existing required fields are valid; users cannot skip ahead. |
+| Wizard persistence | Save once from the final step through the existing profile save handler; do not introduce per-step drafts or API changes. |
+| Wizard reopen behavior | Closing resets navigation to Personal information while retaining unsaved form values for the mounted page session. Do not persist the active step across navigation or reload. |
+| Wizard viewport | Render the same responsive wizard on mobile and desktop. |
 | Test fixture | Keep the authorized Development booking until integrated verification, then remove its attendance/session/purchase artifacts. |
 | Production | Out of scope until Development is green and the user explicitly authorizes promotion. |
 
@@ -24,12 +29,6 @@
 - International-phone historical code is reference material. Only behavior compatible with current booking and identity contracts will be ported.
 - Removing profile sections means removing composition, not deleting future reusable components.
 
-## Open wizard decisions
+## Wizard decision record
 
-Before T5 source implementation, resolve in one decision round:
-
-1. Field grouping and step order.
-2. Linear-only versus skippable navigation.
-3. Save only at the end versus explicit per-step draft save.
-4. Whether closing resumes the previous step.
-5. Mobile-only versus responsive wizard on all viewports.
+The five T5 interaction decisions were accepted together before source implementation. The wizard remains a presentation layer over the existing form state, validation semantics, completion calculation, and save API.

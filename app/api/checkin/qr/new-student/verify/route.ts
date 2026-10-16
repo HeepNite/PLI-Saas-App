@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { auth, clerkClient } from "@clerk/nextjs/server"
 import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
-import { buildExactPhoneLookup, parseServerPhoneInput } from "@/lib/phone"
+import { buildExactPhoneLookup, parsePublicBookingPhoneInput } from "@/lib/phone"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { asText } from "@/lib/shared"
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
     const phoneInput = asText(payload?.phone)
     const emailInput = asText(payload?.email)
 
-    const phoneResult = phoneInput ? parseServerPhoneInput(phoneInput) : null
+    const phoneResult = phoneInput ? parsePublicBookingPhoneInput(phoneInput) : null
     if (phoneResult && !phoneResult.ok) {
       return NextResponse.json({ error: "Missing or invalid phone or email" }, { status: 400 })
     }

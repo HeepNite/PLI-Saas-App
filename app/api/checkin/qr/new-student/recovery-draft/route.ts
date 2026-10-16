@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { parseServerPhoneInput } from "@/lib/phone"
+import { parsePublicBookingPhoneInput } from "@/lib/phone"
 import { invalidateRecoveryDraft, issueRecoveryDraft, normalizeRecoveryCode } from "@/lib/student-recovery"
 
 export const runtime = "nodejs"
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   try { body = await req.json() } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }) }
   const phoneInput = safeOptionalText(body.phone, 32)
   let parsedPhone = null
-  try { parsedPhone = phoneInput ? parseServerPhoneInput(phoneInput) : null } catch { /* fail closed below */ }
+  try { parsedPhone = phoneInput ? parsePublicBookingPhoneInput(phoneInput) : null } catch { /* fail closed below */ }
   const email = safeOptionalText(body.email, 254)?.toLowerCase()
   const name = safeOptionalText(body.name, 120)
   const source = body.source === "kiosk_terminal" || body.source === "qr_mobile" ? body.source : null
