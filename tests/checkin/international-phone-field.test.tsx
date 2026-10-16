@@ -72,6 +72,7 @@ const expectCountryLabel = (trigger: HTMLButtonElement) => {
 afterEach(() => {
   document.body.innerHTML = ""
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 
 describe("InternationalPhoneField", () => {
@@ -118,6 +119,20 @@ describe("InternationalPhoneField", () => {
       country: "US",
       canonicalPhone: "+15555550140",
       validation: "valid",
+    })
+    await act(async () => view.root.unmount())
+  })
+
+  it("rejects Clerk reserved phones outside local or Development hosts", async () => {
+    vi.stubGlobal("location", { hostname: "pli.palladiumlatin.art" })
+    const view = await renderField("", false, true)
+    const number = view.container.querySelector("#international-phone-number") as HTMLInputElement
+
+    await setInput(number, "5555550111")
+
+    expect(view.onChange.mock.lastCall?.[0]).toMatchObject({
+      canonicalPhone: null,
+      validation: "invalid",
     })
     await act(async () => view.root.unmount())
   })

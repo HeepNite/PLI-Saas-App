@@ -123,7 +123,7 @@ describe("public checkout session route", () => {
 
     const { POST } = await import("@/app/api/public/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/session", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(200)
@@ -134,12 +134,17 @@ describe("public checkout session route", () => {
     }))
   })
 
-  it("rejects a phone outside the public-booking country allowlist", async () => {
+  it.each([
+    ["missing", {}],
+    ["empty", { phone: "" }],
+    ["incomplete", { phone: "+1202" }],
+    ["unsupported", { phone: "+4930123456" }],
+  ])("rejects %s phone before identity preparation", async (_, body) => {
     const { POST } = await import("@/app/api/public/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ phone: "+4930123456" }),
+      body: JSON.stringify(body),
     }))
 
     expect(response.status).toBe(400)
@@ -156,7 +161,7 @@ describe("public checkout session route", () => {
     mockValidate.mockResolvedValueOnce(promotionValidation()).mockResolvedValueOnce(promotionValidation(overrides))
     const { POST } = await import("@/app/api/public/checkout/session/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/session", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(400)

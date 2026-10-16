@@ -18,6 +18,7 @@ import { prisma } from "@/lib/prisma"
 import { getTrustedCheckoutChannel } from "@/lib/checkout/trusted-checkout-channel"
 import { resolveCoursePromotionCheckoutPricing } from "@/lib/checkout/course-promotion-pricing"
 import { enforcePublicBookingPolicy } from "@/lib/checkout/public-booking-policy"
+import { parsePublicBookingPhoneInput } from "@/lib/phone"
 
 const secret = process.env.STRIPE_SECRET_KEY
 const stripe = secret
@@ -168,6 +169,9 @@ export async function POST(req: Request) {
   }
   const trustedChannel = getTrustedCheckoutChannel()
   if (trustedChannel === "public_booking") {
+    if (typeof phone !== "string" || !parsePublicBookingPhoneInput(phone).ok) {
+      return NextResponse.json({ error: "Missing or invalid phone" }, { status: 400 })
+    }
     const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
     if (isApiError(publicBookingPolicy)) return toErrorResponse(publicBookingPolicy)
   }

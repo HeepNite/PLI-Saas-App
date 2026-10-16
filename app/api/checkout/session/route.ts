@@ -288,7 +288,7 @@ async function handleCheckoutSession(req: Request) {
   }
   const trustedChannel = getTrustedCheckoutChannel()
   if (trustedChannel === "public_booking") {
-    if (phone && (typeof phone !== "string" || !parsePublicBookingPhoneInput(phone).ok)) {
+    if (typeof phone !== "string" || !parsePublicBookingPhoneInput(phone).ok) {
       return NextResponse.json({ error: "Missing or invalid phone" }, { status: 400 })
     }
     const publicBookingPolicy = enforcePublicBookingPolicy(initialValidation)
