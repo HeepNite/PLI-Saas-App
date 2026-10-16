@@ -3,6 +3,30 @@ import { getTimesForWeekday } from "@/lib/schedule-rules"
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 const TIME_REGEX = /^\d{2}:\d{2}$/
+const SCHOOL_TIME_ZONE = "America/New_York"
+const DAY_MS = 24 * 60 * 60 * 1000
+
+type WallClockParts = { year: number; month: number; day: number; hour: number; minute: number }
+
+const schoolWallClockFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: SCHOOL_TIME_ZONE,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+})
+
+const getSchoolWallClockParts = (instant: Date): WallClockParts => Object.fromEntries(
+  schoolWallClockFormatter.formatToParts(instant)
+    .filter(({ type }) => type !== "literal")
+    .map(({ type, value }) => [type, Number(value)])
+) as WallClockParts
+
+const hasSameWallClockParts = (left: WallClockParts, right: WallClockParts) =>
+  left.year === right.year && left.month === right.month && left.day === right.day &&
+  left.hour === right.hour && left.minute === right.minute
 
 const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7 // Mon=0...Sun=6
 type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title" | "scheduleRules">
@@ -22,12 +46,29 @@ export const parseTime24 = (value: string) => {
 }
 
 export const buildSessionStartsAt = (dateIso: string, time24: string) => {
-  const date = parseIsoDate(dateIso)
   const time = parseTime24(time24)
-  if (!date || !time) return null
-  const startsAt = new Date(date)
-  startsAt.setHours(time.hour, time.minute, 0, 0)
-  return Number.isNaN(startsAt.getTime()) ? null : startsAt
+  if (!DATE_REGEX.test(dateIso) || !time) return null
+
+  const [year, month, day] = dateIso.split("-").map(Number)
+  const calendarDate = new Date(Date.UTC(year, month - 1, day))
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) return null
+
+  const desired = { year, month, day, hour: time.hour, minute: time.minute }
+  const localTimestamp = Date.UTC(year, month - 1, day, time.hour, time.minute)
+  const offsets = new Set([-DAY_MS, 0, DAY_MS].map((delta) => {
+    const sample = new Date(localTimestamp + delta)
+    const local = getSchoolWallClockParts(sample)
+    return Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute) - sample.getTime()
+  }))
+  const matches = [...offsets]
+    .map((offset) => new Date(localTimestamp - offset))
+    .filter((candidate) => hasSameWallClockParts(getSchoolWallClockParts(candidate), desired))
+
+  return matches.length === 1 ? matches[0] : null
 }
 
 export const formatTime12h = (time24: string) => {
