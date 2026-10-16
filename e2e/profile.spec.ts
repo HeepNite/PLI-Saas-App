@@ -2,7 +2,10 @@ import { test, expect } from "@playwright/test"
 
 const PROFILE_URL = "/client-profile?e2eAuth=1"
 
-const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
+const setupProfileApiMocks = async (
+  page: import("@playwright/test").Page,
+  profileComplete = true
+) => {
   let bookingStartsAt = "2027-02-19T15:00:00.000Z"
   const capturedRequests: Array<Record<string, unknown>> = []
   let actionRequests: Array<Record<string, unknown>> = []
@@ -30,7 +33,7 @@ const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
         country: "US",
       },
     },
-    profileComplete: true,
+    profileComplete,
     pointsBalance: 50,
   }
 
@@ -204,6 +207,46 @@ const setupProfileApiMocks = async (page: import("@playwright/test").Page) => {
     getCapturedRequests: () => capturedRequests,
   }
 }
+
+test("mobile incomplete profile opens the completion modal and existing form", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 900 })
+  await setupProfileApiMocks(page, false)
+  await page.goto(PROFILE_URL)
+
+  const backdrop = page.getByTestId("profile-completion-modal-backdrop")
+  const dialog = page.getByRole("dialog", { name: "Complete profile", exact: true })
+  await expect(backdrop).toBeVisible()
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toHaveAttribute("open", "")
+  await expect(dialog.getByRole("button", { name: "Complete profile", exact: true })).toBeFocused()
+  expect(await backdrop.evaluate((element) => getComputedStyle(element).backdropFilter)).toContain("blur(2px)")
+
+  await dialog.getByRole("button", { name: "Complete profile", exact: true }).click()
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole("heading", { name: "Complete your profile and earn points", exact: true })).toBeVisible()
+})
+
+test("completion modal stays absent for desktop and complete mobile profiles", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await setupProfileApiMocks(page, false)
+  await page.goto(PROFILE_URL)
+  await expect(page.getByTestId("profile-completion-modal")).toBeHidden()
+
+  await page.setViewportSize({ width: 430, height: 900 })
+  await page.unrouteAll({ behavior: "wait" })
+  await setupProfileApiMocks(page, true)
+  await page.reload()
+  await expect(page.getByTestId("profile-completion-modal")).toBeHidden()
+})
+
+test("profile excludes deferred social analytics and gear sections", async ({ page }) => {
+  await setupProfileApiMocks(page)
+  await page.goto(PROFILE_URL)
+
+  await expect(page.getByText("Student moments", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Analytics", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Gear", { exact: true })).toHaveCount(0)
+})
 
 test("profile page renders", async ({ page }) => {
   await page.goto(PROFILE_URL)
