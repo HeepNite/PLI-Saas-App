@@ -49,10 +49,10 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
   - Status: done; live Development smoke remains intentionally grouped with T6 deployment verification.
   - Verification: RED/GREEN coverage for the exact eleven-country catalog, E.164 UI propagation, country-change re-entry, Clerk identity routing, exact legacy candidates, recovery, public checkout intent/session fail-closed boundaries, and environment-gated Clerk test phones. 143/143 focused tests, typecheck, ESLint, and diff check passed. Independent verification initially found two boundary defects; correction `63e282fd` closed both and re-verification approved with 202/202 verifier checks. Full suite: 3,718 tests passed and 41 skipped; seven integration files (eight test failures) remain unavailable without `DATABASE_URL`.
   - Evidence: `31cdeff3` (country catalog and field), `d06f926a` (booking UI and E.164 propagation), `224cef73` (server allowlist boundaries), `63e282fd` (strict checkout and Clerk test-host guards).
-- [ ] T5 — Specify and implement the profile information wizard over existing fields and APIs.
-  - Status: pending; step structure requires a focused user decision after field inventory.
-  - Verification: step validation, persistence, resume/edit behavior, mobile and desktop E2E.
-  - Evidence: pending.
+- [x] T5 — Specify and implement the profile information wizard over existing fields and APIs.
+  - Status: done with the accepted three-step responsive contract: Personal information, Emergency contact, and optional Billing address; linear navigation, one final save, and reopen at Personal with in-memory edits retained.
+  - Verification: RED/GREEN wizard navigation, shared server validation semantics, partial billing, read-only identity fields, accessibility, final-save timing, and reopen behavior. 23/23 focused tests, typecheck, ESLint, diff check, and an isolated desktop/mobile Playwright scenario passed. Independent verification initially found validation and accessibility defects; `043ff59b` closed both and re-verification approved. Full suite: 3,730 tests passed and 41 skipped; seven integration files (eight test failures) remain unavailable without `DATABASE_URL`. Native review inspection remained unavailable with `package-local-binary-missing` and created no lineage.
+  - Evidence: `9b43a89d` (resolved interaction contract), `ac107464` (wizard), `64272a23` (validation/reopen tests), `9ab7438c` (responsive E2E), `043ff59b` (shared validation and accessibility).
 - [ ] T6 — Run integrated Development verification, remove controlled test records, and prepare bounded delivery slices.
   - Status: pending.
   - Verification: focused suites, TypeScript, ESLint, full applicable tests, independent verification, live Development smoke.
