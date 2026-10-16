@@ -54,6 +54,8 @@ describe("resolveStepValid", () => {
     expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, firstName: "A" } }))).toBe(false)
     expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, email: "a@b" } }))).toBe(false)
     expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, phone: "+1 917" } }))).toBe(false)
+    expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, phone: "+525512345678" } }))).toBe(true)
+    expect(resolveStepValid(2, createContext({ contact: { ...createContext().contact, phone: "+4930123456" } }))).toBe(false)
     expect(resolveStepValid(2, createContext({ service: "new-student" }))).toBe(true)
   })
 

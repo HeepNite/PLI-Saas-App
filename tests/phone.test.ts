@@ -4,8 +4,10 @@ import {
   formatUSPhoneOnChange,
   getUsPhoneDigits,
   hasPhoneDigits,
+  isCompleteEnrollmentPhone,
   isCompleteUSPhone,
   toE164Phone,
+  toEnrollmentE164Phone,
 } from "@/components/front/courses/utils/phone"
 
 describe("phone utils", () => {
@@ -31,6 +33,16 @@ describe("phone utils", () => {
   it("returns E164 when complete", () => {
     expect(toE164Phone("9293876584")).toBe("+19293876584")
     expect(toE164Phone("929387")).toBeUndefined()
+  })
+
+  it("validates and preserves approved international enrollment phones", () => {
+    expect(isCompleteEnrollmentPhone("+525512345678")).toBe(true)
+    expect(isCompleteEnrollmentPhone("+573211234567")).toBe(true)
+    expect(isCompleteEnrollmentPhone("+4930123456")).toBe(false)
+    expect(isCompleteEnrollmentPhone("+15555550140")).toBe(true)
+    expect(isCompleteEnrollmentPhone("+1 (929) 387-6584")).toBe(true)
+    expect(toEnrollmentE164Phone("+525512345678")).toBe("+525512345678")
+    expect(toEnrollmentE164Phone("+1 (929) 387-6584")).toBe("+19293876584")
   })
 
   describe("formatUSPhoneOnChange", () => {

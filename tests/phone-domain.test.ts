@@ -4,6 +4,8 @@ import {
   buildExactPhoneLookup,
   formatNationalDraft,
   getPhoneCountryCatalog,
+  getPublicBookingPhoneCountryCatalog,
+  isPublicBookingPhoneCountry,
   parseCanonicalPhone,
   parseNationalPhone,
   parseServerPhoneInput,
@@ -21,6 +23,19 @@ const expectParsedPhone = (result: PhoneParseResult): ParsedPhone => {
 
 describe("phone domain", () => {
   describe("country catalog", () => {
+    it("exposes exactly the approved public-booking countries", () => {
+      const catalog = getPublicBookingPhoneCountryCatalog()
+
+      expect(catalog.map((entry) => entry.country)).toEqual([
+        "US", "PR", "AR", "PE", "MX", "CL", "EC", "BR", "DO", "CO", "CA",
+      ])
+      expect(catalog.map((entry) => entry.callingCode)).toEqual([
+        "1", "1", "54", "51", "52", "56", "593", "55", "1", "57", "1",
+      ])
+      expect(isPublicBookingPhoneCountry("MX")).toBe(true)
+      expect(isPublicBookingPhoneCountry("DE")).toBe(false)
+    })
+
     it("exposes the global metadata catalog with calling codes", () => {
       const catalog = getPhoneCountryCatalog()
       const countries = new Map(catalog.map((entry) => [entry.country, entry.callingCode]))
@@ -43,6 +58,11 @@ describe("phone domain", () => {
       { country: "PE", input: "987654321", e164: "+51987654321" },
       { country: "AR", input: "91123456789", e164: "+5491123456789" },
       { country: "CL", input: "961234567", e164: "+56961234567" },
+      { country: "PR", input: "7872345678", e164: "+17872345678" },
+      { country: "BR", input: "11961234567", e164: "+5511961234567" },
+      { country: "DO", input: "8092345678", e164: "+18092345678" },
+      { country: "CO", input: "3211234567", e164: "+573211234567" },
+      { country: "CA", input: "4165550123", e164: "+14165550123" },
       { country: "DE", input: "30123456", e164: "+4930123456" },
     ] as const
 

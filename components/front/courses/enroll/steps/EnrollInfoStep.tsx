@@ -1,13 +1,18 @@
 import * as React from "react"
 import { AnimatePresence, motion, type Variants } from "framer-motion"
 
+import InternationalPhoneField, {
+  createInternationalPhoneFieldValue,
+  type InternationalPhoneFieldValue,
+} from "@/components/front/checkin/InternationalPhoneField"
 import KioskNumericKeypad from "@/components/front/checkin/KioskNumericKeypad"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import type { I18nKey } from "@/lib/i18n-dict"
 import { PHONE_INPUT_ATTRIBUTES } from "@/lib/checkin/sign-in-inputs"
+import { PUBLIC_BOOKING_PHONE_COUNTRIES } from "@/lib/phone"
 
 import type { KioskInfoPhase } from "../model/kiosk-info-phase"
-import { formatUSPhone, formatUSPhoneOnChange, isCompleteUSPhone } from "../../utils/phone"
+import { formatUSPhoneOnChange, isCompleteUSPhone } from "../../utils/phone"
 
 type ActiveNumericField = "phone" | null
 
@@ -70,7 +75,30 @@ export default function EnrollInfoStep({
   t,
   usesPhasedInfoForm = false,
 }: EnrollInfoStepProps) {
-  const phoneComplete = isCompleteUSPhone(contact.phone)
+  const [internationalPhone, setInternationalPhone] = React.useState<InternationalPhoneFieldValue>(() =>
+    createInternationalPhoneFieldValue(
+      contact.phone.trim() === "+1" ? "" : contact.phone,
+      PUBLIC_BOOKING_PHONE_COUNTRIES
+    )
+  )
+
+  React.useEffect(() => {
+    if (isKioskTerminalFlow || !contact.phone) return
+    const next = createInternationalPhoneFieldValue(contact.phone, PUBLIC_BOOKING_PHONE_COUNTRIES)
+    if (next.canonicalPhone && next.canonicalPhone !== internationalPhone.canonicalPhone) {
+      setInternationalPhone(next)
+    }
+  }, [contact.phone, internationalPhone.canonicalPhone, isKioskTerminalFlow])
+
+  const updateInternationalPhone = React.useCallback((next: InternationalPhoneFieldValue) => {
+    setInternationalPhone(next)
+    setPhoneTouched(next.touched)
+    setContact((current) => ({ ...current, phone: next.canonicalPhone || "" }))
+  }, [setContact, setPhoneTouched])
+
+  const phoneComplete = isKioskTerminalFlow
+    ? isCompleteUSPhone(contact.phone)
+    : Boolean(internationalPhone.canonicalPhone)
 
   // For phone-first kiosk flow: initial phase is "phone", second phase is "name-email".
   // For standard QR compact flow: initial phase is "name-email", second phase is "phone".
@@ -163,8 +191,8 @@ export default function EnrollInfoStep({
     />
   ) : null
 
-  const phoneField = (
-    <fieldset className={isKioskTerminalFlow ? "space-y-3 rounded-md border border-white/10 bg-white/[0.05] p-3 sm:col-span-2" : "space-y-2 sm:col-span-2"}>
+  const phoneField = isKioskTerminalFlow ? (
+    <fieldset className="space-y-3 rounded-md border border-white/10 bg-white/[0.05] p-3 sm:col-span-2">
       <label className="text-sm font-medium">Phone</label>
       <div className="flex items-center gap-2">
         <span className="inline-flex h-10 items-center justify-center rounded-md border border-black/10 bg-white/70 px-2 text-[11px] font-semibold text-blue-900 dark:border-white/10 dark:bg-white/10 dark:text-blue-200">
@@ -179,22 +207,18 @@ export default function EnrollInfoStep({
               setContact((c) => ({ ...c, phone: formatUSPhoneOnChange(e.target.value, c.phone) }))
             }}
             onBlur={() => setPhoneTouched(true)}
-            onFocus={() => {
-              if (isKioskTerminalFlow) setActiveNumericField("phone")
-            }}
-            readOnly={isKioskTerminalFlow}
-            onClick={() => {
-              if (isKioskTerminalFlow) setActiveNumericField("phone")
-            }}
+            onFocus={() => setActiveNumericField("phone")}
+            readOnly
+            onClick={() => setActiveNumericField("phone")}
             placeholder="(929) 387-6584"
             inputMode={PHONE_INPUT_ATTRIBUTES.inputMode}
             autoComplete={PHONE_INPUT_ATTRIBUTES.autoComplete}
             enterKeyHint={PHONE_INPUT_ATTRIBUTES.enterKeyHint}
             pattern={PHONE_INPUT_ATTRIBUTES.pattern}
             aria-invalid={phoneTouched && !phoneComplete}
-            className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 dark:border-white/10 dark:bg-white/10${isKioskTerminalFlow && activeNumericField === "phone" ? " border-white/30" : ""}`}
+            className={`w-full rounded-md border border-black/10 bg-white/80 px-3 py-2 dark:border-white/10 dark:bg-white/10${activeNumericField === "phone" ? " border-white/30" : ""}`}
           />
-          {isKioskTerminalFlow && activeNumericField === "phone" && (
+          {activeNumericField === "phone" && (
             <span className="pointer-events-none absolute right-3 top-1/2 h-5 w-0.5 -translate-y-1/2 animate-pulse bg-white/70" />
           )}
         </div>
@@ -202,6 +226,16 @@ export default function EnrollInfoStep({
       {phoneTouched && !phoneComplete && <p className="text-xs text-red-600">{t("phone_format_hint")}</p>}
       {phoneKeypad}
     </fieldset>
+  ) : (
+    <div className="sm:col-span-2">
+      <InternationalPhoneField
+        value={internationalPhone}
+        onChange={updateInternationalPhone}
+        allowedCountries={PUBLIC_BOOKING_PHONE_COUNTRIES}
+        showKeypad={false}
+        id="enrollment-phone-number"
+      />
+    </div>
   )
 
   if (isKioskTerminalFlow || usesPhasedInfoForm) {

@@ -21,7 +21,7 @@ const setInput = async (input: HTMLInputElement, value: string) => {
   })
 }
 
-const renderField = async (prefill = "", busy = false): Promise<RenderedField> => {
+const renderField = async (prefill = "", busy = false, publicBooking = false): Promise<RenderedField> => {
   const container = document.createElement("div")
   document.body.appendChild(container)
   const root = createRoot(container)
@@ -29,12 +29,21 @@ const renderField = async (prefill = "", busy = false): Promise<RenderedField> =
 
   function Harness() {
     const [value, setValue] = React.useState<InternationalPhoneFieldValue>(() =>
-      createInternationalPhoneFieldValue(prefill),
+      createInternationalPhoneFieldValue(
+        prefill,
+        publicBooking ? phoneDomain.PUBLIC_BOOKING_PHONE_COUNTRIES : undefined
+      ),
     )
-    return <InternationalPhoneField value={value} busy={busy} onChange={(next) => {
+    return <InternationalPhoneField
+      value={value}
+      busy={busy}
+      allowedCountries={publicBooking ? phoneDomain.PUBLIC_BOOKING_PHONE_COUNTRIES : undefined}
+      showKeypad={!publicBooking}
+      onChange={(next) => {
       onChange(next)
-      setValue(next)
-    }} />
+        setValue(next)
+      }}
+    />
   }
 
   await act(async () => root.render(<Harness />))
@@ -88,6 +97,31 @@ describe("InternationalPhoneField", () => {
     await act(async () => unresolved.root.unmount())
   })
 
+  it("restricts public booking to the approved countries and omits the kiosk keypad", async () => {
+    const view = await renderField("", false, true)
+    const { search } = await openCountries(view.container)
+
+    expect(view.container.querySelectorAll('[role="option"]')).toHaveLength(11)
+    await setInput(search, "Germany")
+    expect(view.container.textContent).toContain("No countries match your search.")
+    expect(Array.from(view.container.querySelectorAll("button")).some((button) => button.textContent === "1")).toBe(false)
+    await act(async () => view.root.unmount())
+  })
+
+  it("canonicalizes Clerk's reserved US test range for guarded Development verification", async () => {
+    const view = await renderField("", false, true)
+    const number = view.container.querySelector("#international-phone-number") as HTMLInputElement
+
+    await setInput(number, "5555550140")
+
+    expect(view.onChange.mock.lastCall?.[0]).toMatchObject({
+      country: "US",
+      canonicalPhone: "+15555550140",
+      validation: "valid",
+    })
+    await act(async () => view.root.unmount())
+  })
+
   it("searches by name, ISO, and calling code with an unchanged no-results state", async () => {
     const view = await renderField()
     const { trigger, search } = await openCountries(view.container)
@@ -109,7 +143,7 @@ describe("InternationalPhoneField", () => {
     await act(async () => view.root.unmount())
   })
 
-  it("keeps an explicit shared-code country and preserves digits across country changes", async () => {
+  it("keeps an explicit shared-code country and clears digits across country changes", async () => {
     const view = await renderField()
     let picker = await openCountries(view.container)
     await setInput(picker.search, "CA")
@@ -121,8 +155,13 @@ describe("InternationalPhoneField", () => {
     picker = await openCountries(view.container)
     await setInput(picker.search, "MX")
     await act(async () => findOption(view.container, "Mexico MX +52").click())
-    expect(number.value.replace(/\D/g, "")).toBe("4165550123")
-    expect(view.onChange.mock.lastCall?.[0]).toMatchObject({ country: "MX", canonicalPhone: null })
+    expect(number.value).toBe("")
+    expect(view.onChange.mock.lastCall?.[0]).toMatchObject({
+      country: "MX",
+      nationalInput: "",
+      canonicalPhone: null,
+      requiresReentry: true,
+    })
     await act(async () => view.root.unmount())
   })
 
