@@ -1,6 +1,7 @@
 import React from "react"
 import { X } from "lucide-react"
 import GlassyCard from "@/components/front/courses/GlassyCard"
+import { validateProfileUpdatePayload } from "@/lib/security/profile-validation"
 import type { ProfileFormState } from "../profile-utils"
 
 type ProfileFormCardProps = {
@@ -27,33 +28,45 @@ const FIELD_CLASS = "w-full rounded-md border border-black/15 bg-transparent px-
 const READ_ONLY_FIELD_CLASS = "w-full rounded-md border border-black/15 bg-transparent px-3 py-2 text-sm text-zinc-600 dark:border-white/15 dark:text-white/60"
 
 const hasValue = (value: string) => value.trim().length > 0
+const hasBillingData = (form: ProfileFormState) => [
+  form.billingLine1,
+  form.billingLine2,
+  form.billingCity,
+  form.billingState,
+  form.billingPostalCode,
+  form.billingCountry,
+].some(hasValue)
 
 const isStepValid = (step: WizardStep, form: ProfileFormState) => {
   if (step === 0) {
-    return hasValue(form.firstName) && hasValue(form.lastName) && hasValue(form.birthDate)
+    const result = validateProfileUpdatePayload({
+      firstName: form.firstName,
+      lastName: form.lastName,
+      birthDate: form.birthDate,
+    })
+    return !("status" in result) && Boolean(result.firstName && result.lastName && result.birthDate)
   }
   if (step === 1) {
-    return hasValue(form.emergencyContactName) &&
-      hasValue(form.emergencyContactRelation) &&
-      hasValue(form.emergencyContactPhone)
+    const result = validateProfileUpdatePayload({
+      emergencyContactName: form.emergencyContactName,
+      emergencyContactRelation: form.emergencyContactRelation,
+      emergencyContactPhone: form.emergencyContactPhone,
+    })
+    return !("status" in result) && Boolean(
+      result.emergencyContactName && result.emergencyContactRelation && result.emergencyContactPhone
+    )
   }
-
-  const billingValues = [
-    form.billingLine1,
-    form.billingLine2,
-    form.billingCity,
-    form.billingState,
-    form.billingPostalCode,
-    form.billingCountry,
-  ]
-  if (!billingValues.some(hasValue)) return true
-  return [
-    form.billingLine1,
-    form.billingCity,
-    form.billingState,
-    form.billingPostalCode,
-    form.billingCountry,
-  ].every(hasValue)
+  if (!hasBillingData(form)) return true
+  return !("status" in validateProfileUpdatePayload({
+    billingAddress: {
+      line1: form.billingLine1,
+      line2: form.billingLine2,
+      city: form.billingCity,
+      state: form.billingState,
+      postalCode: form.billingPostalCode,
+      country: form.billingCountry,
+    },
+  }))
 }
 
 type FieldProps = {
@@ -64,10 +77,12 @@ type FieldProps = {
   type?: React.HTMLInputTypeAttribute
   placeholder?: string
   readOnly?: boolean
+  required?: boolean
+  errorId?: string
   wide?: boolean
 }
 
-function ProfileField({ id, label, value, onChange, type = "text", placeholder, readOnly = false, wide = false }: FieldProps) {
+function ProfileField({ id, label, value, onChange, type = "text", placeholder, readOnly = false, required = false, errorId, wide = false }: FieldProps) {
   return (
     <fieldset className={`${wide ? "sm:col-span-2" : ""} space-y-1.5 lg:space-y-2`}>
       <label htmlFor={id} className="text-xs font-medium lg:text-sm">{label}</label>
@@ -77,6 +92,8 @@ function ProfileField({ id, label, value, onChange, type = "text", placeholder, 
         value={value}
         onChange={onChange ? (event) => onChange(event.target.value) : undefined}
         readOnly={readOnly}
+        required={required}
+        aria-describedby={errorId}
         placeholder={placeholder}
         className={readOnly ? READ_ONLY_FIELD_CLASS : FIELD_CLASS}
       />
@@ -109,6 +126,8 @@ export function ProfileFormCard({
   if (!profileFormMounted) return null
 
   const stepValid = isStepValid(activeStep, profileForm)
+  const stepErrorId = stepValid ? undefined : "profile-step-error"
+  const billingRequired = hasBillingData(profileForm)
   const update = (field: keyof ProfileFormState) => (value: string) => onProfileFieldChange(field, value)
 
   return (
@@ -176,9 +195,9 @@ export function ProfileFormCard({
 
           {activeStep === 0 && (
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
-              <ProfileField id="profile-first-name" label="First name" value={profileForm.firstName} onChange={update("firstName")} placeholder="Your first name" />
-              <ProfileField id="profile-last-name" label="Last name" value={profileForm.lastName} onChange={update("lastName")} placeholder="Your last name" />
-              <ProfileField id="profile-birthday" label="Birthday" value={profileForm.birthDate} onChange={update("birthDate")} type="date" />
+              <ProfileField id="profile-first-name" label="First name" value={profileForm.firstName} onChange={update("firstName")} placeholder="Your first name" required errorId={stepErrorId} />
+              <ProfileField id="profile-last-name" label="Last name" value={profileForm.lastName} onChange={update("lastName")} placeholder="Your last name" required errorId={stepErrorId} />
+              <ProfileField id="profile-birthday" label="Birthday" value={profileForm.birthDate} onChange={update("birthDate")} type="date" required errorId={stepErrorId} />
               <ProfileField id="profile-email" label="Email" value={userEmail} readOnly />
               <ProfileField id="profile-phone" label="Phone" value={userPhone} readOnly wide />
             </div>
@@ -186,9 +205,9 @@ export function ProfileFormCard({
 
           {activeStep === 1 && (
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
-              <ProfileField id="profile-emergency-name" label="Name" value={profileForm.emergencyContactName} onChange={update("emergencyContactName")} placeholder="Full name" />
-              <ProfileField id="profile-emergency-relation" label="Relationship" value={profileForm.emergencyContactRelation} onChange={update("emergencyContactRelation")} placeholder="Ex: Mother, Father, Friend" />
-              <ProfileField id="profile-emergency-phone" label="Emergency contact phone" value={profileForm.emergencyContactPhone} onChange={update("emergencyContactPhone")} placeholder="Number" wide />
+              <ProfileField id="profile-emergency-name" label="Name" value={profileForm.emergencyContactName} onChange={update("emergencyContactName")} placeholder="Full name" required errorId={stepErrorId} />
+              <ProfileField id="profile-emergency-relation" label="Relationship" value={profileForm.emergencyContactRelation} onChange={update("emergencyContactRelation")} placeholder="Ex: Mother, Father, Friend" required errorId={stepErrorId} />
+              <ProfileField id="profile-emergency-phone" label="Emergency contact phone" value={profileForm.emergencyContactPhone} onChange={update("emergencyContactPhone")} placeholder="Number" required errorId={stepErrorId} wide />
             </div>
           )}
 
@@ -196,18 +215,18 @@ export function ProfileFormCard({
             <div className="mt-4">
               <p className="text-xs text-zinc-600 dark:text-white/60">Optional. Used only for card payments (Stripe). If you start an address, complete all required address fields.</p>
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:gap-4">
-                <ProfileField id="profile-billing-line-1" label="Line 1" value={profileForm.billingLine1} onChange={update("billingLine1")} placeholder="Street and number" wide />
+                <ProfileField id="profile-billing-line-1" label="Line 1" value={profileForm.billingLine1} onChange={update("billingLine1")} placeholder="Street and number" required={billingRequired} errorId={stepErrorId} wide />
                 <ProfileField id="profile-billing-line-2" label="Line 2 (optional)" value={profileForm.billingLine2} onChange={update("billingLine2")} placeholder="Apt, floor, unit" wide />
-                <ProfileField id="profile-billing-city" label="City" value={profileForm.billingCity} onChange={update("billingCity")} placeholder="City" />
-                <ProfileField id="profile-billing-state" label="State" value={profileForm.billingState} onChange={update("billingState")} placeholder="State" />
-                <ProfileField id="profile-billing-postal-code" label="ZIP / Postal code" value={profileForm.billingPostalCode} onChange={update("billingPostalCode")} placeholder="ZIP" />
-                <ProfileField id="profile-billing-country" label="Country" value={profileForm.billingCountry} onChange={update("billingCountry")} placeholder="Country" />
+                <ProfileField id="profile-billing-city" label="City" value={profileForm.billingCity} onChange={update("billingCity")} placeholder="City" required={billingRequired} errorId={stepErrorId} />
+                <ProfileField id="profile-billing-state" label="State" value={profileForm.billingState} onChange={update("billingState")} placeholder="State" required={billingRequired} errorId={stepErrorId} />
+                <ProfileField id="profile-billing-postal-code" label="ZIP / Postal code" value={profileForm.billingPostalCode} onChange={update("billingPostalCode")} placeholder="ZIP" required={billingRequired} errorId={stepErrorId} />
+                <ProfileField id="profile-billing-country" label="Country" value={profileForm.billingCountry} onChange={update("billingCountry")} placeholder="Country" required={billingRequired} errorId={stepErrorId} />
               </div>
             </div>
           )}
 
           {!stepValid && (
-            <p className="mt-3 text-xs text-amber-700 dark:text-amber-200">
+            <p id="profile-step-error" role="alert" className="mt-3 text-xs text-amber-700 dark:text-amber-200">
               {activeStep === 2 ? "Complete the billing address or leave every billing field empty." : "Complete the required fields to continue."}
             </p>
           )}

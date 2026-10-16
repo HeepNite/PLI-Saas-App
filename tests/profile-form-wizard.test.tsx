@@ -103,6 +103,30 @@ describe("ProfileFormCard wizard", () => {
     expect(container.textContent).toContain("Complete the required fields to continue.")
   })
 
+  it("blocks Personal and Emergency values rejected by existing validation", async () => {
+    await act(async () => root.render(
+      <Harness initialForm={{ ...completeForm, firstName: "<Jane>", birthDate: "2999-01-01", emergencyContactPhone: "123" }} />
+    ))
+    expect(buttonNamed("Next").disabled).toBe(true)
+
+    await setInput(container.querySelector("#profile-first-name") as HTMLInputElement, "Jane")
+    await setInput(container.querySelector("#profile-birthday") as HTMLInputElement, "2000-01-01")
+    await click(buttonNamed("Next"))
+    expect(buttonNamed("Next").disabled).toBe(true)
+  })
+
+  it("exposes required fields and validation guidance to assistive technology", async () => {
+    await act(async () => root.render(
+      <Harness initialForm={{ ...completeForm, firstName: "" }} />
+    ))
+    for (const id of ["profile-first-name", "profile-last-name", "profile-birthday"]) {
+      const input = container.querySelector(`#${id}`) as HTMLInputElement
+      expect(input.required).toBe(true)
+      expect(input.getAttribute("aria-describedby")).toBe("profile-step-error")
+    }
+    expect(container.querySelector("#profile-step-error")?.getAttribute("role")).toBe("alert")
+  })
+
   it("requires a started billing address to be complete before final save", async () => {
     await act(async () => root.render(
       <Harness initialForm={{ ...completeForm, billingLine1: "123 Main St" }} />
