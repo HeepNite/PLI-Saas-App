@@ -21,17 +21,27 @@
 
 ## Phase 4 - Implementation
 
-- [ ] Add failing route/config/visibility tests.
-- [ ] Implement the allowlisted event map and dynamic tablet route.
-- [ ] Add the two temporary DEV seed configs.
-- [ ] Extend exact raffle floating-chrome suppression to both new entrances.
+- [x] Add failing route/config/visibility tests. RED: missing page/config modules plus four visibility assertions failed.
+- [x] Implement the allowlisted event map and dynamic tablet route.
+- [x] Add the two temporary DEV seed configs.
+- [x] Extend exact raffle floating-chrome suppression to both new entrances.
 
 ## Phase 5 - Validation
 
-- [ ] Run focused tests.
-- [ ] Run the relevant suite, typecheck, and scoped lint.
-- [ ] Run independent verification for the high-risk data and shared-route surfaces.
-- [ ] Commit the reviewable work unit and record its hash.
-- [ ] Preflight exact DEV environment and migration/schema state.
-- [ ] Seed and verify both independent DEV events without exposing keys.
-- [ ] Record publishing/deployment status and residual final-prize work.
+- [x] Run focused tests: 3 files and 41 tests passed after the expected RED failures.
+- [x] Run the relevant suite and static checks: independent relevant suite 18 files/163 tests passed; TypeScript passed after Prisma generation; full lint passed with 112 existing warnings and zero errors. A broader local run passed 198 assertions but reported two unavailable Prisma-client suites before generation; it was not used as passing evidence.
+- [x] Run independent verification for the high-risk data and shared-route surfaces: READY for S2–S6 code, with S3 and live keys explicitly pending T4.
+- [x] Commit the reviewable work unit: `117a689b` (`feat(raffle): prepare October event entrances`). Native assessment: high after explicit Risk item 1 escalation, independent verifier required and completed; native review not due because the 229-line candidate is under budget.
+- [x] Preflight exact DEV environment and migration/schema state. Vercel CLI could not pull the encrypted branch `DATABASE_URL`; the established local DEV binding was instead identified by its sanitized fingerprint, known Latino Night data, and complete 3-table/27-column/6-index/3-FK raffle schema. Both target slugs were absent. No migration was run.
+- [x] Seed and verify both independent DEV events without exposing keys. Both events were created in one transaction with zero entries, one temporary open draw each, distinct token hashes, and exact midnight instants. Raw keys were captured directly to separate macOS Keychain items and independently hash-verified.
+- [ ] Publish the committed route work to `codex/develop`, verify `/rifa/30` and `/rifa/31`, and record residual final-prize work. Generic public pages already return 200 with the entry form, and unauthorized screen-state requests return 404; the aliases correctly remain 404 until delivery is authorized.
+
+## Operational Evidence
+
+- DEV database fingerprint: `f50dcba1162d9a0efe1624c4a6d147e1dd326f1d7cf57f46704d3e43ed5d8aee` (sanitized; no connection details stored).
+- Existing DEV identity signal: Latino Night present with 22 entries and 5 draws at preflight.
+- October 30 event: `2026-10-30T04:00:00.000Z`, draw `2026-10-31T04:00:00.000Z`, zero entries, one open temporary draw.
+- October 31 event: `2026-10-31T04:00:00.000Z`, draw `2026-11-01T04:00:00.000Z`, zero entries, one open temporary draw.
+- Keychain services: `pli-dev-raffle-october-30-2026` and `pli-dev-raffle-october-31-2026`; both readable, distinct, and matched the stored hashes without exposing raw values.
+- Live generic routes: both `/raffle/<slug>` pages returned 200 with the exact title and entry form; both unauthenticated screen-state requests returned 404.
+- Delivery blocker: `/rifa/30` and `/rifa/31` return 404 because this branch has not been pushed, opened as a PR, or merged; those are separate user decisions.
