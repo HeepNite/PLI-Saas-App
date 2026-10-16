@@ -6,7 +6,7 @@ import GlassyCard from "./GlassyCard"
 import { useI18n } from "@/lib/i18n"
 import type { Coupon, EnrollmentContact } from "./types"
 import { useEnrollDraft } from "./hooks/useEnrollDraft"
-import { formatUSPhone, hasPhoneDigits, isCompleteUSPhone, toE164Phone } from "./utils/phone"
+import { hasPhoneDigits, isCompleteEnrollmentPhone, toEnrollmentE164Phone } from "./utils/phone"
 import { useAuth, useClerk, useUser } from "@clerk/nextjs"
 import { StripePaymentModal } from "../payments/StripePaymentModal"
 import { useRouter } from "next/navigation"
@@ -123,8 +123,8 @@ export const formatCheckInSummaryDateTime = formatCheckInSummaryDateTimeModel
 export const computeCheckInAutofill = computeCheckInAutofillModel
 
 const normalizeEnrollPhonePrefill = (value?: string) => {
-  if (typeof value !== "string" || value.trim().length === 0) return "+1 "
-  return formatUSPhone(value)
+  if (typeof value !== "string" || value.trim().length === 0) return ""
+  return toEnrollmentE164Phone(value) || ""
 }
 
 export default function EnrollModal({
@@ -666,7 +666,7 @@ export default function EnrollModal({
     if (!isLoaded || !isSignedIn || !user) return
     if (!open && !isInline) return
     const userPhone = user.primaryPhoneNumber?.phoneNumber || user.phoneNumbers?.[0]?.phoneNumber
-    const formattedPhone = userPhone ? formatUSPhone(userPhone) : undefined
+    const formattedPhone = userPhone ? normalizeEnrollPhonePrefill(userPhone) : undefined
     setContact((prev) => ({
       ...prev,
       firstName: prev.firstName || user.firstName || "",
@@ -1074,7 +1074,7 @@ export default function EnrollModal({
     let cancelled = false
     void (async () => {
       if (isQrMobileCompactFlow) {
-        setVerifiedPhoneKey(toE164Phone(contact.phone) || null)
+        setVerifiedPhoneKey(toEnrollmentE164Phone(contact.phone) || null)
         if (verification.shouldFallbackToRegular) {
           showRegularFallbackPopup(verification.fallbackMessage || undefined)
           resetVerification()
@@ -1257,7 +1257,7 @@ export default function EnrollModal({
   const canContinueCurrentStep = usesPhasedInfoForm && activeStepKey === "info"
     ? kioskInfoPhase === "name-email"
       ? contact.firstName.trim().length > 1 && contact.email.trim().length > 5
-      : isCompleteUSPhone(contact.phone)
+      : isCompleteEnrollmentPhone(contact.phone)
     : canContinue
   const showAccountExistsSignInCopy = pendingAutoPay || existingAccountDetected
   const signInModalTitle =
@@ -1714,7 +1714,7 @@ export default function EnrollModal({
             {/* Code input + numpad */}
             <EmbeddedSignIn
               redirectUrl={signInReturnTo}
-              phoneNumber={toE164Phone(contact.phone)}
+              phoneNumber={toEnrollmentE164Phone(contact.phone)}
               useNumericKeypad={isKioskTerminalFlow}
               activateSessionOnSuccess={isQrMobileCompactFlow}
               bare
@@ -1756,7 +1756,7 @@ export default function EnrollModal({
           subtitle={signInModalSubtitle}
           variant={signInModalVariant}
           signInReturnTo={signInReturnTo}
-          phoneE164={toE164Phone(contact.phone)}
+          phoneE164={toEnrollmentE164Phone(contact.phone)}
           emailAddress={contact.email}
           useEmailCode={verification.existingIdentifier === "email"}
           isKioskTerminalFlow={isKioskTerminalFlow}

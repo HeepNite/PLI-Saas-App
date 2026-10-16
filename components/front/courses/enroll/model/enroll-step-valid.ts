@@ -1,6 +1,6 @@
 import type { EnrollmentOption } from "@/constants/courses"
 import type { EnrollmentContact, PaymentMethod } from "@/components/front/courses/types"
-import { isCompleteUSPhone } from "@/components/front/courses/utils/phone"
+import { isCompleteEnrollmentPhone } from "@/components/front/courses/utils/phone"
 import type { EnrollStepKey } from "@/lib/checkin/enroll-flow"
 
 export type StepValidContext = {
@@ -30,7 +30,7 @@ export const resolveStepValid = (stepIndex: number, ctx: StepValidContext): bool
       return (
         ctx.contact.firstName.trim().length > 1 &&
         ctx.contact.email.trim().length > 5 &&
-        isCompleteUSPhone(ctx.contact.phone)
+        isCompleteEnrollmentPhone(ctx.contact.phone)
       )
     }
     case "photo":
