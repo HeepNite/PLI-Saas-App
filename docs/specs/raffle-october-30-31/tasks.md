@@ -21,10 +21,10 @@
 
 ## Phase 4 - Implementation
 
-- [ ] Add failing route/config/visibility tests.
-- [ ] Implement the allowlisted event map and dynamic tablet route.
-- [ ] Add the two temporary DEV seed configs.
-- [ ] Extend exact raffle floating-chrome suppression to both new entrances.
+- [x] Add failing route/config/visibility tests. RED: missing page/config modules plus four visibility assertions failed.
+- [x] Implement the allowlisted event map and dynamic tablet route.
+- [x] Add the two temporary DEV seed configs.
+- [x] Extend exact raffle floating-chrome suppression to both new entrances.
 
 ## Phase 5 - Validation
 
