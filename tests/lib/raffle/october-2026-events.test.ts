@@ -32,6 +32,15 @@ describe("October 2026 raffle events", () => {
     expect(nyMidnightUtc(eventDate).toISOString()).toBe(`${eventDate}T04:00:00.000Z`)
     expect(parsed.value.draws).toEqual([{ order: 1, prizeLabel: temporaryPrize, drawAt }])
     expect(parsed.value.excludePreviousWinners).toBe(true)
+    expect(parsed.value.videoUrl).toBe("")
+  })
+
+  it("keeps an omitted video URL undefined for existing seed configs", () => {
+    const { videoUrl: _videoUrl, ...configWithoutVideo } = october30Config
+    const parsed = parseRaffleSeedConfig(configWithoutVideo)
+
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
     expect(parsed.value.videoUrl).toBeUndefined()
   })
 

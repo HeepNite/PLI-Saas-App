@@ -36,6 +36,17 @@
 - [x] Seed and verify both independent DEV events without exposing keys. Both events were created in one transaction with zero entries, one temporary open draw each, distinct token hashes, and exact midnight instants. Raw keys were captured directly to separate macOS Keychain items and independently hash-verified.
 - [x] Publish the committed route work to `codex/develop`, verify `/rifa/30` and `/rifa/31`, and record residual final-prize work. Contract PR #683 and behavior PR #684 merged with green checks; post-merge CI and CodeQL passed on `1c952535`. Deployment `dpl_8F73iNoUo3CPRMviE9MNqUtjWncr` is Ready and aliases `dev.palladiumlatin.art`.
 
+## Phase 6 - Rehearsal Amendments
+
+- [x] Reproduce the placeholder-video defect on the day-30 iPad rehearsal and restore the event to its official empty/open state.
+- [x] Add a RED config assertion for explicit empty `videoUrl`, preserve omitted-video behavior, update both repeatable configs, and set both DEV events to the existing no-video animation. Focused result: 3 files/41 tests passed after the expected two RED assertions.
+- [x] Resolve the winner attendance contract: `Showed up` confirms the pending winner; `Draw again` audits the no-show, excludes them event-wide, and reruns the same prize.
+- [ ] Add RED domain, route, screen-state, and tablet tests for pending confirmation, refresh recovery, idempotent exact-attempt actions, no-show audit retention, and event-wide exclusion.
+- [ ] Add the `RaffleDrawAttempt` model and additive migration, guarded attendance domain/route, and draw integration.
+- [ ] Add refresh-safe `Showed up` / `Draw again` tablet controls and replay the animation for a reroll.
+- [ ] Run focused checks, relevant suite, typecheck, lint, differential checks for omitted/explicit video config, and independent high-risk verification.
+- [ ] Deploy to DEV, rehearse both days visibly, and restore exact official empty/open state.
+
 ## Operational Evidence
 
 - DEV database fingerprint: `f50dcba1162d9a0efe1624c4a6d147e1dd326f1d7cf57f46704d3e43ed5d8aee` (sanitized; no connection details stored).
