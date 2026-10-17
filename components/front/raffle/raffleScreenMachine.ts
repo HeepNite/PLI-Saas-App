@@ -16,6 +16,7 @@ export type RaffleScreenMachineState = {
   /** Set once the draw endpoint responds, held until the readiness signal allows the reveal. */
   pendingWinner: RaffleScreenWinnerPayload | null
   winner: RaffleScreenWinnerPayload | null
+  attemptId: string | null
   error: string | null
   /** Clock-drift correction: `Date.parse(payload.now) - Date.now()` at the last successful poll. */
   serverOffsetMs: number
@@ -33,9 +34,12 @@ export type RaffleScreenMachineAction =
   | { type: "poll_success"; payload: RaffleScreenStatePayload }
   | { type: "tick"; nowMs: number }
   | { type: "draw_tapped" }
-  | { type: "draw_response_received"; winner: RaffleScreenWinnerPayload }
+  | { type: "draw_response_received"; attemptId: string; winner: RaffleScreenWinnerPayload }
   | { type: "reveal_ready" }
   | { type: "draw_failed"; message: string }
+  | { type: "redraw_tapped" }
+  | { type: "attendance_confirmed" }
+  | { type: "attendance_failed"; message: string }
   | { type: "next_draw_tapped" }
 
 export const initialRaffleScreenMachineState: RaffleScreenMachineState = {
@@ -43,6 +47,7 @@ export const initialRaffleScreenMachineState: RaffleScreenMachineState = {
   trackedDrawId: null,
   pendingWinner: null,
   winner: null,
+  attemptId: null,
   error: null,
   serverOffsetMs: 0,
   lastPayload: null,
@@ -107,10 +112,21 @@ export function raffleScreenReducer(
       if (state.phase === "drawing" || state.phase === "reveal") return next
 
       if (payload.currentDrawId === null) {
-        return { ...next, phase: "finished", trackedDrawId: null }
+        return { ...next, phase: "finished", trackedDrawId: null, attemptId: null }
+      }
+      const currentDraw = payload.draws.find((draw) => draw.id === payload.currentDrawId)
+      if (currentDraw?.status === "awaiting_confirmation" && currentDraw.pendingAttempt) {
+        return {
+          ...next,
+          phase: "reveal",
+          trackedDrawId: currentDraw.id,
+          winner: currentDraw.pendingAttempt.winner,
+          attemptId: currentDraw.pendingAttempt.id,
+          error: null,
+        }
       }
       if (payload.currentDrawId !== state.trackedDrawId) {
-        return { ...next, phase: "waiting", trackedDrawId: payload.currentDrawId, winner: null, error: null }
+        return { ...next, phase: "waiting", trackedDrawId: payload.currentDrawId, winner: null, attemptId: null, error: null }
       }
       return next
     }
@@ -131,11 +147,11 @@ export function raffleScreenReducer(
 
     case "draw_tapped":
       if (state.phase !== "ready") return state
-      return { ...state, phase: "drawing", error: null, pendingWinner: null }
+      return { ...state, phase: "drawing", error: null, pendingWinner: null, attemptId: null }
 
     case "draw_response_received":
       if (state.phase !== "drawing") return state
-      return { ...state, pendingWinner: action.winner }
+      return { ...state, pendingWinner: action.winner, attemptId: action.attemptId }
 
     case "reveal_ready":
       if (state.phase !== "drawing" || !state.pendingWinner) return state
@@ -145,18 +161,27 @@ export function raffleScreenReducer(
       if (state.phase !== "drawing") return state
       return { ...state, phase: "ready", error: action.message, pendingWinner: null }
 
+    case "redraw_tapped":
+      if (state.phase !== "reveal" || !state.attemptId) return state
+      return { ...state, phase: "drawing", pendingWinner: null, error: null }
+
+    case "attendance_failed":
+      if (state.phase !== "drawing" && state.phase !== "reveal") return state
+      return { ...state, phase: "reveal", error: action.message }
+
+    case "attendance_confirmed":
     case "next_draw_tapped": {
       if (state.phase !== "reveal") return state
       const latestCurrentDrawId = state.lastPayload?.currentDrawId ?? null
       if (latestCurrentDrawId === null) {
-        return { ...state, phase: "finished", trackedDrawId: null, winner: null }
+        return { ...state, phase: "finished", trackedDrawId: null, winner: null, attemptId: null }
       }
       if (latestCurrentDrawId !== state.trackedDrawId) {
-        return { ...state, phase: "waiting", trackedDrawId: latestCurrentDrawId, winner: null, error: null }
+        return { ...state, phase: "waiting", trackedDrawId: latestCurrentDrawId, winner: null, attemptId: null, error: null }
       }
       // Server hasn't caught up to this draw being `drawn` yet; the next
       // `poll_success` resolves this the same way once it does.
-      return { ...state, phase: "between_draws", winner: null }
+      return { ...state, phase: "between_draws", winner: null, attemptId: null }
     }
 
     default:
