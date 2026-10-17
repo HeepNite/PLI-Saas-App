@@ -10,6 +10,10 @@
    - October 31 event → `2026-11-01T04:00:00Z`.
 5. Generate an independent token during initial seed for each event. Never copy or reuse the Latino Night token.
 6. Do not import the legacy `fix/raffle-migration-repair` migration. Reassess only the exact DEV database during preflight.
+7. Preserve the Latino Night no-video animation by setting each October config and DEV event to the explicit empty `videoUrl`; `null` is not equivalent because it selects the yellow placeholder MP4.
+8. Keep registration frictionless and deduplicated only by event plus normalized phone; physical event controls handle multiple-number abuse.
+9. After each random selection, require an attendance decision. `Showed up` confirms and closes the prize. `Draw again` audits the pending winner as a no-show, excludes that entry from the entire event, and reruns the same prize without deleting the entry.
+10. Bind attendance actions to a durable draw-attempt identifier so retries and stale tablet actions are idempotent and cannot affect a later winner.
 
 ## Context Strategy
 
@@ -20,7 +24,8 @@ The active behavioral source is this folder. Existing event-raffle OpenSpec docu
 - Add a typed, allowlisted day-to-event mapping.
 - Add one dynamic server page that reuses the existing cookie verification and access form.
 - Extend the shared floating-chrome route matcher to the two new exact paths.
-- Add deterministic JSON seed inputs; make no schema or API changes.
+- Add deterministic JSON seed inputs.
+- Add one attendance action contract and one additive attempt-audit model; preserve the existing registration and random-selection contracts.
 
 ## Spec Adjustments
 
@@ -32,3 +37,5 @@ The legacy `/rifa` route remains a Latino Night historical entrance. The new per
 - DEV identity and migration/schema state must be proven before seeding.
 - If either target slug already exists, setup must stop for readback before deciding whether token rotation or data replacement is safe.
 - Raw tokens need a secure handoff location approved before the one-time seed output is produced.
+- Attendance implementation starts with RED domain, route, screen-state, and tablet interaction tests for confirmation, same-prize reroll, event-wide no-show exclusion, refresh recovery, and stale/repeated actions.
+- The original raffle migration remains immutable; only a new additive migration may carry the attempt audit.
