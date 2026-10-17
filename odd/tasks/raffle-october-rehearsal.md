@@ -1,7 +1,7 @@
 # October Raffle DEV Rehearsal
 
-Run a reversible end-to-end rehearsal of both delivered October raffle events in DEV.
-No repository behavior changes are authorized; the final observable event, draw, and entry state must match the preflight state.
+Run a reversible end-to-end rehearsal of both delivered October raffle events in DEV and implement the accepted audited winner-attendance workflow.
+Rehearsal data mutations must remain reversible; the final observable event, draw, and entry state must match the preflight state.
 
 ## Specs
 
@@ -20,12 +20,12 @@ No repository behavior changes are authorized; the final observable event, draw,
 
 - [x] **T1 — S1–S6:** Preflight both exact DEV events, Keychain bindings, zero-entry/open-draw state, and capture an in-memory restoration snapshot. Route: parent inline. Evidence: both events had zero entries, one open draw, no winner timestamps, exact schedules, and matching Keychain token hashes.
 - [x] **T2 — S1–S6:** Stage and run the visible day-30 rehearsal, then restore the original observable state. Route: parent inline. Evidence: QR registration, live count, countdown, draw, and winner completed with four authorized test entries; cleanup restored zero entries, the official schedule, open status, and no winner. S9 animation defect discovered.
-- [x] **T3 — S9:** Configure both October events to use the existing Latino Night no-video animation and preserve that choice in the repeatable DEV configs. Route: parent inline. Evidence: expected two-assertion RED, then 3 focused files/41 tests GREEN; both DEV events safely updated while empty/open. Commit: pending.
+- [x] **T3 — S9:** Configure both October events to use the existing Latino Night no-video animation and preserve that choice in the repeatable DEV configs. Route: parent inline. Evidence: expected two-assertion RED, then 3 focused files/41 tests GREEN; both DEV events safely updated while empty/open. Commit: `e5d4d21e`.
 - [x] **T4 — S7:** Resolve the identity strength required for one-entry-per-person enforcement before proposing implementation. Route: Ask. Decision: preserve phone-only uniqueness and rely on physical event controls; no added friction.
 - [ ] **T5 — S1–S6, S9:** Rerun visible tablet rehearsals for both days after the animation is accepted, then restore both events. Route: parent inline. Commit: operational evidence only.
 - [ ] **T6 — S1–S6, S9:** Independently verify final DEV state and rehearsal outcomes. Route: `gentle-ai-verify`. Commit: operational evidence only.
 - [x] **T7 — S10:** Resolve the durable no-show/redraw contract, including winner confirmation, no-show exclusion, audit retention, and same-prize reroll behavior. Route: Ask. Decision: exact-attempt audited flow accepted.
-- [ ] **T8 — S10:** Specify and implement durable draw attempts, guarded attendance actions, refresh-safe tablet controls, and same-prize reroll with event-wide no-show exclusion. Route: parent inline; independent verification required for Risk items 1, 3, and 4. Commit: pending.
+- [x] **T8 — S10:** Specify and implement durable draw attempts, guarded attendance actions, refresh-safe tablet controls, and same-prize reroll with event-wide no-show exclusion. Route: parent inline; independent verification completed for Risk items 1, 3, and 4. Commits: `76c99e95`, `99db29b7`, `a08d4e69`. Verification found two compatibility blockers; both were corrected and pinned before closure.
 
 ## Log
 

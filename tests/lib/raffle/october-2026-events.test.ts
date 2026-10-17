@@ -36,7 +36,8 @@ describe("October 2026 raffle events", () => {
   })
 
   it("keeps an omitted video URL undefined for existing seed configs", () => {
-    const { videoUrl: _videoUrl, ...configWithoutVideo } = october30Config
+    const configWithoutVideo: Record<string, unknown> = { ...october30Config }
+    delete configWithoutVideo.videoUrl
     const parsed = parseRaffleSeedConfig(configWithoutVideo)
 
     expect(parsed.ok).toBe(true)
