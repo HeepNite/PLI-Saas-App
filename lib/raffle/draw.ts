@@ -20,7 +20,7 @@ export type RaffleDrawWinner = {
 }
 
 export type RunDrawResult =
-  | { status: "drawn"; winner: RaffleDrawWinner }
+  | { status: "drawn"; attemptId?: string; winner: RaffleDrawWinner }
   | { status: "in_progress" }
   | { status: "no_eligible_entries" }
   | { status: "not_found" }
@@ -51,11 +51,22 @@ const readCurrentDrawState = async (
 ): Promise<RunDrawResult> => {
   const draw = await tx.raffleDraw.findUnique({
     where: { id: drawId },
-    include: { winnerEntry: true },
+    include: {
+      winnerEntry: true,
+      attempts: { orderBy: { selectedAt: "desc" }, take: 1 },
+    },
   })
   if (!draw || draw.eventId !== eventId) return { status: "not_found" }
+  const latestAttempt = draw.attempts[0]
+  if (draw.status === "awaiting_confirmation" && draw.winnerEntry && latestAttempt) {
+    return { status: "drawn", attemptId: latestAttempt.id, winner: toWinner(draw.winnerEntry) }
+  }
   if (draw.status === "drawn" && draw.winnerEntry) {
-    return { status: "drawn", winner: toWinner(draw.winnerEntry) }
+    return {
+      status: "drawn",
+      ...(latestAttempt ? { attemptId: latestAttempt.id } : {}),
+      winner: toWinner(draw.winnerEntry),
+    }
   }
   return { status: "in_progress" }
 }
@@ -97,9 +108,16 @@ export const runDraw = async (tx: Prisma.TransactionClient, input: RunDrawInput)
         .map((entry) => entry.winnerEntryId)
         .filter((id): id is string => id !== null)
     : []
+  const noShowEntryIds = (
+    await tx.raffleDrawAttempt.findMany({
+      where: { status: "no_show", draw: { eventId: draw.eventId } },
+      select: { entryId: true },
+    })
+  ).map((attempt) => attempt.entryId)
+  const excludedEntryIds = [...new Set([...priorWinnerIds, ...noShowEntryIds])]
 
   const eligibleEntries: EligibleEntry[] = await tx.raffleEntry.findMany({
-    where: { eventId: draw.eventId, id: { notIn: priorWinnerIds } },
+    where: { eventId: draw.eventId, id: { notIn: excludedEntryIds } },
     select: { id: true, name: true, phoneE164: true },
     orderBy: { id: "asc" },
   })
@@ -116,10 +134,14 @@ export const runDraw = async (tx: Prisma.TransactionClient, input: RunDrawInput)
 
   const winner = eligibleEntries[randomInt(0, eligibleEntries.length)]
 
+  const attempt = await tx.raffleDrawAttempt.create({
+    data: { drawId, entryId: winner.id, selectedAt: now },
+    select: { id: true },
+  })
   await tx.raffleDraw.update({
     where: { id: drawId },
-    data: { winnerEntryId: winner.id, drawnAt: now, status: "drawn" },
+    data: { winnerEntryId: winner.id, drawnAt: now, status: "awaiting_confirmation" },
   })
 
-  return { status: "drawn", winner: toWinner(winner) }
+  return { status: "drawn", attemptId: attempt.id, winner: toWinner(winner) }
 }

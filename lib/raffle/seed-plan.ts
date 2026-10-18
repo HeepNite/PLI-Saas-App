@@ -56,7 +56,7 @@ export function parseRaffleSeedConfig(input: unknown): RaffleSeedConfigValidatio
 
   const excludePreviousWinners = typeof raw.excludePreviousWinners === "boolean" ? raw.excludePreviousWinners : true
 
-  const videoUrl = typeof raw.videoUrl === "string" && raw.videoUrl.trim() ? raw.videoUrl.trim() : undefined
+  const videoUrl = typeof raw.videoUrl === "string" ? raw.videoUrl.trim() : undefined
 
   const drawsInput = Array.isArray(raw.draws) ? raw.draws : []
   if (drawsInput.length === 0) errors.push("draws must be a non-empty array")

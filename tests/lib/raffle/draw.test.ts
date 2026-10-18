@@ -17,6 +17,10 @@ const { mockTx } = vi.hoisted(() => ({
     raffleEntry: {
       findMany: vi.fn(),
     },
+    raffleDrawAttempt: {
+      findMany: vi.fn(),
+      create: vi.fn(),
+    },
   },
 }))
 
@@ -42,6 +46,10 @@ describe("runDraw", () => {
     mockTx.raffleDraw.findMany.mockReset()
     mockTx.raffleDraw.update.mockReset()
     mockTx.raffleEntry.findMany.mockReset()
+    mockTx.raffleDrawAttempt.findMany.mockReset()
+    mockTx.raffleDrawAttempt.findMany.mockResolvedValue([])
+    mockTx.raffleDrawAttempt.create.mockReset()
+    mockTx.raffleDrawAttempt.create.mockResolvedValue({ id: "attempt_1" })
   })
 
   it("picks the stubbed index among eligible entries and persists the winner", async () => {
@@ -55,11 +63,16 @@ describe("runDraw", () => {
     expect(mockRandomInt).toHaveBeenCalledWith(0, 3)
     expect(result).toEqual({
       status: "drawn",
+      attemptId: "attempt_1",
       winner: { id: "entry_2", name: "Beto Cruz", phoneE164: "+12125552222" },
+    })
+    expect(mockTx.raffleDrawAttempt.create).toHaveBeenCalledWith({
+      data: { drawId: "draw_1", entryId: "entry_2", selectedAt: NOW },
+      select: { id: true },
     })
     expect(mockTx.raffleDraw.update).toHaveBeenCalledWith({
       where: { id: "draw_1" },
-      data: { winnerEntryId: "entry_2", drawnAt: NOW, status: "drawn" },
+      data: { winnerEntryId: "entry_2", drawnAt: NOW, status: "awaiting_confirmation" },
     })
   })
 
@@ -70,20 +83,37 @@ describe("runDraw", () => {
       eventId: "event_1",
       status: "drawn",
       winnerEntry: { id: "entry_2", name: "Beto Cruz", phoneE164: "+12125552222" },
+      attempts: [{ id: "attempt_1" }],
     })
 
     const result = await runDraw(mockTx as never, { eventId: "event_1", drawId: "draw_1", now: NOW })
 
     expect(result).toEqual({
       status: "drawn",
+      attemptId: "attempt_1",
       winner: { id: "entry_2", name: "Beto Cruz", phoneE164: "+12125552222" },
     })
     expect(mockTx.raffleDraw.update).not.toHaveBeenCalled()
   })
 
+  it("replays legacy drawn rows that predate draw attempts", async () => {
+    mockTx.raffleDraw.updateMany.mockResolvedValue({ count: 0 })
+    mockTx.raffleDraw.findUnique.mockResolvedValue({
+      id: "draw_1",
+      eventId: "event_1",
+      status: "drawn",
+      winnerEntry: ENTRIES[0],
+      attempts: [],
+    })
+
+    const result = await runDraw(mockTx as never, { eventId: "event_1", drawId: "draw_1", now: NOW })
+
+    expect(result).toEqual({ status: "drawn", winner: ENTRIES[0] })
+  })
+
   it("returns in_progress when the claim is lost to a concurrent request", async () => {
     mockTx.raffleDraw.updateMany.mockResolvedValue({ count: 0 })
-    mockTx.raffleDraw.findUnique.mockResolvedValue({ id: "draw_1", eventId: "event_1", status: "drawing", winnerEntry: null })
+    mockTx.raffleDraw.findUnique.mockResolvedValue({ id: "draw_1", eventId: "event_1", status: "drawing", winnerEntry: null, attempts: [] })
 
     const result = await runDraw(mockTx as never, { eventId: "event_1", drawId: "draw_1", now: NOW })
 
@@ -159,6 +189,26 @@ describe("runDraw", () => {
     })
   })
 
+  it("continues excluding awaiting-confirmation winners from other draws", async () => {
+    mockTx.raffleDraw.updateMany.mockResolvedValue({ count: 1 })
+    mockTx.raffleDraw.findUnique.mockResolvedValue({
+      ...DRAW_WITH_EVENT,
+      id: "draw_2",
+      event: { id: "event_1", excludePreviousWinners: true },
+    })
+    mockTx.raffleDraw.findMany.mockResolvedValue([{ winnerEntryId: "entry_1" }])
+    mockTx.raffleEntry.findMany.mockResolvedValue([ENTRIES[1]])
+    mockRandomInt.mockReturnValue(0)
+
+    await runDraw(mockTx as never, { eventId: "event_1", drawId: "draw_2", now: NOW })
+
+    expect(mockTx.raffleEntry.findMany).toHaveBeenCalledWith({
+      where: { eventId: "event_1", id: { notIn: ["entry_1"] } },
+      select: { id: true, name: true, phoneE164: true },
+      orderBy: { id: "asc" },
+    })
+  })
+
   it("includes prior winners when excludePreviousWinners is off", async () => {
     mockTx.raffleDraw.updateMany.mockResolvedValue({ count: 1 })
     mockTx.raffleDraw.findUnique.mockResolvedValue(DRAW_WITH_EVENT)
@@ -170,6 +220,26 @@ describe("runDraw", () => {
     expect(mockTx.raffleDraw.findMany).not.toHaveBeenCalled()
     expect(mockTx.raffleEntry.findMany).toHaveBeenCalledWith({
       where: { eventId: "event_1", id: { notIn: [] } },
+      select: { id: true, name: true, phoneE164: true },
+      orderBy: { id: "asc" },
+    })
+  })
+
+  it("excludes no-show entries event-wide even when prior-winner exclusion is off", async () => {
+    mockTx.raffleDraw.updateMany.mockResolvedValue({ count: 1 })
+    mockTx.raffleDraw.findUnique.mockResolvedValue(DRAW_WITH_EVENT)
+    mockTx.raffleDrawAttempt.findMany.mockResolvedValue([{ entryId: "entry_1" }])
+    mockTx.raffleEntry.findMany.mockResolvedValue([ENTRIES[1], ENTRIES[2]])
+    mockRandomInt.mockReturnValue(0)
+
+    await runDraw(mockTx as never, { eventId: "event_1", drawId: "draw_1", now: NOW })
+
+    expect(mockTx.raffleDrawAttempt.findMany).toHaveBeenCalledWith({
+      where: { status: "no_show", draw: { eventId: "event_1" } },
+      select: { entryId: true },
+    })
+    expect(mockTx.raffleEntry.findMany).toHaveBeenCalledWith({
+      where: { eventId: "event_1", id: { notIn: ["entry_1"] } },
       select: { id: true, name: true, phoneE164: true },
       orderBy: { id: "asc" },
     })
