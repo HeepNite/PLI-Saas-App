@@ -72,11 +72,33 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
     await expect(res.json()).resolves.toEqual({
       status: "drawn",
       drawId: "draw_1",
+      attemptId: "attempt_1",
       winner: { name: "Ana Lopez", phoneLast4: "1234" },
     })
   })
 
   it("returns the same winner on a replayed call against an already-drawn draw", async () => {
+    mockPrisma.raffleDraw.updateMany.mockResolvedValue({ count: 0 })
+    mockPrisma.raffleDraw.findUnique.mockResolvedValue({
+      id: "draw_1",
+      eventId: "event_1",
+      status: "drawn",
+      winnerEntry: { id: "entry_1", name: "Ana Lopez", phoneE164: "+12125551234" },
+      attempts: [{ id: "attempt_1" }],
+    })
+
+    const res = await postDraw("s1", "draw_1")
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      status: "drawn",
+      drawId: "draw_1",
+      attemptId: "attempt_1",
+      winner: { name: "Ana Lopez", phoneLast4: "1234" },
+    })
+  })
+
+  it("preserves the legacy drawn response for rows without attempt history", async () => {
     mockPrisma.raffleDraw.updateMany.mockResolvedValue({ count: 0 })
     mockPrisma.raffleDraw.findUnique.mockResolvedValue({
       id: "draw_1",
