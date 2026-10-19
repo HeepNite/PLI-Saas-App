@@ -136,6 +136,7 @@ describe("raffleScreenReducer — draw lifecycle", () => {
     const drawing: RaffleScreenMachineState = { ...initialRaffleScreenMachineState, phase: "drawing" }
     const next = raffleScreenReducer(drawing, {
       type: "draw_response_received",
+      attemptId: "attempt_1",
       winner: { name: "Jane Doe", phoneLast4: "1234" },
     })
     expect(next.phase).toBe("drawing")

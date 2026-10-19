@@ -137,7 +137,7 @@ describe("RaffleScreen", () => {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+          json: async () => ({ status: "drawn", drawId: "draw_1", attemptId: "attempt_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
         })
       }
       return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
@@ -171,6 +171,45 @@ describe("RaffleScreen", () => {
     expect(node.textContent).toContain("••• ••• 1234")
     expect(node.textContent).toContain("Prize won")
     expect(node.textContent).toContain("Grand Prize")
+    expect(node.textContent).toContain("Showed up")
+    expect(node.textContent).toContain("Draw again")
+  })
+
+  it("restores a pending winner after refresh and binds Draw again to that exact attempt", async () => {
+    const pending = screenStateResponse({
+      currentDrawId: "draw_1",
+      draws: [{
+        id: "draw_1",
+        order: 1,
+        prizeLabel: "Grand Prize",
+        status: "awaiting_confirmation",
+        drawAt: new Date().toISOString(),
+        pendingAttempt: { id: "attempt_1", winner: { name: "Jane Doe", phoneLast4: "1234" } },
+      }],
+    })
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/attendance")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: "drawn", drawId: "draw_1", attemptId: "attempt_2", winner: { name: "Beto Cruz", phoneLast4: "5678" } }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => pending })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    const node = await render()
+    await flushPoll()
+    expect(node.textContent).toContain("Jane Doe")
+
+    const drawAgain = [...node.querySelectorAll("button")].find((button) => button.textContent === "Draw again")!
+    await act(async () => { drawAgain.click(); await Promise.resolve(); await Promise.resolve() })
+    await act(async () => { await vi.advanceTimersByTimeAsync(DRAW_ANIMATION_MS) })
+
+    const attendanceCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith("/attendance"))
+    expect(JSON.parse(String(attendanceCall?.[1]?.body))).toEqual({ attemptId: "attempt_1", action: "draw_again" })
+    expect(node.textContent).toContain("Beto Cruz")
+    expect(node.textContent).not.toContain("Jane Doe")
   })
 
   it("keeps the winner's prize tied to the drawn ID when an in-flight poll advances currentDrawId", async () => {
@@ -186,9 +225,12 @@ describe("RaffleScreen", () => {
     let pollCount = 0
     vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
+        if (_url.endsWith("/attendance")) {
+          return Promise.resolve({ ok: true, json: async () => ({ status: "confirmed", drawId: "draw_1", attemptId: "attempt_1" }) })
+        }
         return Promise.resolve({
           ok: true,
-          json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+          json: async () => ({ status: "drawn", drawId: "draw_1", attemptId: "attempt_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
         })
       }
       pollCount += 1
@@ -211,7 +253,7 @@ describe("RaffleScreen", () => {
     expect(node.textContent).toContain("Grand Prize")
     expect(node.textContent).not.toContain("Second Prize")
 
-    // The advanced payload was retained, but its prize is used only after Next draw.
+    // The advanced payload was retained, but its prize is used only after attendance confirmation.
     await act(async () => { node.querySelector("button")!.click() })
     expect(node.textContent).toContain("Second Prize")
     expect(node.textContent).not.toContain("Jane Doe")
@@ -226,7 +268,7 @@ describe("RaffleScreen", () => {
             resolve({
               ok: true,
               status: 200,
-              json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+              json: async () => ({ status: "drawn", drawId: "draw_1", attemptId: "attempt_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
             })
         })
       }
@@ -272,7 +314,7 @@ describe("RaffleScreen", () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+            json: async () => ({ status: "drawn", drawId: "draw_1", attemptId: "attempt_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
           })
         }
         return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
@@ -312,7 +354,7 @@ describe("RaffleScreen", () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: async () => ({ status: "drawn", drawId: "draw_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
+            json: async () => ({ status: "drawn", drawId: "draw_1", attemptId: "attempt_1", winner: { name: "Jane Doe", phoneLast4: "1234" } }),
           })
         }
         return Promise.resolve({ ok: true, status: 200, json: async () => screenStateResponse() })
