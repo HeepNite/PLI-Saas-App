@@ -17,6 +17,8 @@ type RaffleScreenViewProps = {
   error: string | null
   onDraw: () => void
   onNextDraw: () => void
+  onShowedUp?: () => void
+  onDrawAgain?: () => void
   onVideoEnded: () => void
 }
 
@@ -39,6 +41,8 @@ export default function RaffleScreenView({
   error,
   onDraw,
   onNextDraw,
+  onShowedUp,
+  onDrawAgain,
   onVideoEnded,
 }: RaffleScreenViewProps) {
   // Mounted on every phase, not just `drawing` — see RaffleScreenSeams.tsx —
@@ -71,13 +75,25 @@ export default function RaffleScreenView({
               <p className="break-words text-2xl font-semibold sm:text-3xl">{prizeLabel}</p>
             </div>
           ) : null}
-          <button
-            type="button"
-            onClick={onNextDraw}
-            className={`${RAFFLE_PRIMARY_BUTTON_CLASS} px-6 py-3 text-lg`}
-          >
-            Next draw
-          </button>
+          {error ? (
+            <p role="alert" className="text-sm text-[var(--brand,#b61616)]">{error}</p>
+          ) : null}
+          <div className="flex flex-wrap justify-center gap-3">
+            <button
+              type="button"
+              onClick={onShowedUp ?? onNextDraw}
+              className={`${RAFFLE_PRIMARY_BUTTON_CLASS} px-6 py-3 text-lg`}
+            >
+              Showed up
+            </button>
+            <button
+              type="button"
+              onClick={onDrawAgain}
+              className="min-h-11 rounded-md border border-white/40 px-6 py-3 text-lg font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+            >
+              Draw again
+            </button>
+          </div>
         </RaffleBackdrop>
       </>
     )

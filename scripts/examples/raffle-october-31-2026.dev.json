@@ -1,0 +1,15 @@
+{
+  "slug": "october-31-raffle-2026",
+  "title": "October 31 Raffle",
+  "brand": "PLI",
+  "eventDate": "2026-10-31",
+  "excludePreviousWinners": true,
+  "videoUrl": "",
+  "draws": [
+    {
+      "order": 1,
+      "prizeLabel": "Temporary test prize — replace before event",
+      "drawAt": "2026-11-01T04:00:00.000Z"
+    }
+  ]
+}
