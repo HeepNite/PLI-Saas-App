@@ -9,6 +9,7 @@ export type RaffleScreenDraw = {
   status: string
   drawAt: Date | null
   winner?: RaffleWinnerView
+  pendingAttempt?: { id: string; winner: RaffleWinnerView }
 }
 
 export type RaffleScreenState = {
@@ -19,7 +20,7 @@ export type RaffleScreenState = {
   draws: RaffleScreenDraw[]
 }
 
-const OPEN_OR_DRAWING = new Set(["open", "drawing"])
+const CURRENT_DRAW_STATUSES = new Set(["open", "drawing", "awaiting_confirmation"])
 
 /**
  * Shared draw-video fallback for events that never set their own
@@ -31,8 +32,8 @@ export const DEFAULT_RAFFLE_VIDEO_URL = "/raffle/draw.mp4"
 
 /**
  * Screen polling payload (design.md D1). `currentDrawId` is the lowest
- * `order` whose status is still `open` or `drawing`, or `null` once every
- * draw has been drawn.
+ * `order` whose status is still `open`, `drawing`, or awaiting attendance
+ * confirmation, or `null` once every draw has been confirmed.
  */
 export const loadScreenState = async (
   db: typeof prisma,
@@ -42,7 +43,18 @@ export const loadScreenState = async (
   const event = await db.raffleEvent.findUnique({
     where: { slug },
     include: {
-      draws: { orderBy: { order: "asc" }, include: { winnerEntry: true } },
+      draws: {
+        orderBy: { order: "asc" },
+        include: {
+          winnerEntry: true,
+          attempts: {
+            where: { status: "pending" },
+            include: { entry: true },
+            orderBy: { selectedAt: "desc" },
+            take: 1,
+          },
+        },
+      },
       _count: { select: { entries: true } },
     },
   })
@@ -55,9 +67,12 @@ export const loadScreenState = async (
     status: draw.status,
     drawAt: draw.drawAt,
     ...(draw.winnerEntry ? { winner: toWinnerView(draw.winnerEntry) } : {}),
+    ...(draw.attempts[0]
+      ? { pendingAttempt: { id: draw.attempts[0].id, winner: toWinnerView(draw.attempts[0].entry) } }
+      : {}),
   }))
 
-  const currentDraw = draws.find((draw) => OPEN_OR_DRAWING.has(draw.status))
+  const currentDraw = draws.find((draw) => CURRENT_DRAW_STATUSES.has(draw.status))
   const entryUrl = `${resolveRaffleBaseUrl({
     siteUrlEnv: process.env.NEXT_PUBLIC_SITE_URL,
     vercelUrlEnv: process.env.VERCEL_URL,

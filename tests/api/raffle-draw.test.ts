@@ -13,6 +13,7 @@ const { mockPrisma } = vi.hoisted(() => ({
       update: vi.fn(),
     },
     raffleEntry: { findMany: vi.fn() },
+    raffleDrawAttempt: { findMany: vi.fn(), create: vi.fn() },
     $transaction: vi.fn(),
   },
 }))
@@ -44,6 +45,10 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
     mockPrisma.raffleDraw.findMany.mockReset()
     mockPrisma.raffleDraw.update.mockReset()
     mockPrisma.raffleEntry.findMany.mockReset()
+    mockPrisma.raffleDrawAttempt.findMany.mockReset()
+    mockPrisma.raffleDrawAttempt.findMany.mockResolvedValue([])
+    mockPrisma.raffleDrawAttempt.create.mockReset()
+    mockPrisma.raffleDrawAttempt.create.mockResolvedValue({ id: "attempt_1" })
     // Runs the callback against the same mock client so raffleDraw/raffleEntry
     // stubs drive the real `runDraw` implementation under test.
     mockPrisma.$transaction.mockReset()
@@ -67,6 +72,7 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
     await expect(res.json()).resolves.toEqual({
       status: "drawn",
       drawId: "draw_1",
+      attemptId: "attempt_1",
       winner: { name: "Ana Lopez", phoneLast4: "1234" },
     })
   })
@@ -78,6 +84,28 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
       eventId: "event_1",
       status: "drawn",
       winnerEntry: { id: "entry_1", name: "Ana Lopez", phoneE164: "+12125551234" },
+      attempts: [{ id: "attempt_1" }],
+    })
+
+    const res = await postDraw("s1", "draw_1")
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      status: "drawn",
+      drawId: "draw_1",
+      attemptId: "attempt_1",
+      winner: { name: "Ana Lopez", phoneLast4: "1234" },
+    })
+  })
+
+  it("preserves the legacy drawn response for rows without attempt history", async () => {
+    mockPrisma.raffleDraw.updateMany.mockResolvedValue({ count: 0 })
+    mockPrisma.raffleDraw.findUnique.mockResolvedValue({
+      id: "draw_1",
+      eventId: "event_1",
+      status: "drawn",
+      winnerEntry: { id: "entry_1", name: "Ana Lopez", phoneE164: "+12125551234" },
+      attempts: [],
     })
 
     const res = await postDraw("s1", "draw_1")
@@ -92,7 +120,7 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
 
   it("maps a lost claim to 409 draw_in_progress", async () => {
     mockPrisma.raffleDraw.updateMany.mockResolvedValue({ count: 0 })
-    mockPrisma.raffleDraw.findUnique.mockResolvedValue({ id: "draw_1", eventId: "event_1", status: "drawing", winnerEntry: null })
+    mockPrisma.raffleDraw.findUnique.mockResolvedValue({ id: "draw_1", eventId: "event_1", status: "drawing", winnerEntry: null, attempts: [] })
 
     const res = await postDraw("s1", "draw_1")
 
