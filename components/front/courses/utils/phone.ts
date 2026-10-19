@@ -1,4 +1,4 @@
-import { isPublicBookingPhoneCountry, parseCanonicalPhone } from "@/lib/phone"
+import { parsePublicBookingPhoneInput } from "@/lib/phone"
 
 export const getUsPhoneDigits = (value: string) => {
   let digits = value.replace(/\D/g, "")
@@ -46,22 +46,12 @@ export const hasPhoneDigits = (value: string) => getUsPhoneDigits(value).length 
 
 export const isCompleteUSPhone = (value: string) => getUsPhoneDigits(value).length === 10
 
-export const isCompleteEnrollmentPhone = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed.startsWith("+")) return isCompleteUSPhone(trimmed)
-
-  const parsed = parseCanonicalPhone(trimmed)
-  if (parsed.ok) return isPublicBookingPhoneCountry(parsed.phone.country)
-  if (/^\+155555501\d{2}$/.test(trimmed)) return true
-  return /^\+1[\s(.-]/.test(trimmed) && isCompleteUSPhone(trimmed)
-}
+export const isCompleteEnrollmentPhone = (value: string) =>
+  parsePublicBookingPhoneInput(value).ok
 
 export const toEnrollmentE164Phone = (value: string) => {
-  const trimmed = value.trim()
-  const parsed = parseCanonicalPhone(trimmed)
-  if (parsed.ok && isPublicBookingPhoneCountry(parsed.phone.country)) return parsed.phone.e164
-  if (/^\+155555501\d{2}$/.test(trimmed)) return trimmed
-  return toE164Phone(trimmed)
+  const parsed = parsePublicBookingPhoneInput(value)
+  return parsed.ok ? parsed.phone.e164 : undefined
 }
 
 /**

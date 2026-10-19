@@ -67,7 +67,16 @@ describe("qr new-student verify route", () => {
     ["+1 (202) 555-0123", "+12025550123", ["12025550123", "2025550123"]],
     ["2025550123", "+12025550123", ["12025550123", "2025550123"]],
     ["+12025550123", "+12025550123", ["12025550123", "2025550123"]],
+    ["+17872345678", "+17872345678", ["17872345678"]],
+    ["+5491123456789", "+5491123456789", ["5491123456789"]],
+    ["+51987654321", "+51987654321", ["51987654321"]],
     ["+525512345678", "+525512345678", ["525512345678"]],
+    ["+56961234567", "+56961234567", ["56961234567"]],
+    ["+593991234567", "+593991234567", ["593991234567"]],
+    ["+5511961234567", "+5511961234567", ["5511961234567"]],
+    ["+18092345678", "+18092345678", ["18092345678"]],
+    ["+573211234567", "+573211234567", ["573211234567"]],
+    ["+14165550123", "+14165550123", ["14165550123"]],
   ])(
     "uses exact candidates for server phone input %s",
     async (phone, e164, digitCandidates) => {
@@ -119,7 +128,7 @@ describe("qr new-student verify route", () => {
     })
   })
 
-  it.each(["525512345678", "+80012345678", "+12005550123"])(
+  it.each(["525512345678", "+4930123456", "+80012345678", "+12005550123"])(
     "rejects unsupported phone input %s before lookup",
     async (phone) => {
       const { POST } = await import("@/app/api/checkin/qr/new-student/verify/route")
@@ -477,7 +486,7 @@ describe("qr new-student verify route", () => {
       const actual = await importOriginal<typeof import("@/lib/phone")>()
       return {
         ...actual,
-        parseServerPhoneInput: () => {
+        parsePublicBookingPhoneInput: () => {
           throw new Error("metadata unavailable")
         },
       }

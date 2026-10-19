@@ -38,8 +38,10 @@ const allCountries: CountryOption[] = phoneDomain.getPhoneCountryCatalog()
   .sort((left, right) => left.name.localeCompare(right.name))
 
 const CLERK_TEST_US_PHONE = /^55555501\d{2}$/
+const CLERK_TEST_PHONE_HOSTS = new Set(["localhost", "127.0.0.1", "dev.palladiumlatin.art"])
 
 const clerkTestPhoneValue = (nationalNumber: string, touched: boolean): InternationalPhoneFieldValue | null => {
+  if (!CLERK_TEST_PHONE_HOSTS.has(globalThis.location?.hostname || "")) return null
   if (!CLERK_TEST_US_PHONE.test(nationalNumber)) return null
   return {
     country: "US",

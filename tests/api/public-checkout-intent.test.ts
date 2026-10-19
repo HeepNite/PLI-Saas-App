@@ -80,7 +80,7 @@ describe("public checkout intent route", () => {
     const { POST } = await import("@/app/api/public/checkout/intent/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/intent", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: 1, bookingSource: "public_booking" }),
+      body: JSON.stringify({ amount: 1, bookingSource: "public_booking", phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(200)
@@ -93,6 +93,25 @@ describe("public checkout intent route", () => {
         coursePromotionAudience: "heritage_pin_delivered",
       }),
     }))
+  })
+
+  it.each([
+    ["missing", {}],
+    ["empty", { phone: "" }],
+    ["incomplete", { phone: "+1202" }],
+    ["unsupported", { phone: "+4930123456" }],
+  ])("rejects %s phone before identity preparation", async (_, body) => {
+    const { POST } = await import("@/app/api/public/checkout/intent/route")
+    const response = await POST(new Request("http://localhost/api/public/checkout/intent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "Missing or invalid phone" })
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockCreatePaymentIntent).not.toHaveBeenCalled()
   })
 
   it("rejects an in-window date and time absent from the authoritative schedule", async () => {
@@ -111,7 +130,7 @@ describe("public checkout intent route", () => {
 
     const { POST } = await import("@/app/api/public/checkout/intent/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/intent", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(400)
@@ -138,7 +157,7 @@ describe("public checkout intent route", () => {
 
     const { POST } = await import("@/app/api/public/checkout/intent/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/intent", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(200)
@@ -154,7 +173,7 @@ describe("public checkout intent route", () => {
 
     const { POST } = await import("@/app/api/public/checkout/intent/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/intent", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(200)
@@ -172,7 +191,7 @@ describe("public checkout intent route", () => {
     mockValidate.mockResolvedValueOnce(promotionValidation()).mockResolvedValueOnce(promotionValidation(overrides))
     const { POST } = await import("@/app/api/public/checkout/intent/route")
     const response = await POST(new Request("http://localhost/api/public/checkout/intent", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phone: "+525512345678" }),
     }))
 
     expect(response.status).toBe(400)

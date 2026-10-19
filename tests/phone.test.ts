@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest"
+import { afterEach, describe, it, expect, vi } from "vitest"
 import {
   formatUSPhone,
   formatUSPhoneOnChange,
@@ -9,6 +9,8 @@ import {
   toE164Phone,
   toEnrollmentE164Phone,
 } from "@/components/front/courses/utils/phone"
+
+afterEach(() => vi.unstubAllEnvs())
 
 describe("phone utils", () => {
   it("normalizes to 10 digits", () => {
@@ -36,6 +38,9 @@ describe("phone utils", () => {
   })
 
   it("validates and preserves approved international enrollment phones", () => {
+    vi.stubEnv("VERCEL_ENV", "preview")
+    vi.stubEnv("VERCEL_GIT_COMMIT_REF", "codex/develop")
+    vi.stubEnv("CLERK_SECRET_KEY", "sk_test_example")
     expect(isCompleteEnrollmentPhone("+525512345678")).toBe(true)
     expect(isCompleteEnrollmentPhone("+573211234567")).toBe(true)
     expect(isCompleteEnrollmentPhone("+4930123456")).toBe(false)
