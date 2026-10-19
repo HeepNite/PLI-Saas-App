@@ -15,7 +15,11 @@ import RaffleScreenView from "./RaffleScreenView"
 
 const TICK_INTERVAL_MS = 250
 
-type DrawApiBody = { status?: string; winner?: { name: string; phoneLast4: string } } | null
+type DrawApiBody = {
+  status?: string
+  attemptId?: string
+  winner?: { name: string; phoneLast4: string }
+} | null
 
 /**
  * Maps the draw endpoint's documented responses (design.md's API contract:
@@ -93,13 +97,64 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
         method: "POST",
       })
       const body = (await res.json().catch(() => null)) as DrawApiBody
-      if (res.ok && body?.status === "drawn" && body.winner) {
-        dispatch({ type: "draw_response_received", winner: body.winner })
+      if (res.ok && body?.status === "drawn" && body.attemptId && body.winner) {
+        dispatch({ type: "draw_response_received", attemptId: body.attemptId, winner: body.winner })
         return
       }
       dispatch({ type: "draw_failed", message: resolveDrawFailureMessage(res.status, body?.status) })
     } catch {
       dispatch({ type: "draw_failed", message: "Could not reach the server. Check the connection and try again." })
+    }
+  }
+
+  const postAttendance = async (action: "showed_up" | "draw_again") => {
+    if (!currentDraw || !state.attemptId) return null
+    const res = await fetch(
+      `/api/raffle/${encodeURIComponent(slug)}/draws/${currentDraw.id}/attendance`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attemptId: state.attemptId, action }),
+      }
+    )
+    const body = (await res.json().catch(() => null)) as DrawApiBody
+    return { res, body }
+  }
+
+  const handleShowedUp = async () => {
+    try {
+      const response = await postAttendance("showed_up")
+      if (response?.res.ok && response.body?.status === "confirmed") {
+        dispatch({ type: "attendance_confirmed" })
+        return
+      }
+      dispatch({ type: "attendance_failed", message: "Could not confirm this winner. Refresh and try again." })
+    } catch {
+      dispatch({ type: "attendance_failed", message: "Could not reach the server. Check the connection and try again." })
+    }
+  }
+
+  const handleDrawAgain = async () => {
+    setVideoEnded(false)
+    dispatch({ type: "redraw_tapped" })
+    try {
+      const response = await postAttendance("draw_again")
+      if (
+        response?.res.ok &&
+        response.body?.status === "drawn" &&
+        response.body.attemptId &&
+        response.body.winner
+      ) {
+        dispatch({
+          type: "draw_response_received",
+          attemptId: response.body.attemptId,
+          winner: response.body.winner,
+        })
+        return
+      }
+      dispatch({ type: "attendance_failed", message: "Could not draw another winner. Refresh and try again." })
+    } catch {
+      dispatch({ type: "attendance_failed", message: "Could not reach the server. Check the connection and try again." })
     }
   }
 
@@ -127,6 +182,8 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
       }
       onDraw={handleDraw}
       onNextDraw={handleNextDraw}
+      onShowedUp={handleShowedUp}
+      onDrawAgain={handleDrawAgain}
       onVideoEnded={handleVideoEnded}
     />
   )

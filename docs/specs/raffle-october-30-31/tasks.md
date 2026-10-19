@@ -41,10 +41,10 @@
 - [x] Reproduce the placeholder-video defect on the day-30 iPad rehearsal and restore the event to its official empty/open state.
 - [x] Add a RED config assertion for explicit empty `videoUrl`, preserve omitted-video behavior, update both repeatable configs, and set both DEV events to the existing no-video animation. Focused result: 3 files/41 tests passed after the expected two RED assertions.
 - [x] Resolve the winner attendance contract: `Showed up` confirms the pending winner; `Draw again` audits the no-show, excludes them event-wide, and reruns the same prize.
-- [ ] Add RED domain, route, screen-state, and tablet tests for pending confirmation, refresh recovery, idempotent exact-attempt actions, no-show audit retention, and event-wide exclusion.
-- [ ] Add the `RaffleDrawAttempt` model and additive migration, guarded attendance domain/route, and draw integration.
-- [ ] Add refresh-safe `Showed up` / `Draw again` tablet controls and replay the animation for a reroll.
-- [ ] Run focused checks, relevant suite, typecheck, lint, differential checks for omitted/explicit video config, and independent high-risk verification.
+- [x] Add RED domain, route, screen-state, and tablet tests for pending confirmation, refresh recovery, idempotent exact-attempt actions, no-show audit retention, and event-wide exclusion. RED: missing attendance domain; GREEN: focused attendance/draw/UI set passed 8 files/90 tests after correction.
+- [x] Add the `RaffleDrawAttempt` model and additive migration, guarded attendance domain/route, and draw integration. The new migration was applied surgically to DEV and marked through Prisma without replaying the historical raffle migration.
+- [x] Add refresh-safe `Showed up` / `Draw again` tablet controls and replay the animation for a reroll.
+- [x] Run focused checks, relevant suite, typecheck, lint, differential checks for omitted/explicit video config, and independent high-risk verification. Relevant raffle suite passed 17 files/181 tests; TypeScript passed; full lint had zero errors and 114 warnings, followed by clean focused ESLint. Independent verification found legacy replay and pending-winner exclusion regressions; both were corrected and pinned with focused tests. Prisma validate passed with the DEV environment.
 - [ ] Deploy to DEV, rehearse both days visibly, and restore exact official empty/open state.
 
 ## Operational Evidence
@@ -59,3 +59,6 @@
 - Isolation: the October 30 token against the October 31 exchange returned 404. Raw keys were not printed, committed, or stored in evidence.
 - Delivery: issue #682 is approved; PR #683 (265 lines) and PR #684 (262 lines) passed size, tests, typecheck, lint, secret scan, CodeQL, and Vercel checks and merged to `codex/develop`. Post-merge CI also passed.
 - Residual product input: replace each temporary prize label with the final ordered prize list before the event; no final prize was invented here.
+- Day-30 rehearsal: QR registration, live entry count, countdown, draw, and winner reveal succeeded with four authorized synthetic entries. The yellow placeholder MP4 was rejected; cleanup restored zero entries, the official schedule, open status, and no winner.
+- Animation correction: both repeatable configs and both DEV rows now use explicit empty `videoUrl`, selecting the existing dark/gold `Sorteando` animation. Omitted-video behavior remains unchanged by differential check.
+- Attendance schema: additive `RaffleDrawAttempt` table is present in DEV with six columns, two foreign keys, three indexes, zero rows, and a finished Prisma ledger entry. The historical raffle migration was not replayed.
