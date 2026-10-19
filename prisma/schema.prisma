@@ -1095,8 +1095,9 @@ model RaffleEntry {
   name         String
   phoneE164    String
   phoneCountry String
-  createdAt    DateTime     @default(now())
+  createdAt    DateTime             @default(now())
   wonDraws     RaffleDraw[]
+  drawAttempts RaffleDrawAttempt[]
 
   @@unique([eventId, phoneE164])
   @@index([eventId, createdAt])
@@ -1114,10 +1115,25 @@ model RaffleDraw {
   winnerEntryId    String?
   winnerEntry      RaffleEntry? @relation(fields: [winnerEntryId], references: [id], onDelete: SetNull)
   drawnAt          DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  attempts         RaffleDrawAttempt[]
 
   @@unique([eventId, order])
   @@index([eventId, status])
   @@index([winnerEntryId])
+}
+
+model RaffleDrawAttempt {
+  id         String      @id @default(cuid())
+  drawId     String
+  draw       RaffleDraw  @relation(fields: [drawId], references: [id], onDelete: Cascade)
+  entryId    String
+  entry      RaffleEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  status     String      @default("pending") // pending | confirmed | no_show
+  selectedAt DateTime    @default(now())
+  resolvedAt DateTime?
+
+  @@index([drawId, status])
+  @@index([entryId, status])
 }

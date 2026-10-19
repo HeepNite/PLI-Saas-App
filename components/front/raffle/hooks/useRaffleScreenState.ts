@@ -14,6 +14,7 @@ export type RaffleScreenDrawPayload = {
   status: string
   drawAt: string | null
   winner?: RaffleScreenWinnerPayload
+  pendingAttempt?: { id: string; winner: RaffleScreenWinnerPayload }
 }
 
 /** Mirrors `lib/raffle/screen-state.ts`'s `RaffleScreenState`, but with dates

@@ -50,7 +50,7 @@ describe("raffle branding", () => {
         error={null} onDraw={() => {}} onNextDraw={() => {}} onVideoEnded={() => {}} />)
       expectBranding(markup)
       if (phase === "ready") expectPrimaryAction(markup, "Draw")
-      if (phase === "reveal") expectPrimaryAction(markup, "Next draw")
+      if (phase === "reveal") expectPrimaryAction(markup, "Showed up")
       expect(markup).not.toContain("<video")
     },
   )
