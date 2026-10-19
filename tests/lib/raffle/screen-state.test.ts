@@ -14,7 +14,7 @@ import { loadScreenState } from "@/lib/raffle/screen-state"
 const NOW = new Date("2026-09-12T20:00:00.000Z")
 
 const eventRow = (
-  draws: Array<{ id: string; order: number; status: string; winnerEntry?: unknown }>,
+  draws: Array<{ id: string; order: number; status: string; winnerEntry?: unknown; attempts?: unknown[] }>,
   overrides: Record<string, unknown> = {}
 ) => ({
   slug: "s1",
@@ -25,6 +25,7 @@ const eventRow = (
     prizeLabel: "Grand Prize",
     drawAt: new Date("2026-09-12T23:30:00.000Z"),
     winnerEntry: null,
+    attempts: [],
     ...draw,
   })),
   ...overrides,
@@ -57,6 +58,26 @@ describe("loadScreenState", () => {
     const state = await loadScreenState(mockPrisma as never, "s1", NOW)
 
     expect(state?.currentDrawId).toBe("draw_2")
+  })
+
+  it("restores an awaiting-confirmation winner and attempt after refresh", async () => {
+    mockPrisma.raffleEvent.findUnique.mockResolvedValue(
+      eventRow([{
+        id: "draw_1",
+        order: 1,
+        status: "awaiting_confirmation",
+        winnerEntry: { name: "Ana Lopez", phoneE164: "+12125551234" },
+        attempts: [{ id: "attempt_1", entry: { name: "Ana Lopez", phoneE164: "+12125551234" } }],
+      }])
+    )
+
+    const state = await loadScreenState(mockPrisma as never, "s1", NOW)
+
+    expect(state?.currentDrawId).toBe("draw_1")
+    expect(state?.draws[0].pendingAttempt).toEqual({
+      id: "attempt_1",
+      winner: { name: "Ana Lopez", phoneLast4: "1234" },
+    })
   })
 
   it("returns null currentDrawId when no draw is open or drawing", async () => {

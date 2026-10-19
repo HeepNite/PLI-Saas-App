@@ -65,7 +65,7 @@ export async function POST(
   }
 
   if (result.status === "drawn") {
-    return NextResponse.json({ status: "drawn", drawId, winner: toWinnerView(result.winner) })
+    return NextResponse.json({ status: "drawn", drawId, attemptId: result.attemptId, winner: toWinnerView(result.winner) })
   }
   if (result.status === "no_eligible_entries") {
     return NextResponse.json({ status: "no_eligible_entries" }, { status: 409 })

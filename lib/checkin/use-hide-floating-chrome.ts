@@ -45,6 +45,7 @@ export function useHideFloatingChrome(): boolean {
   }, [pathname])
 
   const isRaffleSurface = /^\/rifa\/?$/.test(pathname ?? "")
+    || /^\/rifa\/(30|31)\/?$/.test(pathname ?? "")
     || /^\/raffle\/[^/]+\/?$/.test(pathname ?? "")
     || /^\/staff\/raffle\/[^/]+\/screen\/?$/.test(pathname ?? "")
 
