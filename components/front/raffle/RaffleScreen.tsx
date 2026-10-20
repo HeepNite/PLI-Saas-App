@@ -11,6 +11,7 @@ import {
   selectEntryUrl,
   selectVideoUrl,
 } from "./raffleScreenMachine"
+import RafflePrizeSetup from "./RafflePrizeSetup"
 import RaffleScreenView from "./RaffleScreenView"
 
 const TICK_INTERVAL_MS = 250
@@ -58,7 +59,7 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
   // Reset to `false` the moment a draw starts, set back on the video's `ended`.
   const [videoEnded, setVideoEnded] = useState(true)
   const paused = state.phase === "drawing" || state.phase === "reveal"
-  const { data, error: pollError } = useRaffleScreenState(slug, paused)
+  const { data, error: pollError, refresh } = useRaffleScreenState(slug, paused)
 
   useEffect(() => {
     if (data) dispatch({ type: "poll_success", payload: data })
@@ -163,6 +164,20 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
   // Derived from the reducer's own clock (`state.nowMs`), not `Date.now()`
   // read here at render time — see raffleScreenMachine.ts's `tick` case.
   const countdownMs = selectCountdownMs(state)
+
+  if (state.phase === "setup" && data?.prizeSetup?.editable) {
+    return (
+      <RafflePrizeSetup
+        slug={slug}
+        revision={data.prizeSetup.revision}
+        prizes={data.prizeSetup.prizes.map((prize) => prize.label)}
+        entryCount={data.entryCount}
+        entryUrl={data.event.entryUrl}
+        onRefresh={refresh}
+        onStarted={refresh}
+      />
+    )
+  }
 
   return (
     <RaffleScreenView
