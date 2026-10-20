@@ -7,7 +7,7 @@
 - [x] 3. Restore the profile-completion modal and remove unused profile sections from composition.
 - [x] 4. Integrate the approved eleven-country phone flow into public booking and identity boundaries.
 - [x] 5. Resolve wizard interaction decisions, then implement it over the existing profile form contract.
-- [ ] 6. Decouple public web booking fulfillment from kiosk attribution/check-in semantics and repair DB-backed package fallback validation.
+- [x] 6. Decouple public web booking fulfillment from kiosk attribution/check-in semantics and repair DB-backed package fallback validation.
 - [ ] 7. Redeploy, run integrated Development verification, remove controlled artifacts, and prepare the final delivery slice.
 
 ## Review boundaries
