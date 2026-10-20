@@ -570,7 +570,9 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     // /api/stripe/webhook); there is no post-redirect client callback.
     if (paymentMethod === "stripe" && isCheckInFlow && !isKioskTerminalFlow) {
       try {
-        const buildHostedCheckoutPayload = () => buildCheckoutPayload({ checkInBooking: true })
+        const buildHostedCheckoutPayload = () => buildCheckoutPayload(
+          bookingSource === "public_booking" ? {} : { checkInBooking: true }
+        )
         const endpoint = bookingSource === "public_booking" ? "/api/public/checkout/session" : undefined
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
         let result = await requestCheckoutSessionApi({ token, payload: buildHostedCheckoutPayload(), endpoint })

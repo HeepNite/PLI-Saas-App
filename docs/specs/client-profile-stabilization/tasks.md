@@ -7,7 +7,8 @@
 - [x] 3. Restore the profile-completion modal and remove unused profile sections from composition.
 - [x] 4. Integrate the approved eleven-country phone flow into public booking and identity boundaries.
 - [x] 5. Resolve wizard interaction decisions, then implement it over the existing profile form contract.
-- [ ] 6. Run integrated Development verification, remove the controlled fixture, and prepare bounded delivery slices.
+- [ ] 6. Decouple public web booking fulfillment from kiosk attribution/check-in semantics and repair DB-backed package fallback validation.
+- [ ] 7. Redeploy, run integrated Development verification, remove controlled artifacts, and prepare the final delivery slice.
 
 ## Review boundaries
 
@@ -17,7 +18,8 @@
 | 3 | Prompt gating and profile composition | Profile API and reusable removed-section components |
 | 4 | E.164 country-aware entry and identity safety | Existing Clerk ownership checks, rate limits, checkout authority |
 | 5 | Wizard navigation and validation | `ProfileFormState`, completion semantics and `PUT /api/profile` |
-| 6 | Cross-flow regression and cleanup evidence | Production aliases and production data |
+| 6 | Public web channel authority, scheduled fulfillment, catalog-backed fallback | Kiosk terminal and mobile check-in behavior |
+| 7 | Cross-flow regression and cleanup evidence | Production aliases and production data |
 
 ## Verification ledger
 

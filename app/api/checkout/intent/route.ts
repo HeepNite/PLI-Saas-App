@@ -296,6 +296,7 @@ export async function POST(req: Request) {
       resolvedUserId,
       validation,
     }),
+    ...(trustedChannel ? { checkoutChannel: trustedChannel } : {}),
     ...promotionPricing.promotionMetadata,
   }
 

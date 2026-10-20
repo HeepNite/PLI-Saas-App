@@ -27,10 +27,10 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
 - Persist canonical new phone values as E.164; reject ambiguous legacy identity matches.
 - Do not merge the stale `feat/client-profile-ui-polish` or international-phone branches wholesale.
 - Preserve reusable removed-section components; remove only their profile composition.
-- Keep the authorized Development fixture until validation, then remove its test records:
-  - user: `PLI Kiosk Smoke`
-  - attendance: `cmvbaj77q0005jx06l9vsde0w`
-  - session: `cmvbaj7790003jx06lvuo40dv`
+- The historical Development fixture was retained through the initial integrated smoke and its controlled attendance/session/purchase records were then removed. Any fresh T7 smoke must use isolated records and clean them immediately:
+  - retained test identity: `PLI Kiosk Smoke`
+  - removed attendance: `cmvbaj77q0005jx06l9vsde0w`
+  - removed session: `cmvbaj7790003jx06lvuo40dv`
 
 ## Tasks
 
@@ -53,9 +53,16 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
   - Status: done with the accepted three-step responsive contract: Personal information, Emergency contact, and optional Billing address; linear navigation, one final save, and reopen at Personal with in-memory edits retained.
   - Verification: RED/GREEN wizard navigation, shared server validation semantics, partial billing, read-only identity fields, accessibility, final-save timing, and reopen behavior. 23/23 focused tests, typecheck, ESLint, diff check, and an isolated desktop/mobile Playwright scenario passed. Independent verification initially found validation and accessibility defects; `043ff59b` closed both and re-verification approved. Full suite: 3,730 tests passed and 41 skipped; seven integration files (eight test failures) remain unavailable without `DATABASE_URL`. Native review inspection remained unavailable with `package-local-binary-missing` and created no lineage.
   - Evidence: `9b43a89d` (resolved interaction contract), `ac107464` (wizard), `64272a23` (validation/reopen tests), `9ab7438c` (responsive E2E), `043ff59b` (shared validation and accessibility).
-- [ ] T6 — Run integrated Development verification, remove controlled test records, and prepare bounded delivery slices.
+- [ ] T6 — Decouple public web booking fulfillment from kiosk semantics and repair signed-in package fallback.
+  - Status: implemented and independently approved; work-unit commit and Development deployment await explicit authorization.
+  - Observed evidence: a successful `/friday` public booking created `2026-10-23T23:00:00.000Z` for 7:00 PM New York, but persisted `flowContext: qr_phone`, `purchaseSource: kiosk`, and `checked_in_no_package`; `/api/profile/bookings` therefore returned no booking until the controlled attendance was normalized to `scheduled`. An existing signed-in customer without a package was blocked by static schedule validation before checkout fallback.
+  - Required correction: keep compact QR-shaped presentation only; preserve server-owned `public_booking` channel metadata, scheduled attendance, profile visibility, and DB-backed catalog validation while leaving kiosk behavior unchanged.
+  - Verification: focused payload/session/webhook/profile/package tests, TypeScript, ESLint, diff check, independent verification, and a fresh Development paid-booking smoke.
+  - Cleanup already completed: the historical controlled attendance/session/purchases and the temporary `PLI Web Smoke` DB/Clerk identity, attendance, session, purchase, and counter were removed with exact post-delete zero-count verification. Stripe test artifacts remain pending because the preview secret is provider-protected and the local Stripe CLI is authenticated to a different account.
+  - Evidence: RED established five original boundary failures plus two verifier regressions. GREEN: 126/126 focused tests, TypeScript, diff check, and changed-file ESLint with three inherited warnings. Full suite: 3,735 passed and 41 skipped; the same seven integration files remain unavailable without `DATABASE_URL`. Independent re-verification: `APPROVED`. Native review remained unavailable with `package-local-binary-missing` and created no lineage. Current slice: 236 changed lines, below the 400-line PR limit.
+- [ ] T7 — Redeploy, rerun integrated Development verification, finish controlled Stripe cleanup, and prepare the final delivery slice.
   - Status: pending.
-  - Verification: focused suites, TypeScript, ESLint, full applicable tests, independent verification, live Development smoke.
+  - Verification: exact deployment SHA, public web booking, authenticated profile/calendar, modal/wizard responsive walkthrough, unsupported-phone rejection, and post-cleanup DB/Clerk/Stripe evidence.
   - Evidence: pending.
 
 ## Risks
@@ -65,3 +72,4 @@ Stabilize the authenticated client profile and public booking flow on `codex/dev
 - Item 3: Existing booking/profile API and timestamp contracts.
 - Item 4: Package reservation concurrency and duplicate holds.
 - Item 5: Development deployment and later production promotion.
+- Item 3: Public web booking currently reaches kiosk-derived metadata/status through shared QR presentation plumbing; correction must preserve server-owned channel authority and kiosk behavior.

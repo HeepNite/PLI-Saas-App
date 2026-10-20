@@ -91,6 +91,7 @@ describe("public checkout intent route", () => {
         coursePromotionId: "heritage-october",
         coursePromotionPriceCents: "1500",
         coursePromotionAudience: "heritage_pin_delivered",
+        checkoutChannel: "public_booking",
       }),
     }))
   })

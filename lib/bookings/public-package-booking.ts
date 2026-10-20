@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { ACTIVE_BOOKING_STATUSES } from "@/lib/attendance-constants"
 import { DEFAULT_CLASS_CAPACITY } from "@/lib/bookings"
-import { buildSessionStartsAt, getCourseBySlug, isTimeAllowedForCourseDate } from "@/lib/class-schedule"
+import { buildSessionStartsAt, getAvailableTimesForCourseDateFromCourse, getCourseBySlug, isTimeAllowedForCourseDate, type ScheduleCourseLike } from "@/lib/class-schedule"
 import { holdPackageCreditForAttendanceTx } from "@/lib/packages"
 
 type PublicPackageBookingInput = {
@@ -9,6 +9,7 @@ type PublicPackageBookingInput = {
   courseSlug: string
   date: string
   time: string
+  authoritativeCourse?: ScheduleCourseLike
   now?: Date
 }
 
@@ -36,7 +37,10 @@ export async function reservePublicPackageBooking(
 ) {
   const now = input.now ?? new Date()
   const startsAt = buildSessionStartsAt(input.date, input.time)
-  if (!startsAt || startsAt.getTime() <= now.getTime() || !isTimeAllowedForCourseDate(input.courseSlug, input.date, input.time)) {
+  const slotAllowed = input.authoritativeCourse
+    ? getAvailableTimesForCourseDateFromCourse(input.authoritativeCourse, input.date).includes(input.time)
+    : isTimeAllowedForCourseDate(input.courseSlug, input.date, input.time)
+  if (!startsAt || startsAt.getTime() <= now.getTime() || !slotAllowed) {
     return { kind: "invalid_slot" as const }
   }
 
@@ -94,7 +98,7 @@ export async function reservePublicPackageBooking(
     }
     if (!selectedPackage) return { kind: "no_credits" as const }
 
-    const course = getCourseBySlug(input.courseSlug)
+    const course = input.authoritativeCourse ?? getCourseBySlug(input.courseSlug)
     const session = existingSession ?? await tx.classSession.upsert({
       where: sessionWhere,
       update: { title: course?.title || input.courseSlug },
