@@ -75,6 +75,23 @@ export const runDraw = async (tx: Prisma.TransactionClient, input: RunDrawInput)
   const { eventId, drawId, now } = input
   const staleThreshold = new Date(now.getTime() - DRAW_CLAIM_TIMEOUT_MS)
 
+  const requestedDraw = await tx.raffleDraw.findUnique({
+    where: { id: drawId },
+    select: { id: true, eventId: true, order: true, status: true },
+  })
+  if (!requestedDraw || requestedDraw.eventId !== eventId) return { status: "not_found" }
+  if (requestedDraw.status === "open" || requestedDraw.status === "drawing") {
+    const earlierUnresolved = await tx.raffleDraw.findFirst({
+      where: {
+        eventId,
+        order: { lt: requestedDraw.order },
+        status: { in: ["open", "drawing", "awaiting_confirmation"] },
+      },
+      select: { id: true },
+    })
+    if (earlierUnresolved) return { status: "in_progress" }
+  }
+
   // Claim guard: only an `open` draw or a `drawing` draw stuck past the
   // timeout can be claimed. Under ReadCommitted, a losing concurrent request
   // re-evaluates this WHERE after the row lock is released and sees

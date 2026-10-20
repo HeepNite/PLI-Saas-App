@@ -11,6 +11,7 @@ const { mockTx } = vi.hoisted(() => ({
     raffleDraw: {
       updateMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
     },
@@ -43,6 +44,8 @@ describe("runDraw", () => {
     mockRandomInt.mockReset()
     mockTx.raffleDraw.updateMany.mockReset()
     mockTx.raffleDraw.findUnique.mockReset()
+    mockTx.raffleDraw.findFirst.mockReset()
+    mockTx.raffleDraw.findFirst.mockResolvedValue(null)
     mockTx.raffleDraw.findMany.mockReset()
     mockTx.raffleDraw.update.mockReset()
     mockTx.raffleEntry.findMany.mockReset()
@@ -50,6 +53,19 @@ describe("runDraw", () => {
     mockTx.raffleDrawAttempt.findMany.mockResolvedValue([])
     mockTx.raffleDrawAttempt.create.mockReset()
     mockTx.raffleDrawAttempt.create.mockResolvedValue({ id: "attempt_1" })
+  })
+
+  it("refuses a later prize while an earlier prize is still unresolved", async () => {
+    mockTx.raffleDraw.findUnique.mockResolvedValue({
+      id: "draw_2", eventId: "event_1", order: 2, status: "open",
+    })
+    mockTx.raffleDraw.findFirst.mockResolvedValue({ id: "draw_1" })
+
+    const result = await runDraw(mockTx as never, { eventId: "event_1", drawId: "draw_2", now: NOW })
+
+    expect(result).toEqual({ status: "in_progress" })
+    expect(mockTx.raffleDraw.updateMany).not.toHaveBeenCalled()
+    expect(mockTx.raffleDrawAttempt.create).not.toHaveBeenCalled()
   })
 
   it("picks the stubbed index among eligible entries and persists the winner", async () => {
