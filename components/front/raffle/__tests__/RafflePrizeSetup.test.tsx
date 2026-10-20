@@ -67,6 +67,28 @@ describe("RafflePrizeSetup", () => {
     expect(inputs.map((input) => input.value)).toEqual(["Third", "Grand Prize"])
   })
 
+  it("preserves unsaved edits when polling repeats the same revision", async () => {
+    const node = await render()
+    const first = node.querySelector('input[aria-label="Prize 1"]') as HTMLInputElement
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(first, "Operator edit")
+      first.dispatchEvent(new Event("input", { bubbles: true }))
+    })
+
+    await act(async () => root!.render(
+      <RafflePrizeSetup
+        slug="october-30-raffle-2026"
+        revision="revision_1"
+        prizes={["First", "Grand Prize"]}
+        entryCount={8}
+        onRefresh={onRefresh}
+        onStarted={onStarted}
+      />
+    ))
+
+    expect((node.querySelector('input[aria-label="Prize 1"]') as HTMLInputElement).value).toBe("Operator edit")
+  })
+
   it("saves the displayed order with its exact revision", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

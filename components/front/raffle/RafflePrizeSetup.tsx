@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import RaffleBackdrop from "./RaffleBackdrop"
 import { RAFFLE_PRIMARY_BUTTON_CLASS } from "./raffleButtonStyles"
 import { RaffleQrPanel } from "./RaffleScreenSeams"
@@ -38,8 +38,11 @@ export default function RafflePrizeSetup({
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
+  const lastServerRevision = useRef(revision)
 
   useEffect(() => {
+    if (lastServerRevision.current === revision) return
+    lastServerRevision.current = revision
     setLabels(prizes)
     setCurrentRevision(revision)
   }, [prizes, revision])
