@@ -1110,7 +1110,7 @@ model RaffleDraw {
   order            Int
   prizeLabel       String
   drawAt           DateTime?
-  status           String       @default("open") // open | drawing | drawn
+  status           String       @default("open") // draft | open | drawing | awaiting_confirmation | drawn
   drawingStartedAt DateTime?
   winnerEntryId    String?
   winnerEntry      RaffleEntry? @relation(fields: [winnerEntryId], references: [id], onDelete: SetNull)

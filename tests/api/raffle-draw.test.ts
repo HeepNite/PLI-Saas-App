@@ -9,6 +9,7 @@ const { mockPrisma } = vi.hoisted(() => ({
     raffleDraw: {
       updateMany: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       update: vi.fn(),
     },
@@ -42,6 +43,8 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
     mockPrisma.raffleEvent.findUnique.mockResolvedValue(EVENT)
     mockPrisma.raffleDraw.updateMany.mockReset()
     mockPrisma.raffleDraw.findUnique.mockReset()
+    mockPrisma.raffleDraw.findFirst.mockReset()
+    mockPrisma.raffleDraw.findFirst.mockResolvedValue(null)
     mockPrisma.raffleDraw.findMany.mockReset()
     mockPrisma.raffleDraw.update.mockReset()
     mockPrisma.raffleEntry.findMany.mockReset()
@@ -116,6 +119,20 @@ describe("POST /api/raffle/[slug]/draws/[drawId]/draw", () => {
       drawId: "draw_1",
       winner: { name: "Ana Lopez", phoneLast4: "1234" },
     })
+  })
+
+  it("rejects a later prize while an earlier prize remains unresolved", async () => {
+    mockPrisma.raffleDraw.findUnique.mockResolvedValue({
+      id: "draw_2", eventId: "event_1", order: 2, status: "open", attempts: [], winnerEntry: null,
+    })
+    mockPrisma.raffleDraw.findFirst.mockResolvedValue({ id: "draw_1" })
+
+    const res = await postDraw("s1", "draw_2")
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({ status: "draw_in_progress" })
+    expect(mockPrisma.raffleDraw.updateMany).not.toHaveBeenCalled()
+    expect(mockPrisma.raffleDrawAttempt.create).not.toHaveBeenCalled()
   })
 
   it("maps a lost claim to 409 draw_in_progress", async () => {
