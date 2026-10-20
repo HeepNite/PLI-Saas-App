@@ -8,7 +8,7 @@
 4. Set every temporary draw for a day to that day's midnight boundary:
    - October 30 event → `2026-10-31T04:00:00Z`.
    - October 31 event → `2026-11-01T04:00:00Z`.
-5. Generate an independent token during initial seed for each event. Never copy or reuse the Latino Night token.
+5. Keep independent hashed screen credentials per event. For October tablet operation, rotate each credential to a distinct six-digit PIN that can be typed manually; never copy or reuse the Latino Night credential.
 6. Do not import the legacy `fix/raffle-migration-repair` migration. Reassess only the exact DEV database during preflight.
 7. Preserve the Latino Night no-video animation by setting each October config and DEV event to the explicit empty `videoUrl`; `null` is not equivalent because it selects the yellow placeholder MP4.
 8. Keep registration frictionless and deduplicated only by event plus normalized phone; physical event controls handle multiple-number abuse.
@@ -36,6 +36,6 @@ The legacy `/rifa` route remains a Latino Night historical entrance. The new per
 - Tests must first fail for missing `/rifa/30` and `/rifa/31` behavior.
 - DEV identity and migration/schema state must be proven before seeding.
 - If either target slug already exists, setup must stop for readback before deciding whether token rotation or data replacement is safe.
-- Raw tokens need a secure handoff location approved before the one-time seed output is produced.
+- Raw credentials need a secure handoff location approved before output; October operational PINs remain in separate macOS Keychain items and may be shown only through a local ephemeral dialog for manual entry.
 - Attendance implementation starts with RED domain, route, screen-state, and tablet interaction tests for confirmation, same-prize reroll, event-wide no-show exclusion, refresh recovery, and stale/repeated actions.
 - The original raffle migration remains immutable; only a new additive migration may carry the attempt audit.

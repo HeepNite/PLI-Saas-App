@@ -52,9 +52,9 @@ Add two stable, event-specific tablet entrances and reproducible DEV seed inputs
 
 ## Security And Operational Notes
 
-- Each initial seed generates a different random 32-byte raw token and stores only its SHA-256 hash.
-- Redirects remain to clean URLs; raw keys are not rendered.
+- Each initial seed generates a different random 32-byte raw token and stores only its SHA-256 hash. October DEV operation rotates those credentials to distinct random six-digit PINs while preserving the same hash, cookie, validation, isolation, and rate-limit contracts.
+- Redirects remain to clean URLs; raw credentials are never rendered by the application. Operational PINs may be displayed only in a local ephemeral macOS dialog for manual tablet entry.
 - The original raffle migration is never replayed or edited. One new additive migration creates only the draw-attempt audit table, relations, and indexes required by attendance decisions.
-- DEV setup must capture one-time token output without terminal/chat exposure, verify hashes differ, and keep the events empty.
+- DEV setup and PIN rotation must avoid terminal/chat exposure, store each raw credential only in its Keychain item, verify hashes differ, and preserve event data.
 - Rollback for the attendance amendment removes the new endpoint/UI/domain code only after confirming no pending attempt exists; the additive audit table is retained unless a separately authorized data migration removes it.
 - DEV rehearsal cleanup deletes only exact synthetic entries and attempts, then restores each draw to `open`, its official schedule, and no winner.
