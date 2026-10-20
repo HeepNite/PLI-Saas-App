@@ -20,7 +20,7 @@ Restore cash alongside card/wallet when a customer scans a QR issued by an autho
 - [x] T2a — Implement the short-lived server-verifiable kiosk QR grant primitive and mint route.
   - Status: done.
   - Verification: RED/GREEN grant creation, exact-expiry and tamper rejection, semantic class-context validation, authorized terminal minting, rate limits, TypeScript, ESLint, diff check, and independent approval.
-  - Evidence: pending commit identity.
+  - Evidence: `d6a883d1328c30745e1381a87c453641a64cea37` (`feat(checkout): issue trusted kiosk QR cash grants`).
 - [ ] T2b — Render tablet QRs locally and propagate grants without third-party disclosure.
   - Status: in progress.
   - Verification: all current, late-payment, and past-class tablet QRs wait for a context-bound grant; no bearer reaches an external QR service; navigation and checkout payload preserve the grant.
