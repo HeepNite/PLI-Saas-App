@@ -15,6 +15,7 @@ Rehearsal data mutations must remain reversible; the final observable event, dra
 8. **S8 — Real phone numbers.** “ahora por que solo podemos usar los numeros que me pasaste, vamos a poder usar numeros reales ?”.
 9. **S9 — Draw animation.** “la animacion no quedo buena parece un semaforo una pantalla amarilla que onda con la que teniamos” and “la misma que usamos ese dia por ahora”. Both October events must use the existing Latino Night no-video animation until the user supplies replacement main-background and draw videos.
 10. **S10 — Winner attendance decision.** “por otro lado necesito que tengamos un boton de show up/ draw again por si alguien  no se presenta y tenemos que resortear” and “Sí, usar ese flujo”. `Showed up` confirms and closes the prize; `Draw again` preserves an audit of the no-show, excludes them from the whole event, and reruns the same prize.
+11. **S11 — Tablet access.** “que no se para que tanto lio con que sea privado si la tablet la manejo yo unicamente y no me da la ociopn de pegar nada”. Replace each October event's long operational key with a distinct six-digit PIN that can be typed manually while preserving event-scoped validation, cookies, and rate limiting.
 
 ## Tasks
 
@@ -26,6 +27,7 @@ Rehearsal data mutations must remain reversible; the final observable event, dra
 - [ ] **T6 — S1–S6, S9:** Independently verify final DEV state and rehearsal outcomes. Route: `gentle-ai-verify`. Commit: operational evidence only.
 - [x] **T7 — S10:** Resolve the durable no-show/redraw contract, including winner confirmation, no-show exclusion, audit retention, and same-prize reroll behavior. Route: Ask. Decision: exact-attempt audited flow accepted.
 - [x] **T8 — S10:** Specify and implement durable draw attempts, guarded attendance actions, refresh-safe tablet controls, and same-prize reroll with event-wide no-show exclusion. Route: parent inline; independent verification completed for Risk items 1, 3, and 4. Delivery commits: `76c99e95`, `9d1cce99`, `d47a14c1`, `fdf3211e`. Verification found two compatibility blockers; both were corrected and pinned before closure.
+- [x] **T9 — S11:** Rotate both October DEV screen credentials to distinct random six-digit PINs, update their Keychain items, verify event isolation and old-key rejection without logging the PINs, and present them only in a local ephemeral macOS dialog. Route: parent inline. Evidence: both new PINs returned 302 for their own event; the day-30 PIN against day 31 and both retired keys returned 404; Keychain items were updated and the raw PINs appeared only in a five-minute local Mac dialog. Commit: `b4d0fff4`.
 
 ## Log
 
@@ -47,3 +49,6 @@ Rehearsal data mutations must remain reversible; the final observable event, dra
 - **L16:** “necesito probar lo nuevo que armamos vamos con eos”
 - **L17:** The second synchronized 10-minute countdown window also expired with both draws still `open` and zero attempts. Guarded cleanup again restored zero entries, zero attempts, no winner timestamps, and both official schedules. The next rehearsal should avoid another unattended wait and start unlocked once the user confirms the tablet is open.
 - **L18:** The user selected another 10-minute countdown, but the third window also expired with both draws `open` and zero attempts. Cleanup was verified exact again. No fourth countdown window should be staged; the next mutation requires the tablet to be open and uses immediate unlock.
+- **L19:** “vmos a probarlo ahora. dale ya lo tengo el 30”
+- **L20:** “que no se para que tanto lio con que sea privado si la tablet la manejo yo unicamente y no me da la ociopn de pegar nada”
+- **L21:** Selected “PIN corto de 6 dígitos (recomendado)”.
