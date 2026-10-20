@@ -14,7 +14,7 @@ import { loadScreenState } from "@/lib/raffle/screen-state"
 const NOW = new Date("2026-09-12T20:00:00.000Z")
 
 const eventRow = (
-  draws: Array<{ id: string; order: number; status: string; winnerEntry?: unknown; attempts?: unknown[] }>,
+  draws: Array<{ id: string; order: number; status: string; winnerEntry?: unknown; winnerEntryId?: string | null; attempts?: unknown[]; _count?: { attempts: number } }>,
   overrides: Record<string, unknown> = {}
 ) => ({
   slug: "s1",
@@ -25,7 +25,10 @@ const eventRow = (
     prizeLabel: "Grand Prize",
     drawAt: new Date("2026-09-12T23:30:00.000Z"),
     winnerEntry: null,
+    winnerEntryId: null,
+    updatedAt: new Date("2026-09-12T19:00:00.000Z"),
     attempts: [],
+    _count: { attempts: 0 },
     ...draw,
   })),
   ...overrides,
@@ -78,6 +81,37 @@ describe("loadScreenState", () => {
       id: "attempt_1",
       winner: { name: "Ana Lopez", phoneLast4: "1234" },
     })
+  })
+
+  it("exposes a revision-bound ordered setup for an all-draft event", async () => {
+    mockPrisma.raffleEvent.findUnique.mockResolvedValue(
+      eventRow([
+        { id: "draw_1", order: 1, status: "draft" },
+        { id: "draw_2", order: 2, status: "draft" },
+      ])
+    )
+
+    const state = await loadScreenState(mockPrisma as never, "s1", NOW)
+
+    expect(state?.currentDrawId).toBeNull()
+    expect(state?.prizeSetup).toEqual({
+      editable: true,
+      revision: expect.stringMatching(/^[a-f0-9]{64}$/),
+      prizes: [
+        { id: "draw_1", label: "Grand Prize" },
+        { id: "draw_2", label: "Grand Prize" },
+      ],
+    })
+  })
+
+  it("does not expose prize setup for live draws", async () => {
+    mockPrisma.raffleEvent.findUnique.mockResolvedValue(
+      eventRow([{ id: "draw_1", order: 1, status: "open" }])
+    )
+
+    const state = await loadScreenState(mockPrisma as never, "s1", NOW)
+
+    expect(state?.prizeSetup).toBeUndefined()
   })
 
   it("returns null currentDrawId when no draw is open or drawing", async () => {

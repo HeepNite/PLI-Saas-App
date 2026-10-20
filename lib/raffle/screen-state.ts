@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma"
+import { computePrizeDraftRevision } from "@/lib/raffle/prizes"
 import { resolveRaffleBaseUrl } from "@/lib/raffle/seed-plan"
 import { toWinnerView, type RaffleWinnerView } from "@/lib/raffle/winner-view"
 
@@ -18,6 +19,11 @@ export type RaffleScreenState = {
   entryCount: number
   currentDrawId: string | null
   draws: RaffleScreenDraw[]
+  prizeSetup?: {
+    editable: true
+    revision: string
+    prizes: Array<{ id: string; label: string }>
+  }
 }
 
 const CURRENT_DRAW_STATUSES = new Set(["open", "drawing", "awaiting_confirmation"])
@@ -53,6 +59,7 @@ export const loadScreenState = async (
             orderBy: { selectedAt: "desc" },
             take: 1,
           },
+          _count: { select: { attempts: true } },
         },
       },
       _count: { select: { entries: true } },
@@ -73,6 +80,29 @@ export const loadScreenState = async (
   }))
 
   const currentDraw = draws.find((draw) => CURRENT_DRAW_STATUSES.has(draw.status))
+  const allDraft =
+    event.draws.length > 0 &&
+    event.draws.every(
+      (draw) => draw.status === "draft" && draw.winnerEntryId === null && draw._count.attempts === 0
+    )
+  const prizeSetup = allDraft
+    ? {
+        editable: true as const,
+        revision: computePrizeDraftRevision(
+          event.draws.map((draw) => ({
+            id: draw.id,
+            order: draw.order,
+            prizeLabel: draw.prizeLabel,
+            drawAt: draw.drawAt,
+            status: draw.status,
+            winnerEntryId: draw.winnerEntryId,
+            updatedAt: draw.updatedAt,
+            attempts: [],
+          }))
+        ),
+        prizes: event.draws.map((draw) => ({ id: draw.id, label: draw.prizeLabel })),
+      }
+    : undefined
   const entryUrl = `${resolveRaffleBaseUrl({
     siteUrlEnv: process.env.NEXT_PUBLIC_SITE_URL,
     vercelUrlEnv: process.env.VERCEL_URL,
@@ -84,5 +114,6 @@ export const loadScreenState = async (
     entryCount: event._count.entries,
     currentDrawId: currentDraw?.id ?? null,
     draws,
+    ...(prizeSetup ? { prizeSetup } : {}),
   }
 }

@@ -51,6 +51,23 @@ describe("raffleScreenReducer — poll_success", () => {
     expect(next.trackedDrawId).toBe("draw_1")
   })
 
+  it("moves to setup when the server exposes an editable draft prize list", () => {
+    const next = raffleScreenReducer(initialRaffleScreenMachineState, {
+      type: "poll_success",
+      payload: payload({
+        currentDrawId: null,
+        draws: [{ id: "draw_1", order: 1, prizeLabel: "Temporary Prize", status: "draft", drawAt: "2026-09-12T23:00:10.000Z" }],
+        prizeSetup: {
+          editable: true,
+          revision: "revision_1",
+          prizes: [{ id: "draw_1", label: "Temporary Prize" }],
+        },
+      }),
+    })
+    expect(next.phase).toBe("setup")
+    expect(next.trackedDrawId).toBeNull()
+  })
+
   it("moves to finished when currentDrawId is null", () => {
     const next = raffleScreenReducer(initialRaffleScreenMachineState, {
       type: "poll_success",

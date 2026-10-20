@@ -7,7 +7,7 @@ import type { RaffleScreenStatePayload, RaffleScreenWinnerPayload } from "./hook
  * signal (see `RaffleScreen.tsx`'s `isRevealReady`) allows it. PR4b2 plugs
  * the fullscreen video into that same signal without touching this reducer.
  */
-export type RafflePhase = "waiting" | "ready" | "drawing" | "reveal" | "between_draws" | "finished"
+export type RafflePhase = "setup" | "waiting" | "ready" | "drawing" | "reveal" | "between_draws" | "finished"
 
 export type RaffleScreenMachineState = {
   phase: RafflePhase
@@ -111,6 +111,17 @@ export function raffleScreenReducer(
       // Never let a poll preempt an in-flight draw or the reveal being shown.
       if (state.phase === "drawing" || state.phase === "reveal") return next
 
+      if (payload.prizeSetup?.editable) {
+        return {
+          ...next,
+          phase: "setup",
+          trackedDrawId: null,
+          pendingWinner: null,
+          winner: null,
+          attemptId: null,
+          error: null,
+        }
+      }
       if (payload.currentDrawId === null) {
         return { ...next, phase: "finished", trackedDrawId: null, attemptId: null }
       }
