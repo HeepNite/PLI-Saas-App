@@ -28,6 +28,11 @@ export type RaffleScreenStatePayload = {
   entryCount: number
   currentDrawId: string | null
   draws: RaffleScreenDrawPayload[]
+  prizeSetup?: {
+    editable: true
+    revision: string
+    prizes: Array<{ id: string; label: string }>
+  }
 }
 
 const POLL_INTERVAL_MS = 5_000
