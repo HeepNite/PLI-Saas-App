@@ -3,6 +3,7 @@ export type QrBookingLinkParams = {
   date?: string
   time?: string
   durationMinutes?: number
+  kioskQrCashGrant?: string
 }
 
 type QrBookingAuthReadyInput = {
@@ -44,6 +45,7 @@ export function buildQrBookingUrl({
   date,
   time,
   durationMinutes,
+  kioskQrCashGrant,
 }: QrBookingLinkParams) {
   const slug = courseSlug.trim()
   if (!slug) return FALLBACK_COURSE_CATALOG_URL
@@ -54,6 +56,7 @@ export function buildQrBookingUrl({
   if (typeof durationMinutes === "number" && Number.isFinite(durationMinutes)) {
     params.set("durationMinutes", String(Math.round(durationMinutes)))
   }
+  if (kioskQrCashGrant) params.set("kioskQrCashGrant", kioskQrCashGrant)
 
   return `/courses/${encodeURIComponent(slug)}?${params.toString()}`
 }

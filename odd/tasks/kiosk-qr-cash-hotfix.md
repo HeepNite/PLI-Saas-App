@@ -17,9 +17,13 @@ Restore cash alongside card/wallet when a customer scans a QR issued by an autho
   - Status: done.
   - Verification: reconciled against current QR generation, enrollment payload, terminal authorization, pending cash settlement, and special-class admission boundaries.
   - Evidence: `docs/specs/kiosk-qr-cash-hotfix/{requirements,analysis,resolve,design,tasks}.md`.
-- [ ] T2 — Implement and propagate the short-lived server-verifiable kiosk QR grant.
+- [x] T2a — Implement the short-lived server-verifiable kiosk QR grant primitive and mint route.
+  - Status: done.
+  - Verification: RED/GREEN grant creation, exact-expiry and tamper rejection, semantic class-context validation, authorized terminal minting, rate limits, TypeScript, ESLint, diff check, and independent approval.
+  - Evidence: `d6a883d1328c30745e1381a87c453641a64cea37` (`feat(checkout): issue trusted kiosk QR cash grants`).
+- [ ] T2b — Render tablet QRs locally and propagate grants without third-party disclosure.
   - Status: in progress.
-  - Verification: RED/GREEN grant creation, context binding, expiry, tamper rejection, and payload propagation tests.
+  - Verification: all current, late-payment, and past-class tablet QRs wait for a context-bound grant; no bearer reaches an external QR service; navigation and checkout payload preserve the grant.
   - Evidence: pending.
 - [ ] T3 — Restore QR-phone cash as pending settlement while preserving public and special-class boundaries.
   - Status: pending.
