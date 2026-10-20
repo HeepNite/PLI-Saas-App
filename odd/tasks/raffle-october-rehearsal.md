@@ -16,6 +16,7 @@ Rehearsal data mutations must remain reversible; the final observable event, dra
 9. **S9 — Draw animation.** “la animacion no quedo buena parece un semaforo una pantalla amarilla que onda con la que teniamos” and “la misma que usamos ese dia por ahora”. Both October events must use the existing Latino Night no-video animation until the user supplies replacement main-background and draw videos.
 10. **S10 — Winner attendance decision.** “por otro lado necesito que tengamos un boton de show up/ draw again por si alguien  no se presenta y tenemos que resortear” and “Sí, usar ese flujo”. `Showed up` confirms and closes the prize; `Draw again` preserves an audit of the no-show, excludes them from the whole event, and reruns the same prize.
 11. **S11 — Tablet access.** “que no se para que tanto lio con que sea privado si la tablet la manejo yo unicamente y no me da la ociopn de pegar nada”. Replace each October event's long operational key with a distinct six-digit PIN that can be typed manually while preserving event-scoped validation, cookies, and rate limiting.
+12. **S12 — Prize authoring.** “pero deberia eso ser asi desde el principio. osea se tendria que agregar los premios que queramos”. The operator adds, edits, removes, and orders any desired prizes from the tablet before live drawing, then an explicit `Start raffle` action saves and permanently locks that event's displayed list.
 
 ## Tasks
 
@@ -28,6 +29,9 @@ Rehearsal data mutations must remain reversible; the final observable event, dra
 - [x] **T7 — S10:** Resolve the durable no-show/redraw contract, including winner confirmation, no-show exclusion, audit retention, and same-prize reroll behavior. Route: Ask. Decision: exact-attempt audited flow accepted.
 - [x] **T8 — S10:** Specify and implement durable draw attempts, guarded attendance actions, refresh-safe tablet controls, and same-prize reroll with event-wide no-show exclusion. Route: parent inline; independent verification completed for Risk items 1, 3, and 4. Delivery commits: `76c99e95`, `9d1cce99`, `d47a14c1`, `fdf3211e`. Verification found two compatibility blockers; both were corrected and pinned before closure.
 - [x] **T9 — S11:** Rotate both October DEV screen credentials to distinct random six-digit PINs, update their Keychain items, verify event isolation and old-key rejection without logging the PINs, and present them only in a local ephemeral macOS dialog. Route: parent inline. Evidence: both new PINs returned 302 for their own event; the day-30 PIN against day 31 and both retired keys returned 404; Keychain items were updated and the raw PINs appeared only in a five-minute local Mac dialog. Commit: `b4d0fff4`.
+- [x] **T10 — S12:** Resolve when and where prizes are authored and locked. Route: Ask. Decision: edit the ordered list on the tablet before live drawing; an explicit `Start raffle` button atomically saves and permanently locks it.
+- [ ] **T11 — S12:** Implement revision-bound draft prize persistence, authenticated save/start API, screen-state setup contract, tablet ordering controls, and post-start lock with RED tests. Route: parent inline; independent verification required for Risk items 1–4. Commit: pending.
+- [ ] **T12 — S12:** Deliver prize authoring through reviewable PR slices, convert both clean October placeholders to draft, visibly author/start multiple prizes, verify ordered progression, and restore official state. Route: parent inline. Commit: operational evidence only.
 
 ## Log
 
@@ -53,3 +57,6 @@ Rehearsal data mutations must remain reversible; the final observable event, dra
 - **L20:** “que no se para que tanto lio con que sea privado si la tablet la manejo yo unicamente y no me da la ociopn de pegar nada”
 - **L21:** Selected “PIN corto de 6 dígitos (recomendado)”.
 - **L22:** The immediately unlocked day-30 window expired with the draw still `open` and zero attempts after PIN rotation. Cleanup restored exact official state. The next staging requires confirmation that the PIN was accepted and `Draw` is visible before any mutation.
+- **L23:** With the PIN accepted and `Draw` visible, the user manually registered two day-30 participants. Two consecutive redraws produced two durable `no_show` attempts and then correctly refused because no eligible entries remained. A bounded reset preserved the participants; the next draw was confirmed with `Showed up`, producing one `confirmed` attempt and `drawn` status before exact cleanup. Day 31 then produced `no_show` followed by `confirmed`; guarded cleanup remained pending.
+- **L24:** “pero deberia eso ser asi desde el principio. osea se tendria que agregar los premios que queramos”
+- **L25:** Selected “Desde la tablet antes de empezar (recomendado)” and then “Con un botón ‘Start raffle’”.

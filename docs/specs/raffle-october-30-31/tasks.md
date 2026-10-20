@@ -47,6 +47,15 @@
 - [x] Run focused checks, relevant suite, typecheck, lint, differential checks for omitted/explicit video config, and independent high-risk verification. Relevant raffle suite passed 17 files/181 tests; TypeScript passed; full lint had zero errors and 114 warnings, followed by clean focused ESLint. Independent verification found legacy replay and pending-winner exclusion regressions; both were corrected and pinned with focused tests. Prisma validate passed with the DEV environment.
 - [ ] Deploy to DEV, rehearse both days visibly, and restore exact official empty/open state.
 
+## Phase 7 - Tablet Prize Authoring
+
+- [x] Resolve the product contract: prizes are authored independently on each tablet before live drawing, and an explicit `Start raffle` action permanently locks the list.
+- [ ] Add RED domain and API tests for add/edit/remove/reorder persistence, revision conflicts, start locking, malformed input, authorization, and unchanged registrations/schedules on rejection.
+- [ ] Implement all-draft `RaffleDraw` replacement and atomic draft-to-open start without another migration.
+- [ ] Add RED screen-state, reducer, and tablet tests for refresh-safe editing, ordering controls, explicit start confirmation, post-start lock, and existing live-screen behavior.
+- [ ] Implement the tablet prize editor and setup phase, then run focused checks, the relevant suite, TypeScript, lint, and independent high-risk verification.
+- [ ] Convert both clean October DEV placeholder draws to `draft`, deploy through reviewable PR slices, author multiple prizes visibly, start, draw in order, and restore exact official state.
+
 ## Operational Evidence
 
 - DEV database fingerprint: `f50dcba1162d9a0efe1624c4a6d147e1dd326f1d7cf57f46704d3e43ed5d8aee` (sanitized; no connection details stored).
@@ -58,7 +67,7 @@
 - Live tablet entrances: `/rifa/30` and `/rifa/31` each returned 200 with the correct title and password form. Each Keychain token completed the existing exchange, issued only its slug-scoped Secure cookie, reached the clean staff screen, and loaded screen-state 200 with zero entries, one open draw, and the exact midnight instant.
 - Isolation: the October 30 token against the October 31 exchange returned 404. Raw keys were not printed, committed, or stored in evidence.
 - Delivery: issue #682 is approved; PR #683 (265 lines) and PR #684 (262 lines) passed size, tests, typecheck, lint, secret scan, CodeQL, and Vercel checks and merged to `codex/develop`. Post-merge CI also passed.
-- Residual product input: replace each temporary prize label with the final ordered prize list before the event; no final prize was invented here.
+- Residual product input: final prize names remain unknown, but the accepted tablet authoring workflow will let the operator add and order them before each raffle starts.
 - Day-30 rehearsal: QR registration, live entry count, countdown, draw, and winner reveal succeeded with four authorized synthetic entries. The yellow placeholder MP4 was rejected; cleanup restored zero entries, the official schedule, open status, and no winner.
 - Animation correction: both repeatable configs and both DEV rows now use explicit empty `videoUrl`, selecting the existing dark/gold `Sorteando` animation. Omitted-video behavior remains unchanged by differential check.
 - Attendance schema: additive `RaffleDrawAttempt` table is present in DEV with six columns, two foreign keys, three indexes, zero rows, and a finished Prisma ledger entry. The historical raffle migration was not replayed.

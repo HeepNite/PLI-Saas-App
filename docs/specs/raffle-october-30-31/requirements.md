@@ -21,6 +21,7 @@ Prepare the existing DEV raffle for two independent events on October 30 and Oct
 - Reconciliation of the existing raffle and migration evidence before DEV setup.
 - The existing Latino Night dark/gold no-video draw animation until replacement videos are supplied.
 - Winner attendance confirmation with `Showed up` and an audited `Draw again` flow for no-shows.
+- Tablet prize authoring before the raffle starts: add, edit, remove, and reorder any number of prizes, then lock the list with an explicit `Start raffle` action.
 
 ### Out of scope
 
@@ -29,6 +30,7 @@ Prepare the existing DEV raffle for two independent events on October 30 and Oct
 - Changing registration, screen-session validation, rate-limit, or random winner-selection contracts beyond six-digit October tablet PINs and excluding confirmed no-shows.
 - Reusing the Latino Night tablet credential.
 - Deleting historical raffle events or entries.
+- Editing the prize list after `Start raffle` succeeds.
 
 ## Context
 
@@ -49,6 +51,12 @@ The existing generic raffle routes, domain logic, seed script, and token exchang
 11. `Draw again` records the exact pending winner as a no-show without deleting their entry, excludes them from every later draw in that event, and immediately reruns the same prize.
 12. Attendance decisions are bound to the exact draw attempt and are idempotent; a stale or repeated action cannot confirm or reject a later winner.
 13. The existing no-login registration stays one entry per normalized phone and event; physical event controls handle attempts to use multiple numbers.
+14. Before the raffle starts, the tablet exposes an ordered prize editor for that event.
+15. The operator may add, rename, remove, and move prizes up or down; the list must contain at least one non-empty prize label.
+16. Saved draft prizes survive refreshes without changing registered participants or the persisted draw schedule.
+17. `Start raffle` atomically saves the displayed order and changes every draft prize to an immutable live draw.
+18. Once started, no tablet request may add, edit, remove, or reorder prizes; the tablet proceeds through them in ascending order.
+19. Concurrent or stale prize-authoring requests fail without partially changing the saved list or lock state.
 
 ## Constraints
 
@@ -57,6 +65,7 @@ The existing generic raffle routes, domain logic, seed script, and token exchang
 - Keep each event and its entries, draws, cookie, and token isolated by slug.
 - Do not add or replay a raffle schema repair migration: current `codex/develop` already contains the original additive raffle migration and complete Prisma models.
 - The attendance audit may use one new additive migration; it must not edit or replay the original raffle migration.
+- Prize authoring reuses `RaffleDraw` rows with `draft` status before `Start raffle`; no additional schema migration is required.
 - Remote database setup requires an exact DEV environment preflight and must not expose raw PINs in logs, committed files, or chat.
 
 ## Security Rules
@@ -71,6 +80,9 @@ The existing generic raffle routes, domain logic, seed script, and token exchang
 - [x] `/rifa/30` renders October 30 access and redirects only with the October 30 cookie/credential.
 - [x] `/rifa/31` renders October 31 access and redirects only with the October 31 cookie/credential.
 - [x] Existing `/rifa` behavior remains covered.
+- [ ] A draft October event supports persistent add, rename, remove, and reorder operations from its tablet screen.
+- [ ] `Start raffle` saves the displayed list, locks prize authoring, and exposes the first ordered draw without changing registrations or schedule.
+- [ ] Stale, repeated, unauthorized, and post-start authoring requests leave draws and counters unchanged.
 - [x] Both JSON configs validate and resolve to the exact midnight UTC instants above.
 - [x] DEV contains two independent empty events with distinct screen-token hashes and temporary open draw data.
 - [x] Public pages and tablet entrances return successful responses after the DEV deployment.

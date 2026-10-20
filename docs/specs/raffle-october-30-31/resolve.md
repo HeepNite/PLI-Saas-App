@@ -14,6 +14,10 @@
 8. Keep registration frictionless and deduplicated only by event plus normalized phone; physical event controls handle multiple-number abuse.
 9. After each random selection, require an attendance decision. `Showed up` confirms and closes the prize. `Draw again` audits the pending winner as a no-show, excludes that entry from the entire event, and reruns the same prize without deleting the entry.
 10. Bind attendance actions to a durable draw-attempt identifier so retries and stale tablet actions are idempotent and cannot affect a later winner.
+11. Author prizes on the tablet before live drawing: labels may be added, renamed, removed, and reordered independently per event.
+12. Keep pre-start prizes as ordered `RaffleDraw` rows with `draft` status. Registered participants remain untouched while draft rows are replaced.
+13. Use an explicit `Start raffle` action that atomically saves the displayed list and transitions all draft rows to `open`; after that transition, prize authoring is permanently locked.
+14. Bind save/start requests to a server-issued draft revision so stale or concurrent actions fail without partial writes.
 
 ## Context Strategy
 
@@ -26,6 +30,7 @@ The active behavioral source is this folder. Existing event-raffle OpenSpec docu
 - Extend the shared floating-chrome route matcher to the two new exact paths.
 - Add deterministic JSON seed inputs.
 - Add one attendance action contract and one additive attempt-audit model; preserve the existing registration and random-selection contracts.
+- Add one authenticated prize-authoring contract, a draft revision in screen state, and a tablet editor/start phase; reuse `RaffleDraw` without a new migration.
 
 ## Spec Adjustments
 
@@ -39,3 +44,4 @@ The legacy `/rifa` route remains a Latino Night historical entrance. The new per
 - Raw credentials need a secure handoff location approved before output; October operational PINs remain in separate macOS Keychain items and may be shown only through a local ephemeral dialog for manual entry.
 - Attendance implementation starts with RED domain, route, screen-state, and tablet interaction tests for confirmation, same-prize reroll, event-wide no-show exclusion, refresh recovery, and stale/repeated actions.
 - The original raffle migration remains immutable; only a new additive migration may carry the attempt audit.
+- Prize-authoring implementation starts with RED domain, route, screen-state, reducer, and tablet interaction tests; it may mutate only all-draft, attempt-free draws for the exact event.
