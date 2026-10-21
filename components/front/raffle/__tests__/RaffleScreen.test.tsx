@@ -75,6 +75,29 @@ describe("RaffleScreen", () => {
     })
   }
 
+  it("renders the persistent prize editor for an all-draft event", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => screenStateResponse({
+        currentDrawId: null,
+        draws: [{ id: "draw_1", order: 1, prizeLabel: "Temporary Prize", status: "draft", drawAt: new Date().toISOString() }],
+        prizeSetup: {
+          editable: true,
+          revision: "revision_1",
+          prizes: [{ id: "draw_1", label: "Temporary Prize" }],
+        },
+      }),
+    }))
+
+    const node = await render()
+    await flushPoll()
+
+    expect(node.textContent).toContain("Prize setup")
+    expect((node.querySelector('input[aria-label="Prize 1"]') as HTMLInputElement).value).toBe("Temporary Prize")
+    expect(node.textContent).toContain("Start raffle")
+  })
+
   it("shows the Draw button once the countdown reaches zero and sends nothing before it is pressed", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => screenStateResponse() })
     vi.stubGlobal("fetch", fetchMock)
