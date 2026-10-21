@@ -28,7 +28,7 @@ Restore cash alongside card/wallet when a customer scans a QR issued by an autho
 - [x] T3 — Restore QR-phone cash as pending settlement while preserving public and special-class boundaries.
   - Status: done.
   - Verification: 97 focused checks, TypeScript, ESLint, diff check, and independent adversarial verification approved. Valid grants enable cash plus Stripe; forged public/QR markers, missing/expired/tampered grants, mismatched context, null bodies, and special-class fields fail closed before side effects; terminal cash remains unchanged; QR-phone cash creates a pending kiosk-attributed purchase without attendance.
-  - Evidence: pending commit identity.
+  - Evidence: `c3c2a62bf21016c2ac0b7ea8e4ee260905fc1f2d` (`fix(checkout): restore granted QR cash`).
 - [ ] T4 — Deliver and verify the production hotfix.
   - Status: in progress.
   - Verification: approved issue, sub-400-line PR, required checks, exact production SHA/deployment, and kiosk QR smoke without production test purchase side effects.
