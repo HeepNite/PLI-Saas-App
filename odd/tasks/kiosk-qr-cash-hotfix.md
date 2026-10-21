@@ -24,7 +24,7 @@ Restore cash alongside card/wallet when a customer scans a QR issued by an autho
 - [x] T2b — Render tablet QRs locally and propagate grants without third-party disclosure.
   - Status: done.
   - Verification: current, late-payment, and past-class tablet QRs use local rendering, wait for exact-context grants, refresh before expiry, hide on stalled expiry, and preserve grants through navigation and checkout payloads. Focused tests, TypeScript, diff check, full suite, and independent verification approved; one unrelated integration suite remains unavailable without `DATABASE_URL`.
-  - Evidence: pending commit identity.
+  - Evidence: `f7e1d17c77ee1efff87e41f860312cf14ad7fabc` (`feat(checkout): secure kiosk class QR grants`).
 - [ ] T3 — Restore QR-phone cash as pending settlement while preserving public and special-class boundaries.
   - Status: in progress.
   - Verification: RED/GREEN UI and cash API tests, focused regression suite, TypeScript, ESLint, diff check, and independent verification.
