@@ -473,8 +473,7 @@ function buildCheckInQrImageUrl({
   params.set("time", time)
   params.set("durationMinutes", String(durationMinutes))
   params.set("fromQr", "1")
-  const link = `${origin}/checkin?${params.toString()}`
-  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=${encodeURIComponent(link)}`
+  return `${origin}/checkin?${params.toString()}`
 }
 
 function pad(n: number) {

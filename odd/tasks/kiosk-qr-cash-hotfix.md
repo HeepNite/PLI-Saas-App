@@ -21,12 +21,12 @@ Restore cash alongside card/wallet when a customer scans a QR issued by an autho
   - Status: done.
   - Verification: RED/GREEN grant creation, exact-expiry and tamper rejection, semantic class-context validation, authorized terminal minting, rate limits, TypeScript, ESLint, diff check, and independent approval.
   - Evidence: `d6a883d1328c30745e1381a87c453641a64cea37` (`feat(checkout): issue trusted kiosk QR cash grants`).
-- [ ] T2b — Render tablet QRs locally and propagate grants without third-party disclosure.
-  - Status: in progress.
-  - Verification: all current, late-payment, and past-class tablet QRs wait for a context-bound grant; no bearer reaches an external QR service; navigation and checkout payload preserve the grant.
-  - Evidence: pending.
+- [x] T2b — Render tablet QRs locally and propagate grants without third-party disclosure.
+  - Status: done.
+  - Verification: current, late-payment, and past-class tablet QRs use local rendering, wait for exact-context grants, refresh before expiry, hide on stalled expiry, and preserve grants through navigation and checkout payloads. Focused tests, TypeScript, diff check, full suite, and independent verification approved; one unrelated integration suite remains unavailable without `DATABASE_URL`.
+  - Evidence: pending commit identity.
 - [ ] T3 — Restore QR-phone cash as pending settlement while preserving public and special-class boundaries.
-  - Status: pending.
+  - Status: in progress.
   - Verification: RED/GREEN UI and cash API tests, focused regression suite, TypeScript, ESLint, diff check, and independent verification.
   - Evidence: pending.
 - [ ] T4 — Deliver and verify the production hotfix.

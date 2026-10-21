@@ -1,3 +1,5 @@
+import { KioskClassQrCode } from "@/components/front/checkin/KioskClassQrCode"
+
 /**
  * Design tokens for kiosk terminal layout
  * Shared with CourseCardPanel for visual consistency
@@ -113,12 +115,7 @@ export function LatePaymentPanel({
         {/* Column 3: QR Code */}
         <div className="relative flex justify-center pl-4">
           <span className="absolute left-0 top-0 bottom-0 w-px bg-gradient-to-b from-transparent via-amber-300/20 to-transparent" />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={qrImage}
-            alt="Late payment QR"
-            className="h-32 w-32 rounded-xl border border-white/15 bg-white object-contain"
-          />
+          <KioskClassQrCode url={qrImage} size={128} ariaLabel="Late payment QR" />
         </div>
       </div>
     </div>

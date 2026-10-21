@@ -12,6 +12,7 @@ export type EnrollCheckInContext = {
   durationMinutes?: number
   bookingSource?: "public_booking"
   heritagePinCountryCode?: string
+  kioskQrCashGrant?: string
 }
 
 export type EnrollPrefillSelection = {
