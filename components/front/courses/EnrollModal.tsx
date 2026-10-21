@@ -1451,7 +1451,8 @@ export default function EnrollModal({
                   isNewStudent={isNewStudent}
                   isCheckInExistingFlow={isCheckInExistingFlow}
                   isProfileBookingFlow={isProfileBookingFlow}
-                  isOrdinaryPublicBooking={isPublicQuoteBooking}
+                  isOrdinaryPublicBooking={bookingSource === "public_booking"}
+                  kioskQrCashGrant={kioskQrCashGrant}
                   skipContactStep={skipContactStep}
                   availableServices={availableServices}
                   hasNewStudentService={hasNewStudentService}

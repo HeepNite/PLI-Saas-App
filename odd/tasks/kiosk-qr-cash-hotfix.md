@@ -25,12 +25,12 @@ Restore cash alongside card/wallet when a customer scans a QR issued by an autho
   - Status: done.
   - Verification: current, late-payment, and past-class tablet QRs use local rendering, wait for exact-context grants, refresh before expiry, hide on stalled expiry, and preserve grants through navigation and checkout payloads. Focused tests, TypeScript, diff check, full suite, and independent verification approved; one unrelated integration suite remains unavailable without `DATABASE_URL`.
   - Evidence: `f7e1d17c77ee1efff87e41f860312cf14ad7fabc` (`feat(checkout): secure kiosk class QR grants`).
-- [ ] T3 — Restore QR-phone cash as pending settlement while preserving public and special-class boundaries.
-  - Status: in progress.
-  - Verification: RED/GREEN UI and cash API tests, focused regression suite, TypeScript, ESLint, diff check, and independent verification.
-  - Evidence: pending.
+- [x] T3 — Restore QR-phone cash as pending settlement while preserving public and special-class boundaries.
+  - Status: done.
+  - Verification: 97 focused checks, TypeScript, ESLint, diff check, and independent adversarial verification approved. Valid grants enable cash plus Stripe; forged public/QR markers, missing/expired/tampered grants, mismatched context, null bodies, and special-class fields fail closed before side effects; terminal cash remains unchanged; QR-phone cash creates a pending kiosk-attributed purchase without attendance.
+  - Evidence: `c3c2a62bf21016c2ac0b7ea8e4ee260905fc1f2d` (`fix(checkout): restore granted QR cash`).
 - [ ] T4 — Deliver and verify the production hotfix.
-  - Status: pending.
+  - Status: in progress.
   - Verification: approved issue, sub-400-line PR, required checks, exact production SHA/deployment, and kiosk QR smoke without production test purchase side effects.
   - Evidence: pending.
 

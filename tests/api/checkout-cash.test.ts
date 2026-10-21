@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { STAFF_TERMINAL_LATENCY_TARGETS_MS } from "@/lib/checkin/kiosk-qr-payment"
+import { createKioskQrCashGrant } from "@/lib/checkin/kiosk-qr-cash-grant"
 
 const mockValidate = vi.fn()
 const mockResolveCheckoutPreparation = vi.fn()
@@ -193,19 +194,146 @@ describe("checkout cash route", () => {
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
   })
 
-  it("rejects remote cash despite caller-provided terminal source claims before side effects", async () => {
+  it("accepts pending cash from a context-matched kiosk QR grant without terminal cookies", async () => {
+    const kioskQrCashGrant = createKioskQrCashGrant({
+      terminalId: "terminal_1",
+      courseSlug: "salsa-feminine-morning",
+      date: "2026-02-10",
+      time: "11:00",
+    })
+    mockResolveCheckoutPreparation.mockResolvedValueOnce({
+      source: "fallback",
+      terminalAuth: null,
+      verification: { hasVerifiedPhone: true },
+      preparedAccount: {
+        userId: "user_123",
+        clerkUser: null,
+        resolvedUserId: "user_123",
+        identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+        account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+      },
+    })
     const { POST } = await import("@/app/api/checkout/cash/route")
     const response = await POST(new Request("http://localhost/api/checkout/cash", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ photoContext: "qr_phone", bookingSource: "kiosk_terminal", flowContext: "kiosk_terminal" }),
+      body: JSON.stringify({
+        photoContext: "qr_phone",
+        courseSlug: "salsa-feminine-morning",
+        date: "2026-02-10",
+        time: "11:00",
+        kioskQrCashGrant,
+      }),
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mockAuthorizeStaffTerminalSession).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        status: "pending",
+        metadata: { paymentChannel: "cash", settlementStatus: "pending", purchaseSource: "kiosk" },
+      },
+    })
+  })
+
+  it.each([
+    { body: { photoContext: "qr_phone" }, label: "missing grant" },
+    { body: { photoContext: "qr_phone", kioskQrCashGrant: "tampered" }, label: "tampered grant" },
+    {
+      body: {
+        photoContext: "qr_phone",
+        bookingSource: "public_booking",
+        kioskQrCashGrant: createKioskQrCashGrant({
+          terminalId: "terminal_1",
+          courseSlug: "salsa-feminine-morning",
+          date: "2026-02-10",
+          time: "11:00",
+        }),
+      },
+      label: "public booking with a valid kiosk grant",
+    },
+  ])("rejects QR-phone cash with $label before side effects", async ({ body }) => {
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        courseSlug: "salsa-feminine-morning",
+        date: "2026-02-10",
+        time: "11:00",
+        ...body,
+      }),
     }))
 
     expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toEqual({ error: "Cash payment is available only from a studio terminal." })
+    expect(mockValidate).not.toHaveBeenCalled()
+    expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("fails closed for a null JSON request before validation or side effects", async () => {
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "null",
+    }))
+
+    expect(response.status).toBe(403)
     expect(mockValidate).not.toHaveBeenCalled()
     expect(mockResolveCheckoutPreparation).not.toHaveBeenCalled()
     expect(mockUpsertUser).not.toHaveBeenCalled()
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects a valid kiosk grant used for a different class context", async () => {
+    const kioskQrCashGrant = createKioskQrCashGrant({
+      terminalId: "terminal_1",
+      courseSlug: "different-class",
+      date: "2026-02-10",
+      time: "11:00",
+    })
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photoContext: "qr_phone",
+        courseSlug: "salsa-feminine-morning",
+        date: "2026-02-10",
+        time: "11:00",
+        kioskQrCashGrant,
+      }),
+    }))
+
+    expect(response.status).toBe(403)
+    expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+  })
+
+  it("rejects special-class fields from a QR-phone cash request", async () => {
+    const kioskQrCashGrant = createKioskQrCashGrant({
+      terminalId: "terminal_1",
+      courseSlug: "salsa-feminine-morning",
+      date: "2026-02-10",
+      time: "11:00",
+    })
+    const { POST } = await import("@/app/api/checkout/cash/route")
+    const response = await POST(new Request("http://localhost/api/checkout/cash", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        photoContext: "qr_phone",
+        courseSlug: "salsa-feminine-morning",
+        date: "2026-02-10",
+        time: "11:00",
+        kioskQrCashGrant,
+        checkoutKind: "special-salsa-class",
+        specialClassId: "special_1",
+      }),
+    }))
+
+    expect(response.status).toBe(403)
+    expect(mockValidate).not.toHaveBeenCalled()
     expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
   })
 
