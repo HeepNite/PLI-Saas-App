@@ -31,6 +31,7 @@ type EnrollStepRouterProps = {
   isCheckInExistingFlow: boolean
   isProfileBookingFlow: boolean
   isOrdinaryPublicBooking?: boolean
+  kioskQrCashGrant?: string
   skipContactStep: boolean
   availableServices: EnrollmentOption[]
   hasNewStudentService: boolean
@@ -251,6 +252,7 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           isCheckInFlow={props.isCheckInFlow}
           isKioskTerminalFlow={props.isKioskTerminalFlow}
           isOrdinaryPublicBooking={props.isOrdinaryPublicBooking}
+          hasKioskQrCashGrant={Boolean(props.kioskQrCashGrant)}
           course={props.course}
           pkg={props.pkg}
           service={props.service}

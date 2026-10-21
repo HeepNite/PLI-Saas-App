@@ -26,15 +26,18 @@ const renderPayments = ({
   isCheckInFlow = true,
   isKioskTerminalFlow = false,
   isOrdinaryPublicBooking = false,
+  hasKioskQrCashGrant = false,
 }: {
   isCheckInFlow?: boolean
   isKioskTerminalFlow?: boolean
   isOrdinaryPublicBooking?: boolean
+  hasKioskQrCashGrant?: boolean
 } = {}) => renderToStaticMarkup(
   <StepPayments
     isCheckInFlow={isCheckInFlow}
     isKioskTerminalFlow={isKioskTerminalFlow}
     isOrdinaryPublicBooking={isOrdinaryPublicBooking}
+    hasKioskQrCashGrant={hasKioskQrCashGrant}
     course={course}
     pkg=""
     service="dropin"
@@ -74,6 +77,18 @@ describe("booking payment channels", () => {
     expect(html).not.toContain("payments_onSite")
     expect(html).toContain("Card, Apple Pay, Google Pay")
     expect(html).toContain("Pay with card or phone wallet.")
+  })
+
+  it("offers cash and card/wallet for a kiosk-granted phone QR", () => {
+    const html = renderPayments({ hasKioskQrCashGrant: true })
+    expect(html).toContain("payments_onSite")
+    expect(html).toContain("Pay cash at the front desk.")
+    expect(html).toContain("Card, Apple Pay, Google Pay")
+  })
+
+  it("hides cash for ordinary public booking even with a kiosk-looking grant", () => {
+    const html = renderPayments({ isOrdinaryPublicBooking: true, hasKioskQrCashGrant: true })
+    expect(html).not.toContain("payments_onSite")
   })
 
   it("hides onsite cash for ordinary public booking", () => {

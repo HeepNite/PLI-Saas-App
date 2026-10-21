@@ -12,6 +12,7 @@ type StepPaymentsProps = {
   isCheckInFlow: boolean
   isKioskTerminalFlow: boolean
   isOrdinaryPublicBooking?: boolean
+  hasKioskQrCashGrant?: boolean
   course: CourseEnrollmentData
   pkg: string
   service: string
@@ -47,6 +48,7 @@ export default function StepPayments({
   isCheckInFlow,
   isKioskTerminalFlow,
   isOrdinaryPublicBooking = false,
+  hasKioskQrCashGrant = false,
   course,
   pkg,
   service,
@@ -78,6 +80,7 @@ export default function StepPayments({
   t,
 }: StepPaymentsProps) {
   const mobileQrCheckin = isCheckInFlow && !isKioskTerminalFlow
+  const cardOnly = isOrdinaryPublicBooking || (mobileQrCheckin && !hasKioskQrCashGrant)
   const publicQuoteDisplay = !isPublicQuoteBooking
     ? "local"
     : publicQuoteLoading
@@ -101,10 +104,10 @@ export default function StepPayments({
     : 0
 
   React.useEffect(() => {
-    if ((mobileQrCheckin || isOrdinaryPublicBooking) && paymentMethod !== "stripe") {
+    if (cardOnly && paymentMethod !== "stripe") {
       setPaymentMethod("stripe")
     }
-  }, [isOrdinaryPublicBooking, mobileQrCheckin, paymentMethod, setPaymentMethod])
+  }, [cardOnly, paymentMethod, setPaymentMethod])
 
   return (
     <div className="space-y-4">
@@ -240,8 +243,8 @@ export default function StepPayments({
 
       <div>
         <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
-        <div className={`grid gap-3 ${mobileQrCheckin ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
-          {!mobileQrCheckin && !isOrdinaryPublicBooking ? (
+        <div className={`grid gap-3 ${cardOnly ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
+          {!cardOnly ? (
             <button
               type="button"
               disabled={kioskQrCheckoutLocked}
@@ -252,7 +255,7 @@ export default function StepPayments({
                 <Building2 className="h-4 w-4" aria-hidden />
                 {t("payments_onSite")}
               </div>
-              <div className="mt-1 text-xs text-neutral-500">{t("payments_onSite_desc")}</div>
+              <div className="mt-1 text-xs text-neutral-500">{mobileQrCheckin ? "Pay cash at the front desk." : t("payments_onSite_desc")}</div>
             </button>
           ) : null}
           <button

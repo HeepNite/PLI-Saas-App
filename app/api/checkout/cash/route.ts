@@ -9,6 +9,7 @@ import { validateCheckoutPayload, type CheckoutBody } from "@/lib/checkout/valid
 import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-context"
 import { getTodayNewYork } from "@/lib/class-schedule"
 import { parsePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
+import { verifyKioskQrCashGrant } from "@/lib/checkin/kiosk-qr-cash-grant"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { prisma } from "@/lib/prisma"
@@ -59,15 +60,28 @@ export async function POST(req: Request) {
     phone = "",
     kioskSessionToken,
   } = body || {}
-  const photoContext = parsePhotoFlowContext((body as Record<string, unknown>)?.photoContext)
-  if (photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL) {
+  const requestContext = body && typeof body === "object" ? body as Record<string, unknown> : {}
+  const photoContext = parsePhotoFlowContext(requestContext.photoContext)
+  const isPublicBookingRequest =
+    requestContext.bookingSource === "public_booking" || requestContext.checkoutChannel === "public_booking"
+  const isQrPhone = photoContext === FLOW_CONTEXT.QR_PHONE
+  const grantVerification = isQrPhone && !isPublicBookingRequest
+    ? verifyKioskQrCashGrant(requestContext.kioskQrCashGrant, {
+        courseSlug: typeof requestContext.courseSlug === "string" ? requestContext.courseSlug : "",
+        date: typeof requestContext.date === "string" ? requestContext.date : "",
+        time: typeof requestContext.time === "string" ? requestContext.time : "",
+      })
+    : { ok: false as const }
+  const hasSpecialClassFields = Boolean(requestContext.checkoutKind || requestContext.specialClassId)
+  const isInStudioQrPhone = isQrPhone && grantVerification.ok && !hasSpecialClassFields
+  if (photoContext !== FLOW_CONTEXT.KIOSK_TERMINAL && !isInStudioQrPhone) {
     return NextResponse.json(
       { error: "Cash payment is available only from a studio terminal." },
       { status: 403 },
     )
   }
 
-  const cashNote = normalizeCashNote((body as Record<string, unknown>)?.cashNote)
+  const cashNote = normalizeCashNote(requestContext.cashNote)
 
   const validation = await validateCheckoutPayload(body)
   if (isApiError(validation)) {
@@ -103,12 +117,13 @@ export async function POST(req: Request) {
   }
 
   const { preparedAccount, verification, source, fallbackReason, terminalAuth } = preparation
-  const authorizedTerminalAuth = terminalAuth?.ok
+  const resolvedTerminalAuth = terminalAuth?.ok
     ? terminalAuth
     : photoContext === FLOW_CONTEXT.KIOSK_TERMINAL
       ? await authorizeStaffTerminalSession()
       : null
-  if (!authorizedTerminalAuth?.ok) {
+  const authorizedTerminalAuth = resolvedTerminalAuth?.ok ? resolvedTerminalAuth : null
+  if (!isInStudioQrPhone && !authorizedTerminalAuth) {
     return NextResponse.json(
       { error: "Cash payment is available only from an authorized studio terminal." },
       { status: 403 },
