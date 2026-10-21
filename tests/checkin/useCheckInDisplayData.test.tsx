@@ -289,6 +289,8 @@ describe("useCheckInDisplayData", () => {
     expect(snap.checkInQrLink).toContain("courseSlug=salsa-nocturno")
     expect(snap.checkInQrLink).toContain("date=2026-04-02")
     expect(snap.checkInQrLink).toContain("time=20%3A10")
+    expect(snap.checkInQrImage).toBe(snap.checkInQrLink)
+    expect(snap.checkInQrImage).not.toContain("api.qrserver.com")
   })
 
   it("does not jump to a future class when the terminal course has no slot today", async () => {

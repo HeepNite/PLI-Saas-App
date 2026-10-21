@@ -69,6 +69,7 @@ function WelcomeScreen({ searchParams }: { searchParams: URLSearchParams }) {
     date: searchParams.get("date") || "",
     time: searchParams.get("time") || "",
     durationMinutes,
+    kioskQrCashGrant: searchParams.get("kioskQrCashGrant") || undefined,
   })
 
   const handleNewClick = () => {

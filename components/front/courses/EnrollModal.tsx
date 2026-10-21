@@ -178,6 +178,7 @@ export default function EnrollModal({
   const checkInContextDuration = normalizeDurationMinutes(checkInContext?.durationMinutes)
   const bookingSource = checkInContext?.bookingSource
   const heritagePinCountryCode = checkInContext?.heritagePinCountryCode
+  const kioskQrCashGrant = checkInContext?.kioskQrCashGrant
   const isCheckInNewFlow = flowVariant === "checkin-new"
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
@@ -803,6 +804,7 @@ export default function EnrollModal({
     checkInContextDuration,
     bookingSource,
     heritagePinCountryCode,
+    kioskQrCashGrant,
     consecutiveAccepted,
     consecutiveAddedCents,
     effectiveConsecutiveOffer,

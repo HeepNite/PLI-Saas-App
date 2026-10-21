@@ -226,10 +226,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     return `${origin}${qrPath}?${params.toString()}`
   }, [activeCourseSlug, activeDate, activeTime, contextIsValid, origin, qrPath])
 
-  const checkInQrImage = React.useMemo(() => {
-    if (!checkInQrLink) return ""
-    return `https://api.qrserver.com/v1/create-qr-code/?size=220x220&format=png&data=${encodeURIComponent(checkInQrLink)}`
-  }, [checkInQrLink])
+  const checkInQrImage = checkInQrLink
 
   // ─── Bootstrap card data ────────────────────────────────────
   const bootstrapCourse = React.useMemo(
@@ -300,10 +297,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     params.set("fromQr", "1")
     return `${origin}${qrPath}?${params.toString()}`
   }, [latePaymentRecommendation, origin, qrPath, sourceCourses])
-  const latePaymentQrImage = React.useMemo(() => {
-    if (!latePaymentQrLink) return ""
-    return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&format=png&data=${encodeURIComponent(latePaymentQrLink)}`
-  }, [latePaymentQrLink])
+  const latePaymentQrImage = latePaymentQrLink
 
   // ─── Package offer ──────────────────────────────────────
   const showPackageOfferScreen = packageOfferContext !== null

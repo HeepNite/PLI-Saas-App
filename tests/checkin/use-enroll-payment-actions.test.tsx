@@ -171,6 +171,12 @@ describe("useEnrollPaymentActions", () => {
       expect(cashPayload.cashNote).toBe("leave at front desk")
     })
 
+    it("propagates the kiosk QR cash grant into checkout payloads", async () => {
+      const { getResult } = await renderHook(defaultInput({ kioskQrCashGrant: "signed.grant" }))
+
+      expect(getResult().buildCheckoutPayload()).toMatchObject({ kioskQrCashGrant: "signed.grant" })
+    })
+
     it("includes consecutive fields only when consecutiveAccepted is true and an offer is present", async () => {
       const offer: ConsecutiveOfferData = {
         linkedCourseSlug: "bjj-advanced",
