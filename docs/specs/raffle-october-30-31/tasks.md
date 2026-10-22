@@ -45,16 +45,16 @@
 - [x] Add the `RaffleDrawAttempt` model and additive migration, guarded attendance domain/route, and draw integration. The new migration was applied surgically to DEV and marked through Prisma without replaying the historical raffle migration.
 - [x] Add refresh-safe `Showed up` / `Draw again` tablet controls and replay the animation for a reroll.
 - [x] Run focused checks, relevant suite, typecheck, lint, differential checks for omitted/explicit video config, and independent high-risk verification. Relevant raffle suite passed 17 files/181 tests; TypeScript passed; full lint had zero errors and 114 warnings, followed by clean focused ESLint. Independent verification found legacy replay and pending-winner exclusion regressions; both were corrected and pinned with focused tests. Prisma validate passed with the DEV environment.
-- [ ] Deploy to DEV, rehearse both days visibly, and restore exact official empty/open state.
+- [x] Deploy to DEV, rehearse both days visibly, and restore exact official state. Day 30 and day 31 each proved audited no-show/confirmation behavior; the final S12 contract intentionally restores clean draws to `draft` rather than `open`.
 
 ## Phase 7 - Tablet Prize Authoring
 
 - [x] Resolve the product contract: prizes are authored independently on each tablet before live drawing, and an explicit `Start raffle` action permanently locks the list.
-- [ ] Add RED domain and API tests for add/edit/remove/reorder persistence, revision conflicts, start locking, malformed input, authorization, and unchanged registrations/schedules on rejection.
-- [ ] Implement all-draft `RaffleDraw` replacement and atomic draft-to-open start without another migration.
-- [ ] Add RED screen-state, reducer, and tablet tests for refresh-safe editing, ordering controls, explicit start confirmation, post-start lock, and existing live-screen behavior.
-- [ ] Implement the tablet prize editor and setup phase, then run focused checks, the relevant suite, TypeScript, lint, and independent high-risk verification.
-- [ ] Convert both clean October DEV placeholder draws to `draft`, deploy through reviewable PR slices, author multiple prizes visibly, start, draw in order, and restore exact official state.
+- [x] Add RED domain and API tests for add/edit/remove/reorder persistence, revision conflicts, start locking, malformed input, authorization, and unchanged registrations/schedules on rejection. RED: missing domain/route; GREEN: 2 files/18 tests.
+- [x] Implement all-draft `RaffleDraw` replacement and atomic draft-to-open start without another migration. Delivered through PRs #701 and #705.
+- [x] Add RED screen-state, reducer, and tablet tests for refresh-safe editing, ordering controls, explicit start confirmation, post-start lock, and existing live-screen behavior. Expected RED failures were observed for setup payload, setup phase, editor wiring, polling preservation, and ordered server progression.
+- [x] Implement the tablet prize editor and setup phase, then run focused checks, the relevant suite, TypeScript, lint, and independent high-risk verification. Delivered through PRs #706 and #708. Relevant raffle suite passed 19 files/199 tests; TypeScript and focused ESLint passed. Independent verification found polling overwrite and missing ordered progression; both were corrected and independently validated.
+- [x] Convert both clean October DEV placeholder draws to `draft`, deploy through reviewable PR slices, author multiple prizes visibly, start, draw in order, and restore exact official state. Day 31 visibly persisted three ordered prizes and completed one audited `no_show` plus three `confirmed` attempts across all three prizes. Guarded cleanup restored both events to one clean editable draft at the official schedule; independent verification returned READY.
 
 ## Operational Evidence
 
@@ -71,3 +71,6 @@
 - Day-30 rehearsal: QR registration, live entry count, countdown, draw, and winner reveal succeeded with four authorized synthetic entries. The yellow placeholder MP4 was rejected; cleanup restored zero entries, the official schedule, open status, and no winner.
 - Animation correction: both repeatable configs and both DEV rows now use explicit empty `videoUrl`, selecting the existing dark/gold `Sorteando` animation. Omitted-video behavior remains unchanged by differential check.
 - Attendance schema: additive `RaffleDrawAttempt` table is present in DEV with six columns, two foreign keys, three indexes, zero rows, and a finished Prisma ledger entry. The historical raffle migration was not replayed.
+- Prize authoring delivery: PRs #699, #701, #705, #706, and #708 passed CI and merged to `codex/develop`; DEV deployment `pli-saas-hkte69939-heepnites-projects.vercel.app` is explicitly aliased to `dev.palladiumlatin.art` and both tablet routes return 200.
+- Deployment incident: an accidental Vercel project was removed with explicit authorization; an unintended production deployment was no longer active when rollback was attempted, and production remained on its prior deployment. DEV deployment now requires a preview with complete `codex/develop` Git metadata before aliasing.
+- Final independent verification: both October events are distinct, have zero entries/attempts, one `draft` placeholder, no winner/timestamps, exact official schedules, explicit empty `videoUrl`, and eligible tablet setup state.
