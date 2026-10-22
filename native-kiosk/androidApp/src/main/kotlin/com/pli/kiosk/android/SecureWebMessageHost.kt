@@ -81,6 +81,9 @@ class SecureWebMessageHost(
     private val featureAvailable: Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER),
 ) {
     private val mainThread = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pushTarget = events?.let { channel ->
+        HostBoundWebEventTarget<JavaScriptReplyProxy>(channel, { task -> mainThread.post(task) }) { proxy, event -> reply(proxy, event) }
+    }
     private val adapter = bridge?.let { SecureWebMessageAdapter(admission, it) }
     private val enabled = canAttach(admission, collectionEnabled, featureAvailable, bridge)
     private var attached = false
@@ -97,7 +100,7 @@ class SecureWebMessageHost(
         if (invalidated) return
         invalidated = true
         adapter?.invalidate()
-        events?.invalidate()
+        pushTarget?.invalidate()
         if (attached && featureAvailable) WebViewCompat.removeWebMessageListener(webView, OBJECT_NAME)
         attached = false
     }
@@ -106,7 +109,7 @@ class SecureWebMessageHost(
         val response = adapter?.handle(sourceOrigin.toString(), isMainFrame, webView.url, message.data) ?: return@WebMessageListener
         reply(replyProxy, response)
         // Only an admitted message may become the push target; pushes hop to the UI thread.
-        events?.bind { event -> mainThread.post { if (!invalidated) reply(replyProxy, event) } }
+        pushTarget?.bindProxy(replyProxy)
     }
 
     private fun reply(proxy: JavaScriptReplyProxy, value: String) = proxy.postMessage(value)
@@ -115,5 +118,36 @@ class SecureWebMessageHost(
         const val OBJECT_NAME = "pliNativeBridge"
         fun canAttach(admission: SecureWebAdmission?, collectionEnabled: Boolean, featureAvailable: Boolean, bridge: SecureWebBridge?) =
             admission != null && collectionEnabled && featureAvailable && bridge != null
+    }
+}
+
+/**
+ * The push edge of exactly one host/WebView lifetime. Every push hops to [schedule] (the UI thread in
+ * production) and re-checks this host's validity there immediately before delivery, so nothing reaches
+ * a reply proxy after [invalidate]. Invalidation unbinds only this target from the shared channel.
+ */
+internal class HostBoundWebEventTarget<P : Any>(
+    private val events: NativeWebEvents,
+    private val schedule: (Runnable) -> Unit,
+    private val deliver: (P, String) -> Unit,
+) : NativeWebEventTarget {
+    @Volatile private var proxy: P? = null
+    @Volatile private var valid = true
+
+    fun bindProxy(next: P) {
+        if (!valid) return
+        proxy = next
+        events.bind(this)
+    }
+
+    override fun post(message: String) = schedule(Runnable {
+        val current = proxy
+        if (valid && current != null) deliver(current, message)
+    })
+
+    fun invalidate() {
+        valid = false
+        proxy = null
+        events.unbind(this)
     }
 }
