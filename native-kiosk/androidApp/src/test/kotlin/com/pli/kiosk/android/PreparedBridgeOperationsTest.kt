@@ -292,6 +292,30 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun collectionPromptReportsProcessingOnceTheCardIsReadAndClearsOnPaid() {
+        val prompts = mutableListOf<CollectionPrompt>()
+        val fixture = productionWorkflow(onCollectionPrompt = { prompts += it })
+
+        fixture.workflow.launch("operation", preparedReference()) {}
+        fixture.queued.runAll()
+
+        assertEquals(listOf(CollectionPrompt.PROCESSING, CollectionPrompt.NONE), prompts)
+    }
+
+    @Test
+    fun collectionPromptClearsWhenTheSaleIsRejected() {
+        val prompts = mutableListOf<CollectionPrompt>()
+        val fixture = productionWorkflow(failCollection = true, onCollectionPrompt = { prompts += it })
+        val results = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation", preparedReference()) { results += it }
+        fixture.queued.runAll()
+
+        assertEquals(PreparedRecoveryState.REJECTED, results.last())
+        assertEquals(listOf(CollectionPrompt.NONE), prompts)
+    }
+
+    @Test
     fun paidPreparedWorkflowAllowsAFreshSecondKioskSale() {
         val fixture = productionWorkflow()
         val first = mutableListOf<PreparedRecoveryState>()
@@ -468,6 +492,7 @@ class PreparedBridgeOperationsTest {
         bootstrapPermissionGranted: Boolean = true,
         beforeCollection: () -> Unit = {},
         backgroundExecutor: OperatorBackgroundExecutor? = null,
+        onCollectionPrompt: (CollectionPrompt) -> Unit = {},
     ): WorkflowFixture {
         val fixture = WorkflowFixture(failCollection, beforeCollection)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
@@ -501,6 +526,7 @@ class PreparedBridgeOperationsTest {
                 }.also { fixture.bootstrap = it }
             },
             fixture.ticket.readerId, clock = { 1_000L },
+            onCollectionPrompt = onCollectionPrompt,
         )
         return fixture
     }

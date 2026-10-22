@@ -67,6 +67,28 @@ class KioskApplicationPreparedBridgeTest {
     }
 
     @Test
+    fun readerStatusRequestIsAcceptedAndAnsweredThroughTheContextEvents() {
+        val events = NativeWebEvents()
+        val posted = mutableListOf<String>()
+        val context = requireNotNull(KioskApplication().preparePreparedBridgeContext(
+            enabled(), admission, workflowFactory = { RecordingWorkflow() }, events = events,
+        ))
+        events.readerStatus(ReaderStatus.CONNECTING)
+
+        val reply = context.bridge.dispatch(
+            "{\"version\":1,\"operation\":\"${NativeWebEvents.READ_STATUS}\",\"requestId\":\"status\",\"payload\":{}}",
+        )
+        context.events?.bind { posted += it }
+
+        assertEquals(SecureBridgeState.ACCEPTED, reply.state)
+        assertEquals(listOf("{\"version\":1,\"event\":\"readerStatus\",\"payload\":{\"status\":\"connecting\"}}"), posted)
+
+        context.lifecycleOwner.onApplicationBackgrounded()
+        events.readerStatus(ReaderStatus.CONNECTED)
+        assertEquals(1, posted.size)
+    }
+
+    @Test
     fun duplicateGeneratedOperationReferencesFailClosedWithoutLaunchingTwice() {
         val workflow = RecordingWorkflow()
         val context = requireNotNull(KioskApplication().preparePreparedBridgeContext(
