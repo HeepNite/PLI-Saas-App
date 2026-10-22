@@ -59,6 +59,23 @@ moment to tap.
 - [x] A3 — Keep the kiosk screen on (`FLAG_KEEP_SCREEN_ON`) so screen sleep (tablet timeout 10 min) never stops the
   Activity and releases the reader. Found during D1: owner disconnected with `DISCONNECT_REQUESTED` at 17:59 exactly
   10 min after connecting. Route: inline (one mechanical file + test). RED (unresolved constant) → GREEN, Android 248/248.
+- [x] A4 — Crash fix: stale web event target / WebView destroy (branch `fix/kiosk-stale-web-event-target`, commit `75420dfe`).
+  Route: delegated writer. Evidence: SM-T727V Android 11 debug APK, 2026-10-22 18:39:42.817 `reader disconnected
+  reason=DISCONNECT_REQUESTED`, 18:39:44.512 main-thread abort `JNI DETECTED ERROR ... use of deleted weak global
+  reference 0xefefefefefefefef` from `MessageQueue.nativePollOnce` into libwebviewchromium.so (SIGABRT).
+  Root cause analysis: the stale-proxy hypothesis is NOT confirmed by code. `NativeWebEvents` is per prepared context
+  (`KioskApplication.kt:365`, one per page admission), and every lifecycle path (onStop/onDestroy/navigation) already ran
+  `SecureWebMessageHost.invalidate()` (host flag + `events.invalidate()`) before `webView.destroy()`, so the posted
+  lambda dropped after invalidation. The DISCONNECT_REQUESTED line is the owner's own `terminal.disconnect()` on stop.
+  The confirmed contract violation is `KioskWebActivity.onDestroy` calling `webView.destroy()` while the WebView was
+  still attached to the window (Android requires removal from the view system first); this matches a Chromium-internal
+  weak-ref use-after-free on a later UI-loop task, but is not proven on device.
+  Fix: per-host `HostBoundWebEventTarget` (main-thread delivery, validity re-checked right before `postMessage`,
+  identity-checked `NativeWebEvents.unbind`, host invalidation never clears a newer host's binding);
+  `KioskWebActivity.releaseWebView` invalidates the host, detaches the WebView, then destroys it. Event schema and money
+  paths unchanged. TDD: RED (unresolved `unbind`/`HostBoundWebEventTarget`/`releaseWebView`) → GREEN, Android 255/255.
+  APK (prod origin, collection on) sha256 `eab4c562022c0ff3cdab3ea64036e5ddba092b314b6ef42fd0c78ebe5c5b002a`.
+  Pending: on-device reproduction (stop/resume/recreate cycles) to confirm the crash is gone.
 - [~] D1 — Physical validation (PR #716 web `esmthac5z` + APK `59a4225a…`), 2026-10-22:
   - Reader off at start: owner retried 17:49:42 / 17:49:57 / 17:50:17 (scan timeouts), connected by itself at 17:50:51 once powered on. PASS.
   - Screen slept at 17:59 → owner released reader (fixed by A3). After ~30 min unconnected but on USB power the M2 stayed awake:
@@ -83,3 +100,4 @@ moment to tap.
 - 2026-10-22 — Document created after the failed unplugged live test; owner approved the always-ready plan and the tap popup.
 - 2026-10-22 — A1, A2, W1, W2 implemented with strict TDD (RED observed per task). Next: D1 physical validation.
 - 2026-10-22 — D1 partial pass (auto-connect, reconnect after idle, live sale). A3 keep-screen-on added.
+- 2026-10-22 — A4 crash hardening committed (`75420dfe`); root cause not confirmed on device, needs recreate-cycle soak.
