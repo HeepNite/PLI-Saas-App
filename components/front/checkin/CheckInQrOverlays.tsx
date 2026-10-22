@@ -14,6 +14,7 @@ import {
 import { PhoneSignInModal } from "@/components/front/checkin/PhoneSignInModal"
 import KioskQrPaymentPanel from "@/components/front/checkin/KioskQrPaymentPanel"
 import { KioskQuickRepeatOverlay } from "@/components/front/checkin/KioskQuickRepeatOverlay"
+import { NativeTapToPayPopup } from "@/components/front/checkin/NativeTapToPayPopup"
 import { PACKAGE_CHECK_IN_MAX_ATTEMPTS, getPackageCheckInResolvingMessage } from "@/lib/checkin/existing-customer-flow"
 import type { CourseData } from "@/constants/courses"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
@@ -169,6 +170,7 @@ export function CheckInQrOverlays({
 }: CheckInQrOverlaysProps) {
   return (
     <>
+      <NativeTapToPayPopup />
       {showQuickRepeat && bootstrap && (
         <KioskQuickRepeatOverlay
           bootstrap={bootstrap}

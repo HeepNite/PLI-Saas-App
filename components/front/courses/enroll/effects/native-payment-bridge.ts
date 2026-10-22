@@ -297,6 +297,12 @@ export function getNativeCollectionPrompt(): NativeCollectionPrompt {
   return bridge() && bridge() === eventBridge ? collectionPrompt : "none"
 }
 
+export function clearNativeCollectionPrompt() {
+  if (collectionPrompt === "none") return
+  collectionPrompt = "none"
+  eventListeners.forEach((listener) => listener())
+}
+
 /** Only an explicit not-ready report gates the card; unknown keeps today's behavior (older apps). */
 export function nativeCardAvailability(status: NativeReaderStatus): { available: boolean; reason: string | null } {
   if (status === "connecting") return { available: false, reason: "Card reader is connecting…" }

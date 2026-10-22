@@ -1,4 +1,5 @@
 import {
+  clearNativeCollectionPrompt,
   handOffPreparedPurchase,
   isPreparedPurchaseResponse,
   pollPreparedPurchaseState,
@@ -57,5 +58,8 @@ export async function runNativePreparedCheckout({
     }
   } catch {
     return { kind: nativeHandoffStarted ? "reader_unresolved" : "prepare_failed" }
+  } finally {
+    // The sale is over for this page; a tap prompt the reader never cleared must not linger.
+    clearNativeCollectionPrompt()
   }
 }
