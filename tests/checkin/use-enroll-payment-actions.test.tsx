@@ -124,7 +124,9 @@ describe("useEnrollPaymentActions", () => {
     root = null
     container = null
     result = null
+    delete (window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState
     vi.unstubAllGlobals()
+    vi.useRealTimers()
   })
 
   const renderHook = async (input: UseEnrollPaymentActionsInput) => {
@@ -267,7 +269,7 @@ describe("useEnrollPaymentActions", () => {
       expect(setFormError).not.toHaveBeenCalled()
     })
 
-    it("sends prepareOnly:true in the checkout payload", async () => {
+    it("sends ordinary prepareOnly without a native context refresh", async () => {
       const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ account: { hasAvatar: false } }))
       vi.stubGlobal("fetch", fetchMock)
       const { getResult } = await renderHook(defaultInput())
@@ -278,6 +280,7 @@ describe("useEnrollPaymentActions", () => {
       expect(call[0]).toBe("/api/checkout/intent")
       const body = JSON.parse(call[1].body as string)
       expect(body.prepareOnly).toBe(true)
+      expect(body.refreshKioskPreparedContext).toBeUndefined()
     })
 
     it("sets a form error and returns null when account data is missing/invalid", async () => {
@@ -688,10 +691,10 @@ describe("useEnrollPaymentActions", () => {
   })
 
   // ---------------------------------------------------------------------
-  // handleSubmit — kiosk terminal QR/card path
+  // handleSubmit — kiosk terminal QR/card fallback path
   // ---------------------------------------------------------------------
   describe("handleSubmit — kiosk terminal stripe (QR) path", () => {
-    it("starts kiosk QR checkout and does not call the regular stripe intent endpoint", async () => {
+    it("starts kiosk QR checkout when the native bridge is unavailable", async () => {
       const fetchMock = vi.fn(async () => jsonResponse({ sessionId: "s", url: "https://pay" }))
       vi.stubGlobal("fetch", fetchMock)
       const setProcessing = vi.fn()
@@ -708,6 +711,27 @@ describe("useEnrollPaymentActions", () => {
 
       expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
       expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
+      expect(setProcessing).toHaveBeenCalledWith(true)
+      expect(setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it("fails closed without creating QR or embedded checkout when the Android WebView bridge is unavailable", async () => {
+      vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Linux; Android 11; SM-T500; wv) Version/4.0 Chrome/131" })
+      const fetchMock = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+      const setProcessing = vi.fn()
+      const setFormError = vi.fn()
+      const { getResult } = await renderHook(defaultInput({
+        paymentMethod: "stripe",
+        isKioskTerminalFlow: true,
+        setProcessing,
+        setFormError,
+      }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(setFormError).toHaveBeenLastCalledWith("Card reader connection is unavailable. Reopen the PLI app and try again.")
       expect(setProcessing).toHaveBeenCalledWith(true)
       expect(setProcessing).toHaveBeenLastCalledWith(false)
     })
@@ -753,20 +777,18 @@ describe("useEnrollPaymentActions", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
     })
 
-    it("shows an alert and stops processing when the QR checkout throws", async () => {
-      vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down") }))
-      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-      const setProcessing = vi.fn()
-      const setKioskQrCheckout = vi.fn()
+    it("does not open the modal when the terminal checkout intent fails", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "Card declined" }, { status: 402, ok: false })))
+      const setShowStripeModal = vi.fn()
+      const setStripeClientSecret = vi.fn()
       const { getResult } = await renderHook(
-        defaultInput({ isKioskTerminalFlow: true, setProcessing, setKioskQrCheckout })
+        defaultInput({ isKioskTerminalFlow: true, setShowStripeModal, setStripeClientSecret })
       )
 
       await getResult().handleSubmit()
 
-      expect(alertSpy).toHaveBeenCalledWith("We couldn't start the QR payment. Please try again.")
-      expect(setProcessing).toHaveBeenLastCalledWith(false)
-      alertSpy.mockRestore()
+      expect(setStripeClientSecret).not.toHaveBeenCalled()
+      expect(setShowStripeModal).not.toHaveBeenCalled()
     })
   })
 
@@ -880,6 +902,39 @@ describe("useEnrollPaymentActions", () => {
       expect(fetchMock).toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
       expect(setStripeClientSecret).toHaveBeenCalledWith("secret_abc")
       expect(setShowStripeModal).toHaveBeenCalledWith(true)
+    })
+
+    it("keeps QR-phone check-in on hosted checkout with its payload and redirect attempt", async () => {
+      const hostedUrl = "https://checkout.stripe.test/session"
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ url: hostedUrl }))
+      vi.stubGlobal("fetch", fetchMock)
+      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+      const setProcessing = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({
+          isCheckInFlow: true,
+          isKioskTerminalFlow: false,
+          photoFlowContext: "qr_phone",
+          setProcessing,
+        })
+      )
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+      expect(fetchMock).not.toHaveBeenCalledWith("/api/checkout/intent", expect.anything())
+      const sessionInit = fetchMock.mock.calls[0]?.[1]
+      expect(sessionInit).toBeDefined()
+      if (!sessionInit) throw new Error("Expected checkout-session request options")
+      expect(JSON.parse(sessionInit.body as string)).toMatchObject({
+        photoContext: "qr_phone",
+        checkInBooking: true,
+      })
+      // jsdom does not expose cross-origin Location writes. A returned hosted URL
+      // must therefore leave submission in its redirect state without alerting.
+      expect(alertSpy).not.toHaveBeenCalled()
+      expect(setProcessing).toHaveBeenCalledWith(true)
+      expect(setProcessing).not.toHaveBeenCalledWith(false)
     })
 
     it("sends the exact cents amount and service/package ids in the intent payload", async () => {
@@ -1196,6 +1251,283 @@ describe("useEnrollPaymentActions", () => {
       expect(alertSpy).toHaveBeenCalledWith("We couldn't register the cash payment. Please try again.")
       expect(setProcessing).toHaveBeenLastCalledWith(false)
       alertSpy.mockRestore()
+    })
+  })
+
+  describe("native prepared kiosk handoff", () => {
+    const reference = "A".repeat(43)
+    const NATIVE_READER_UNRESPONSIVE = "The card reader did not respond. Please try again or choose another payment method."
+    const installBridge = (postMessage: (message: string) => void) => {
+      ;(window as unknown as { pliNativeBridge?: { postMessage: (message: string) => void; onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge = { postMessage }
+    }
+
+    it("refreshes account context before native preparation, hands off once, and keeps the action locked", async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (_url, init) => {
+        const payload = JSON.parse(init.body as string)
+        return payload.prepareOnly
+          ? jsonResponse({ account: { hasAvatar: false } })
+          : jsonResponse({ preparedPurchaseReference: reference, state: "prepared" })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      // The admitted operation stays in flight: native never answers the state poll here.
+      const postMessage = vi.fn((raw: string) => {
+        const request = JSON.parse(raw)
+        if (request.operation !== "startPreparedPurchase") return
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: request.requestId, payload: { operationReference: "op_1", state: "accepted" } }) })
+      })
+      installBridge(postMessage)
+      const setProcessing = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true, setProcessing }))
+
+      const first = getResult().handleSubmit()
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2))
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string))).toMatchObject([
+        { prepareOnly: true, paymentSurface: "embedded", refreshKioskPreparedContext: true, kioskCurrentCourseDuration: 60 },
+        { paymentSurface: "native_m2_prepare", amount: 2500, serviceId: "regular" },
+      ])
+      expect(setProcessing).toHaveBeenCalledWith(true)
+      expect(setProcessing).not.toHaveBeenLastCalledWith(false)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await first
+    })
+
+    it("stops before native preparation or embedded checkout when account refresh fails", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ error: "Account refresh failed" }, { status: 500, ok: false }))
+      vi.stubGlobal("fetch", fetchMock)
+      const postMessage = vi.fn()
+      installBridge(postMessage)
+      const setFormError = vi.fn()
+      const setProcessing = vi.fn()
+      const setShowStripeModal = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true, setFormError, setProcessing, setShowStripeModal }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toMatchObject({
+        prepareOnly: true, paymentSurface: "embedded", refreshKioskPreparedContext: true,
+      })
+      expect(postMessage).not.toHaveBeenCalled()
+      expect(setFormError).toHaveBeenCalledWith("Account refresh failed")
+      expect(setShowStripeModal).not.toHaveBeenCalled()
+      expect(setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it.each(["non-ok", "malformed"] as const)("does not fall back to embedded checkout when native preparation is %s", async (mode) => {
+      const fetchMock = vi.fn()
+        .mockResolvedValueOnce(jsonResponse({ account: { hasAvatar: false } }))
+        .mockResolvedValueOnce(
+          mode === "non-ok"
+            ? jsonResponse({ error: "Native reader unavailable" }, { status: 409, ok: false })
+            : jsonResponse({ preparedPurchaseReference: reference, state: "prepared", extra: true })
+        )
+      vi.stubGlobal("fetch", fetchMock)
+      const postMessage = vi.fn()
+      installBridge(postMessage)
+      const setFormError = vi.fn()
+      const setProcessing = vi.fn()
+      const setShowStripeModal = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true, setFormError, setProcessing, setShowStripeModal }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string).paymentSurface)).toEqual(["embedded", "native_m2_prepare"])
+      expect(fetchMock.mock.calls.filter(([, init]) => {
+        const payload = JSON.parse(init.body as string)
+        return payload.paymentSurface === "embedded" && !payload.prepareOnly
+      })).toHaveLength(0)
+      expect(postMessage).not.toHaveBeenCalled()
+      expect(setFormError).toHaveBeenCalledWith("We couldn't prepare native payment. Please try again.")
+      expect(setShowStripeModal).not.toHaveBeenCalled()
+      expect(setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it("serializes preparation before native admission", async () => {
+      vi.useFakeTimers()
+      let resolvePreparation!: (response: Response) => void
+      let calls = 0
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(() => {
+        calls += 1
+        return calls === 1
+          ? new Promise<Response>((resolve) => { resolvePreparation = resolve })
+          : Promise.resolve(jsonResponse({ preparedPurchaseReference: reference, state: "prepared" }))
+      })
+      const postMessage = vi.fn((raw: string) => {
+        const request = JSON.parse(raw)
+        if (request.operation !== "startPreparedPurchase") return
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: request.requestId, payload: { operationReference: "op_1", state: "accepted" } }) })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      installBridge(postMessage)
+      const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+
+      const first = getResult().handleSubmit()
+      void getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      resolvePreparation(jsonResponse({ account: { hasAvatar: false } }))
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2))
+      await getResult().handleSubmit()
+
+      expect(postMessage).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock.mock.calls.filter(([, init]) => {
+        const payload = JSON.parse(init.body as string)
+        return payload.paymentSurface === "embedded" && !payload.prepareOnly
+      })).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(5_000)
+      await first
+    })
+
+    it("shows the exact amount only after exact-operation PAID, then uses the shared reset after five seconds", async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+        const payload = JSON.parse(init.body as string)
+        return payload.prepareOnly
+          ? jsonResponse({ account: { hasAvatar: false } })
+          : jsonResponse({ preparedPurchaseReference: reference, state: "prepared" })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      installBridge((raw) => {
+        const request = JSON.parse(raw)
+        const response = request.operation === "startPreparedPurchase"
+          ? { operationReference: "op_1", state: "accepted" }
+          : { operationReference: "op_1", state: "paid" }
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: request.operation, requestId: request.requestId, payload: response }) })
+      })
+      const setSuccess = vi.fn()
+      const setSuccessMessage = vi.fn()
+      const resetCompletedKiosk = vi.fn()
+      const input = defaultInput({ isKioskTerminalFlow: true, total: 25, setSuccess, setSuccessMessage })
+      ;(input as typeof input & { onNativePaymentApproved?: () => void }).onNativePaymentApproved = resetCompletedKiosk
+      const { getResult } = await renderHook(input)
+
+      await getResult().handleSubmit()
+
+      expect(setSuccessMessage).toHaveBeenCalledWith("Payment approved — $25.00")
+      expect(setSuccess).toHaveBeenCalledWith(true)
+      expect(resetCompletedKiosk).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(4_999)
+      expect(resetCompletedKiosk).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(resetCompletedKiosk).toHaveBeenCalledTimes(1)
+    })
+
+    it.each(["rejected", "malformed", "unknown", "unresolved", "timeout"] as const)("releases admitted %s state with a visible error and no success, reset, fallback, or automatic re-preparation", async (mode) => {
+      if (mode === "timeout") vi.useFakeTimers()
+      const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+        const payload = JSON.parse(init.body as string)
+        return payload.prepareOnly
+          ? jsonResponse({ account: { hasAvatar: false } })
+          : jsonResponse({ preparedPurchaseReference: reference, state: "prepared" })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const postMessage = vi.fn((raw: string) => {
+        const request = JSON.parse(raw)
+        if (request.operation === "startPreparedPurchase") {
+          ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: request.operation, requestId: request.requestId, payload: { operationReference: "op_1", state: "accepted" } }) })
+          return
+        }
+        if (mode === "timeout") return
+        const payload = mode === "malformed"
+          ? {}
+          : { operationReference: "op_1", state: mode === "unknown" ? "accepted" : "rejected", ...(mode === "unresolved" ? { error: "UNRESOLVED" } : {}) }
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: request.operation, requestId: request.requestId, payload }) })
+      })
+      installBridge(postMessage)
+      const setSuccess = vi.fn()
+      const setShowStripeModal = vi.fn()
+      const setProcessing = vi.fn()
+      const setFormError = vi.fn()
+      const resetCompletedKiosk = vi.fn()
+      const input = defaultInput({ isKioskTerminalFlow: true, setSuccess, setShowStripeModal, setProcessing, setFormError })
+      ;(input as typeof input & { onNativePaymentApproved?: () => void }).onNativePaymentApproved = resetCompletedKiosk
+      const { getResult } = await renderHook(input)
+
+      const submitted = getResult().handleSubmit()
+      if (mode === "timeout") await vi.advanceTimersByTimeAsync(5_000)
+      await submitted
+
+      expect(postMessage).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(setSuccess).not.toHaveBeenCalled()
+      expect(resetCompletedKiosk).not.toHaveBeenCalled()
+      expect(setShowStripeModal).not.toHaveBeenCalled()
+      expect(setFormError).toHaveBeenLastCalledWith(NATIVE_READER_UNRESPONSIVE)
+      expect(setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it.each(["throws", "timeout", "malformed", "rejected"])("never requests an embedded intent after post-dispatch %s and releases processing with an error", async (mode) => {
+      if (mode === "timeout") vi.useFakeTimers()
+      const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+        const payload = JSON.parse(init.body as string)
+        return payload.prepareOnly
+          ? jsonResponse({ account: { hasAvatar: false } })
+          : jsonResponse({ preparedPurchaseReference: reference, state: "prepared" })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      installBridge((raw) => {
+        if (mode === "throws") throw new Error("ambiguous")
+        if (mode === "timeout") return
+        const request = JSON.parse(raw)
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify(mode === "malformed" ? {} : { version: 1, operation: "startPreparedPurchase", requestId: request.requestId, payload: { operationReference: "op_1", state: "rejected" } }) })
+      })
+      const setProcessing = vi.fn()
+      const setFormError = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ isKioskTerminalFlow: true, setProcessing, setFormError }))
+
+      const submission = getResult().handleSubmit()
+      if (mode === "timeout") await vi.advanceTimersByTimeAsync(5_000)
+      await submission
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(setFormError).toHaveBeenLastCalledWith(NATIVE_READER_UNRESPONSIVE)
+      expect(setProcessing).toHaveBeenLastCalledWith(false)
+    })
+  })
+
+  describe("native attempt-state global", () => {
+    it("installs an input-free kiosk-only closed-state reader without payment side effects", async () => {
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async () => jsonResponse({ state: "pending_without_payment" }))
+      const postMessage = vi.fn()
+      vi.stubGlobal("fetch", fetchMock)
+      ;(window as unknown as { pliNativeBridge?: { postMessage: (message: string) => void } }).pliNativeBridge = { postMessage }
+      await renderHook(defaultInput({ isKioskTerminalFlow: true, kioskSessionToken: "kiosk-token" }))
+      const reader = (window as unknown as { pliNativeAttemptState?: () => Promise<unknown> }).pliNativeAttemptState
+      expect(reader).toBeTypeOf("function")
+      await expect(reader!()).resolves.toEqual({ state: "pending_without_payment" })
+      expect(fetchMock).toHaveBeenCalledWith("/api/checkout/native-attempt-state", expect.objectContaining({ method: "POST", credentials: "include" }))
+      const [, init] = fetchMock.mock.calls[0]!
+      expect(JSON.parse(init.body as string)).toMatchObject({ kioskSessionToken: "kiosk-token" })
+      expect(postMessage).not.toHaveBeenCalled()
+    })
+
+    it("returns only PAYMENT_UNRESOLVED for malformed or failed responses", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ state: "paid", extra: true })))
+      await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+      const reader = (window as unknown as { pliNativeAttemptState: () => Promise<unknown> }).pliNativeAttemptState
+      await expect(reader()).resolves.toEqual({ state: "payment_unresolved" })
+    })
+
+    it("does not install outside kiosk flow, does not clobber, and cleans up its own global", async () => {
+      await renderHook(defaultInput())
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBeUndefined()
+      const existing = () => Promise.resolve({ state: "paid" })
+      ;(window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState = existing
+      await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBe(existing)
+      delete (window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState
+      await act(async () => root?.unmount())
+      root = null
+      await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBeTypeOf("function")
+      await act(async () => root?.unmount())
+      root = null
+      expect((window as unknown as { pliNativeAttemptState?: unknown }).pliNativeAttemptState).toBeUndefined()
     })
   })
 })

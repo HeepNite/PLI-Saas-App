@@ -61,6 +61,11 @@ describe("CourseCardPanel", () => {
       )
     })
 
+    const currentCourseHeadings = Array.from(container.querySelectorAll("p")).filter(
+      (element) => element.textContent === "Current Course"
+    )
+
+    expect(currentCourseHeadings).toHaveLength(1)
     expect(container.textContent).toContain("Bachata Intermediate")
     expect(container.textContent).toContain("9:10 PM")
     expect(container.textContent).toContain("Start current check-in")

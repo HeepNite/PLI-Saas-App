@@ -12,7 +12,18 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 import { normalizePhoneKey } from "@/lib/checkin/new-student-flow"
 import { buildEnrollCheckoutPayload } from "@/components/front/courses/enroll/model/checkout-payload"
+import { completeNativePaymentLifecycle } from "@/components/front/courses/enroll/native-payment-completion"
 import { createKioskSessionCheckoutPayloadFields } from "@/lib/checkin/enroll-flow"
+import {
+  NATIVE_PREPARE_FAILED_MESSAGE,
+  NATIVE_READER_UNRESPONSIVE_MESSAGE,
+  runNativePreparedCheckout,
+} from "@/components/front/courses/enroll/native-prepared-checkout"
+import {
+  isNativeKioskWebView,
+  isNativePaymentBridgeAvailable,
+  recoverNativeKioskBridge,
+} from "@/components/front/courses/enroll/effects/native-payment-bridge"
 import {
   requestCheckoutCashApi,
   requestCheckoutIntentApi,
@@ -79,6 +90,7 @@ export type UseEnrollPaymentActionsInput = {
   setNewStudentFallbackPhoneKey: SetState<string | null>
   setFlowPopup: SetState<{ title: string; message: string } | null>
   setResumeContactFlowAfterSignIn: SetState<boolean>
+  onNativePaymentApproved?: () => void
   // Narrowed to the exact keys this hook calls, with no vars/params (matches the actual
   // call sites below), so the live useI18n().t-typed by a strict key union and an
   // I18nVars-shaped second argument-remains assignable here without widening the real
@@ -93,14 +105,34 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     checkInContextDate, checkInContextTime, checkInContextDuration,
     bookingSource, heritagePinCountryCode, kioskQrCashGrant, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
     isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
-    paymentsStepIndex, infoStepIndex, regularServiceId, regularServicePrice,
+    paymentsStepIndex, regularServiceId, regularServicePrice,
     getToken,
     setService, setStep, setSuccess, setSuccessMessage, setProcessing, setFormError,
     setRequiresSignIn, setExistingAccountDetected, setResumeAfterSignInStep, setPendingAutoPay,
-    setKioskQrCheckout, setSignInPurpose, setStripeClientSecret, setShowStripeModal,
-    setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup, setResumeContactFlowAfterSignIn,
-    t,
+    setKioskQrCheckout, setStripeClientSecret, setShowStripeModal,
+    setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup,
+    onNativePaymentApproved, t,
   } = input
+  const nativeAttemptRef = React.useRef(false)
+  const nativeResetTimeoutRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => () => {
+    if (nativeResetTimeoutRef.current !== null) window.clearTimeout(nativeResetTimeoutRef.current)
+  }, [])
+
+  const completeNativePayment = React.useCallback(() => {
+    nativeResetTimeoutRef.current = completeNativePaymentLifecycle({
+      total,
+      setProcessing,
+      setSuccess,
+      setSuccessMessage,
+      onComplete: () => {
+        nativeResetTimeoutRef.current = null
+        nativeAttemptRef.current = false
+        onNativePaymentApproved?.()
+      },
+    })
+  }, [onNativePaymentApproved, setProcessing, setSuccess, setSuccessMessage, total])
 
   const isPublicQuoteEligible =
     bookingSource === "public_booking" &&
@@ -147,16 +179,12 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       }),
     [
       addons,
-      appliedCoupon?.code,
-      contact.email,
-      contact.firstName,
-      contact.lastName,
-      contact.phone,
+      appliedCoupon,
+      contact,
       consecutiveAccepted,
       consecutiveAddedCents,
       effectiveConsecutiveOffer,
-      course.slug,
-      course.title,
+      course,
       date,
       participants,
       photoFlowContext,
@@ -165,7 +193,6 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       bookingSource,
       heritagePinCountryCode,
       kioskQrCashGrant,
-      infoStepIndex,
       pkg,
       kioskSessionToken,
       service,
@@ -227,6 +254,23 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
   }, [buildCheckoutPayload, getToken, isPublicQuoteEligible, isSignedIn])
 
+  React.useEffect(() => {
+    const target = window as typeof window & { pliNativeAttemptState?: unknown }
+    if (!isKioskTerminalFlow || "pliNativeAttemptState" in target) return
+    const unresolved = { state: "payment_unresolved" as const }
+    const reader = async () => {
+      try {
+        const response = await fetch("/api/checkout/native-attempt-state", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify(buildCheckoutPayload({ kioskCurrentCourseDuration: checkInContextDuration })) })
+        const value: unknown = await response.json()
+        if (!response.ok || !value || typeof value !== "object" || Array.isArray(value)) return unresolved
+        const record = value as Record<string, unknown>
+        return Object.keys(record).length === 1 && typeof record.state === "string" && ["absent", "pending_without_payment", "payment_unresolved", "paid", "rejected"].includes(record.state) ? { state: record.state as typeof unresolved.state } : unresolved
+      } catch { return unresolved }
+    }
+    target.pliNativeAttemptState = reader
+    return () => { if (target.pliNativeAttemptState === reader) delete target.pliNativeAttemptState }
+  }, [buildCheckoutPayload, checkInContextDuration, isKioskTerminalFlow])
+
   const requestNewStudentOutcome = React.useCallback(async (): Promise<NewStudentVerifyResponse | null> => {
     const { res, data } = await requestNewStudentOutcomeApi({ phone: contact.phone })
     if (!res.ok || !data || typeof data.outcome !== "string") {
@@ -240,9 +284,17 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     return data as NewStudentVerifyResponse
   }, [contact.phone, setFormError])
 
-  const requestAccountPreparation = React.useCallback(async (): Promise<PreparedAccountState | null> => {
+  const requestAccountPreparation = React.useCallback(async (
+    options: { refreshKioskPreparedContext?: boolean } = {}
+  ): Promise<PreparedAccountState | null> => {
     const { res, data } = await requestCheckoutIntentApi({
-      payload: buildCheckoutPayload({ prepareOnly: true }),
+      payload: buildCheckoutPayload({
+        prepareOnly: true,
+        ...(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+        ...(options.refreshKioskPreparedContext === true
+          ? { refreshKioskPreparedContext: true, kioskCurrentCourseDuration: checkInContextDuration }
+          : {}),
+      }),
     })
     const account = data?.account as PreparedAccountState | undefined
     if (!res.ok || !account || typeof account.hasAvatar !== "boolean") {
@@ -255,7 +307,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
     setPreparedAccount(account)
     return account
-  }, [buildCheckoutPayload, setFormError, setPreparedAccount])
+  }, [buildCheckoutPayload, checkInContextDuration, isKioskTerminalFlow, setFormError, setPreparedAccount])
 
   const showRegularFallbackPopup = React.useCallback(
     (message?: string) => {
@@ -377,7 +429,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
   ) => {
     if (e) e.preventDefault()
-    if (processing) return
+    if (processing || nativeAttemptRef.current) return
     setFormError(null)
     if (deps) {
       const validationIssue = deps.validateBeforeSubmit()
@@ -399,7 +451,13 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
     setProcessing(true)
 
-    if (paymentMethod === "stripe" && isKioskTerminalFlow) {
+    if (paymentMethod === "stripe" && isKioskTerminalFlow && !isNativePaymentBridgeAvailable()) {
+      if (isNativeKioskWebView()) {
+        recoverNativeKioskBridge()
+        setFormError("Card reader connection is unavailable. Reopen the PLI app and try again.")
+        setProcessing(false)
+        return
+      }
       try {
         await startKioskQrCheckout()
       } catch (err) {
@@ -628,17 +686,55 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
 
     if (paymentMethod === "stripe") {
+      if (isKioskTerminalFlow && isNativePaymentBridgeAvailable()) {
+        nativeAttemptRef.current = true
+        const result = await runNativePreparedCheckout({
+          refreshPreparedContext: async () => Boolean(await requestAccountPreparation({ refreshKioskPreparedContext: true })),
+          requestPreparedPurchase: async () => requestCheckoutIntentApi({
+            token: isSignedIn ? await getToken({ skipCache: true }) : null,
+            payload: buildCheckoutPayload({
+              paymentSurface: "native_m2_prepare",
+              kioskCurrentCourseDuration: checkInContextDuration,
+            }),
+          }),
+        })
+        if (result.kind === "paid") {
+          completeNativePayment()
+          return
+        }
+        // Every non-paid native outcome releases the action with a visible error. It never
+        // re-prepares automatically or falls back to another payment surface.
+        if (result.kind === "prepare_failed") setFormError(NATIVE_PREPARE_FAILED_MESSAGE)
+        if (result.kind === "reader_unresolved") setFormError(NATIVE_READER_UNRESPONSIVE_MESSAGE)
+        nativeAttemptRef.current = false
+        setProcessing(false)
+        return
+      }
+      if (isKioskTerminalFlow) {
+        recoverNativeKioskBridge()
+        setFormError("Card reader connection is unavailable. Reopen the PLI app and try again.")
+        setProcessing(false)
+        return
+      }
       try {
         const endpoint = bookingSource === "public_booking" ? "/api/public/checkout/intent" : undefined
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutIntentApi({ token, payload: buildCheckoutPayload(), endpoint })
+        let result = await requestCheckoutIntentApi({
+          token,
+          payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+          endpoint,
+        })
         const code = typeof result.data?.code === "string" ? result.data.code : undefined
         if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
           await new Promise((resolve) => window.setTimeout(resolve, 350))
           const refreshed = await getToken({ skipCache: true })
           if (refreshed) {
             token = refreshed
-            result = await requestCheckoutIntentApi({ token, payload: buildCheckoutPayload(), endpoint })
+            result = await requestCheckoutIntentApi({
+              token,
+              payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+              endpoint,
+            })
           }
         }
         if (!result.res.ok) {
