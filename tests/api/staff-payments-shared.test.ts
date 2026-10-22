@@ -334,6 +334,30 @@ describe("staff payments shared helpers", () => {
     expect(balances.get("user_never_completed")).toBe(2500)
   })
 
+  it("excludes native M2 preparations that never obtained a PaymentIntent from outstanding balance", () => {
+    const balances = buildOutstandingBalanceByUser([
+      {
+        userId: "user_native_prepared",
+        amount: 100,
+        metadata: { paymentSurface: "native_m2_prepare" },
+        status: "pending",
+        stripePaymentIntentId: null,
+        stripeCheckoutSessionId: null,
+      },
+      {
+        userId: "user_native_started",
+        amount: 100,
+        metadata: { paymentSurface: "native_m2_prepare" },
+        status: "pending",
+        stripePaymentIntentId: "pi_started",
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    expect(balances.get("user_native_prepared")).toBeUndefined()
+    expect(balances.get("user_native_started")).toBe(100)
+  })
+
   it("suppresses a never-completed card attempt only once its own course+date is already paid", () => {
     const expiredAttempt = (userId: string) => ({
       userId, amount: 2500, courseSlug: "salsa-beginners",
