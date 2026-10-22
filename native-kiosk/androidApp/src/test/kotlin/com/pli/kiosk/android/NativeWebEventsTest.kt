@@ -1,6 +1,7 @@
 package com.pli.kiosk.android
 
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.Test
 
@@ -174,5 +175,47 @@ class NativeWebEventsTest {
             listOf("page-b" to """{"version":1,"event":"collectionPrompt","payload":{"prompt":"awaiting_card"}}"""),
             delivered,
         )
+    }
+    @Test
+    fun `a replaced document never receives a push and a late message from it cannot rebind`() {
+        val events = NativeWebEvents()
+        val queue = ArrayDeque<Runnable>()
+        val delivered = mutableListOf<Pair<String, String>>()
+        val target = HostBoundWebEventTarget<String>(events, queue::addLast) { proxy, message -> delivered += proxy to message }
+
+        target.bindProxy("old-page")
+        events.readerStatus(ReaderStatus.DISCONNECTED)
+        target.retireDocument()
+        events.collectionPrompt(CollectionPrompt.AWAITING_CARD)
+        assertFalse(target.bindProxy("old-page"))
+        assertTrue(target.isRetired("old-page"))
+        events.readerStatus(ReaderStatus.CONNECTED)
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+        assertTrue(delivered.isEmpty())
+
+        assertTrue(target.bindProxy("new-page"))
+        events.collectionPrompt(CollectionPrompt.PROCESSING)
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+
+        assertEquals(
+            listOf("new-page" to """{"version":1,"event":"collectionPrompt","payload":{"prompt":"processing"}}"""),
+            delivered,
+        )
+    }
+
+    @Test
+    fun `a push queued for one document generation is dropped when a newer document binds first`() {
+        val events = NativeWebEvents()
+        val queue = ArrayDeque<Runnable>()
+        val delivered = mutableListOf<Pair<String, String>>()
+        val target = HostBoundWebEventTarget<String>(events, queue::addLast) { proxy, message -> delivered += proxy to message }
+
+        target.bindProxy("old-page")
+        events.readerStatus(ReaderStatus.DISCONNECTED)
+        target.retireDocument()
+        target.bindProxy("new-page")
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+
+        assertTrue(delivered.isEmpty())
     }
 }
