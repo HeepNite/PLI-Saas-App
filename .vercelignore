@@ -1,0 +1,3 @@
+.build/
+native-kiosk/.kotlin/
+native-kiosk/**/build/

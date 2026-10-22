@@ -265,11 +265,16 @@ const buildCompletedClassKeysByUser = <TPurchase extends OutstandingBalancePurch
 const hasCompletedSiblingClass = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase, keysByUser: Map<string, Set<string>>) =>
   Boolean(purchase.courseSlug) && (keysByUser.get(purchase.userId)?.has(classKey(purchase.courseSlug!, asText(asObject(purchase.metadata).date))) ?? false)
 
+const isUnchargedNativeM2Preparation = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) =>
+  asText(asObject(purchase.metadata).paymentSurface) === "native_m2_prepare" && !purchase.stripePaymentIntentId
+
 export const buildOutstandingBalanceByUser = <TPurchase extends OutstandingBalancePurchase>(purchases: TPurchase[]) => {
   const totals = new Map<string, number>()
   const completedClasses = buildCompletedClassKeysByUser(purchases)
 
   for (const purchase of purchases) {
+    if (isUnchargedNativeM2Preparation(purchase)) continue
+
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
     if (isTerminalUnpaidCardAttempt(purchase) && hasCompletedSiblingClass(purchase, completedClasses)) continue
