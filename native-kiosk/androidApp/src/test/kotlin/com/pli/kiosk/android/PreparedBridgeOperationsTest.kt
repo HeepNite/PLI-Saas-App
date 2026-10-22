@@ -33,6 +33,20 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun aPendingSaleIsReportedSoAReloadCannotSilentlyOrphanIt() {
+        var complete: ((PreparedRecoveryState) -> Unit)? = null
+        val operations = PreparedBridgeOperations(PreparedBridgeWorkflow { _, _, callback -> complete = callback })
+        val bridge = bridge(operations)
+        assertFalse(operations.hasPendingOperation())
+
+        bridge.dispatch(request("one", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference()}\"}"))
+        assertTrue(operations.hasPendingOperation())
+
+        complete?.invoke(PreparedRecoveryState.PAID)
+        assertFalse(operations.hasPendingOperation())
+    }
+
+    @Test
     fun diagnosticRoundTripHasAnEmptySchemaAndCannotLaunchThePreparedWorkflow() {
         var launches = 0
         val operations = PreparedBridgeOperations(PreparedBridgeWorkflow { _, _, _ -> launches++ })
