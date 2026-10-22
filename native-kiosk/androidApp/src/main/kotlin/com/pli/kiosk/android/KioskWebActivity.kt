@@ -281,14 +281,22 @@ class KioskWebActivity : Activity() {
     }
 
     override fun onDestroy() {
-        lifecycle?.onDestroy()
-        webView?.destroy()
+        releaseWebView(webView) { lifecycle?.onDestroy() }
+        webView = null
         super.onDestroy()
     }
 
     companion object {
         // A self check-in kiosk never sleeps: screen-off stops the Activity, which releases the reader connection.
         const val KIOSK_WINDOW_FLAGS = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        /** Invalidates the host first, then detaches the WebView as WebView.destroy() requires, then destroys it. */
+        internal fun releaseWebView(view: WebView?, invalidateHost: () -> Unit) {
+            invalidateHost()
+            if (view == null) return
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            view.destroy()
+        }
+
         internal fun isExactTerminalCompletion(admission: SecureWebAdmission, completedUrl: String?, currentUrl: String?) =
             completedUrl == admission.terminalUrl && currentUrl == admission.terminalUrl
     }
