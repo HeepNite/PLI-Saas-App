@@ -18,7 +18,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const EXCEPTION_LABEL = "size-exception";
+            const EXCEPTION_LABEL = "size:exception";
             const pullRequest = context.payload.pull_request;
             const additions = pullRequest?.additions;
             const deletions = pullRequest?.deletions;
