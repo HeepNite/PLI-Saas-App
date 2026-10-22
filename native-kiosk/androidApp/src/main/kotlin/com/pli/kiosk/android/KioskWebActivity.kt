@@ -19,6 +19,7 @@ internal interface KioskWebHost {
 /** Context callbacks are delivered only while this controller owns an attached host. */
 internal interface KioskWebHostContext {
     val bridge: SecureWebBridge? get() = null
+    val webEvents: NativeWebEvents? get() = null
     fun attachPermissionOwner() = Unit
     fun onBluetoothPermissionResult(granted: Boolean)
     fun onApplicationBackgrounded()
@@ -213,6 +214,7 @@ class KioskWebActivity : Activity() {
                 app.createPreparedBridgeContext(admission)?.let { prepared ->
                     object : KioskWebHostContext {
                         override val bridge = prepared.bridge
+                        override val webEvents = prepared.events
                         override fun attachPermissionOwner() = prepared.attachPermissionOwner(this@KioskWebActivity)
                         override fun onBluetoothPermissionResult(granted: Boolean) =
                             prepared.lifecycleOwner.onBluetoothPermissionResult(granted)
@@ -224,7 +226,7 @@ class KioskWebActivity : Activity() {
                 }
             },
             { context ->
-                val host = SecureWebMessageHost(view, admission, BuildConfig.NATIVE_COLLECTION_ENABLED, context.bridge)
+                val host = SecureWebMessageHost(view, admission, BuildConfig.NATIVE_COLLECTION_ENABLED, context.bridge, context.webEvents)
                 object : KioskWebHost {
                     override fun attach() = host.attach()
                     override fun invalidate() = host.invalidate()

@@ -77,8 +77,10 @@ class SecureWebMessageHost(
     private val admission: SecureWebAdmission,
     collectionEnabled: Boolean,
     bridge: SecureWebBridge?,
+    private val events: NativeWebEvents? = null,
     private val featureAvailable: Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER),
 ) {
+    private val mainThread = android.os.Handler(android.os.Looper.getMainLooper())
     private val adapter = bridge?.let { SecureWebMessageAdapter(admission, it) }
     private val enabled = canAttach(admission, collectionEnabled, featureAvailable, bridge)
     private var attached = false
@@ -95,12 +97,16 @@ class SecureWebMessageHost(
         if (invalidated) return
         invalidated = true
         adapter?.invalidate()
+        events?.invalidate()
         if (attached && featureAvailable) WebViewCompat.removeWebMessageListener(webView, OBJECT_NAME)
         attached = false
     }
 
     private val listener = WebViewCompat.WebMessageListener { _, message, sourceOrigin, isMainFrame, replyProxy ->
-        adapter?.handle(sourceOrigin.toString(), isMainFrame, webView.url, message.data)?.let { reply(replyProxy, it) }
+        val response = adapter?.handle(sourceOrigin.toString(), isMainFrame, webView.url, message.data) ?: return@WebMessageListener
+        reply(replyProxy, response)
+        // Only an admitted message may become the push target; pushes hop to the UI thread.
+        events?.bind { event -> mainThread.post { if (!invalidated) reply(replyProxy, event) } }
     }
 
     private fun reply(proxy: JavaScriptReplyProxy, value: String) = proxy.postMessage(value)

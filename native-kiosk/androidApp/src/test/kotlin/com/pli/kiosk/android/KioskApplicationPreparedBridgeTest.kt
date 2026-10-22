@@ -67,6 +67,28 @@ class KioskApplicationPreparedBridgeTest {
     }
 
     @Test
+    fun readerStatusRequestIsAcceptedAndAnsweredThroughTheContextEvents() {
+        val events = NativeWebEvents()
+        val posted = mutableListOf<String>()
+        val context = requireNotNull(KioskApplication().preparePreparedBridgeContext(
+            enabled(), admission, workflowFactory = { RecordingWorkflow() }, events = events,
+        ))
+        events.readerStatus(ReaderStatus.CONNECTING)
+
+        val reply = context.bridge.dispatch(
+            "{\"version\":1,\"operation\":\"${NativeWebEvents.READ_STATUS}\",\"requestId\":\"status\",\"payload\":{}}",
+        )
+        context.events?.bind { posted += it }
+
+        assertEquals(SecureBridgeState.ACCEPTED, reply.state)
+        assertEquals(listOf("{\"version\":1,\"event\":\"readerStatus\",\"payload\":{\"status\":\"connecting\"}}"), posted)
+
+        context.lifecycleOwner.onApplicationBackgrounded()
+        events.readerStatus(ReaderStatus.CONNECTED)
+        assertEquals(1, posted.size)
+    }
+
+    @Test
     fun duplicateGeneratedOperationReferencesFailClosedWithoutLaunchingTwice() {
         val workflow = RecordingWorkflow()
         val context = requireNotNull(KioskApplication().preparePreparedBridgeContext(
@@ -99,7 +121,7 @@ class KioskApplicationPreparedBridgeTest {
     private fun start(requestId: String, reference: String) =
         "{\"version\":1,\"operation\":\"${PreparedBridgeOperations.START}\",\"requestId\":\"$requestId\",\"payload\":{\"preparedPurchaseReference\":\"$reference\"}}"
 
-    private class RecordingWarmReader(private val events: MutableList<String>) : WarmReaderLifecycle {
+    private class RecordingWarmReader(private val events: MutableList<String>) : ReaderConnectionLifecycle {
         private var invalidated = false
         override fun start() { events += "warm-start" }
         override fun onBluetoothPermissionResult(granted: Boolean) { events += "warm-permission:$granted" }

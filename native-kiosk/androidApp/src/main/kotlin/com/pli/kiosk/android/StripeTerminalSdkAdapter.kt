@@ -17,6 +17,7 @@ import com.stripe.stripeterminal.external.models.DiscoveryConfiguration.Bluetoot
 import com.stripe.stripeterminal.external.models.DisconnectReason
 import com.stripe.stripeterminal.external.models.LocaleConfig
 import com.stripe.stripeterminal.external.models.Reader
+import com.stripe.stripeterminal.external.models.ReaderInputOptions
 import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
 import java.util.concurrent.Executors
@@ -113,6 +114,9 @@ class StripeTerminalSdkAdapter(
     private var discoveryGeneration = 0L
     @Volatile private var observedConnectedReaderId: String? = null
     private val disconnectCallbacks = StripeTerminalDisconnectCallbacks()
+    @Volatile private var readerEvents: NativeReaderEvents? = null
+
+    override fun setReaderEvents(listener: NativeReaderEvents?) { readerEvents = listener }
 
     override fun observedReaderId(): String? = observedConnectedReaderId
 
@@ -127,6 +131,7 @@ class StripeTerminalSdkAdapter(
             override fun onSuccess() = Unit
             override fun onFailure(e: TerminalException) = Unit
         })
+        readerEvents?.onDisconnected()
     }
 
     override fun initialize(connectionTokenProvider: () -> String) {
@@ -237,7 +242,7 @@ class StripeTerminalSdkAdapter(
             observedConnectedReaderId = current.id
             disconnectCallbacks.bindReuse(onDisconnect)
             onSuccess()
-            return NonCancellableTerminalOperation
+            return ReusedTerminalConnection
         }
         disconnectCallbacks.bindPhysical(onDisconnect)
         terminal.connectReader(
@@ -247,9 +252,18 @@ class StripeTerminalSdkAdapter(
                 request.autoReconnectOnUnexpectedDisconnect,
                 object : MobileReaderListener {
                     override fun onDisconnect(reason: DisconnectReason) {
+                        PliM2Diagnostics.log("reader disconnected reason=$reason")
                         observedConnectedReaderId = null
                         disconnectCallbacks.notifyDisconnected()
+                        readerEvents?.onDisconnected()
                     }
+                    override fun onReaderReconnectStarted(reader: Reader, cancelReconnect: Cancelable, reason: DisconnectReason) {
+                        PliM2Diagnostics.log("reader reconnect started reason=$reason")
+                        readerEvents?.onReconnectStarted()
+                    }
+                    override fun onReaderReconnectSucceeded(reader: Reader) { readerEvents?.onReconnectSucceeded() }
+                    override fun onReaderReconnectFailed(reader: Reader) { readerEvents?.onReconnectFailed() }
+                    override fun onRequestReaderInput(options: ReaderInputOptions) { readerEvents?.onReaderInputRequested() }
                 },
             ),
             object : ReaderCallback {

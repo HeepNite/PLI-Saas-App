@@ -42,6 +42,7 @@ class ProductionPreparedBridgeWorkflow(
     private val clock: () -> Long = System::currentTimeMillis,
     private val bootstrapDeadlineScheduler: CollectionDeadlineScheduler = NoopCollectionDeadlineScheduler,
     private val beforeSaleDiscovery: () -> Unit = {},
+    private val onCollectionPrompt: (CollectionPrompt) -> Unit = {},
 ) : PreparedBridgeWorkflow, PreparedBridgeLifecycle {
     private val handles = mutableMapOf<String, Handle>()
 
@@ -112,6 +113,8 @@ class ProductionPreparedBridgeWorkflow(
 
     private fun onRuntimeState(handle: Handle, runtime: NativeCollectionRuntime) {
         if (!active(handle)) return
+        // The card was read: show processing until the sale publishes its terminal result.
+        if (runtime.state == NativeCollectionState.CONFIRMING) prompt(CollectionPrompt.PROCESSING)
         when (runtime.state) {
             NativeCollectionState.PAID -> if (handle.publication.claimPaidRecovery()) {
                 try {
@@ -143,7 +146,12 @@ class ProductionPreparedBridgeWorkflow(
         }
     }
 
+    private fun prompt(next: CollectionPrompt) {
+        try { onCollectionPrompt(next) } catch (_: Exception) { Unit }
+    }
+
     private fun invalidateHandles(invalidateRuntime: (NativeCollectionRuntime) -> Unit) = activeHandles().forEach { handle ->
+        prompt(CollectionPrompt.NONE)
         val resources = synchronized(this) {
             if (handles[handle.reference] !== handle) null else {
                 handles.remove(handle.reference)
@@ -179,6 +187,7 @@ class ProductionPreparedBridgeWorkflow(
         if (active(handle)) handle.subscription = subscription else subscription.unsubscribe()
     }
     private fun close(handle: Handle, terminal: PreparedRecoveryState) {
+        prompt(CollectionPrompt.NONE)
         val resources = synchronized(this) {
             if (handles[handle.reference] !== handle) null else {
                 handles.remove(handle.reference); handle.closed = true

@@ -215,7 +215,8 @@ internal class PreparedBridgeContext(
     val bridge: SecureWebBridge,
     internal val operations: PreparedBridgeOperations,
     private val permissionOwner: (android.app.Activity) -> Unit = {},
-    private val warmReader: WarmReaderLifecycle? = null,
+    private val warmReader: ReaderConnectionLifecycle? = null,
+    val events: NativeWebEvents? = null,
 ) {
     internal val lifecycleOwner: PreparedBridgeLifecycle = object : PreparedBridgeLifecycle {
         override fun onBluetoothPermissionResult(granted: Boolean) {
@@ -224,16 +225,21 @@ internal class PreparedBridgeContext(
         }
         override fun onApplicationBackgrounded() {
             operations.onApplicationBackgrounded()
-            warmReader?.invalidate()
+            stopReader()
         }
         override fun onSessionInvalidated() {
             operations.onSessionInvalidated()
-            warmReader?.invalidate()
+            stopReader()
         }
         override fun onReaderInvalidated() {
             operations.onReaderInvalidated()
-            warmReader?.invalidate()
+            stopReader()
         }
+    }
+
+    private fun stopReader() {
+        events?.invalidate()
+        warmReader?.invalidate()
     }
 
     internal fun attachPermissionOwner(activity: android.app.Activity) {
@@ -356,7 +362,8 @@ class KioskApplication : Application() {
                 "Warm reader requires an empty current session context"
             }
             val terminal = StripeTerminalSdkAdapter(this, PROVISIONED_READER_ID, Approved.LOCATION)
-            val warmReader = ForegroundWarmReader(
+            val events = NativeWebEvents()
+            val warmReader = ReaderConnectionOwner(
                 terminal, permissions,
                 connectionTokenProvider = {
                     val latest = store.read()
@@ -369,6 +376,9 @@ class KioskApplication : Application() {
                 },
                 provisionedReaderId = PROVISIONED_READER_ID,
                 locationId = Approved.LOCATION,
+                scheduler = AndroidCollectionDeadlineScheduler(),
+                onStatus = events::readerStatus,
+                onReaderInputRequested = { events.collectionPrompt(CollectionPrompt.AWAITING_CARD) },
             )
             val runtimeFactory = NativeCollectionRuntimeFactory { preparedAttempt ->
                 val latest = store.read()
@@ -415,10 +425,12 @@ class KioskApplication : Application() {
                         PROVISIONED_READER_ID, clock,
                         bootstrapDeadlineScheduler = AndroidCollectionDeadlineScheduler(),
                         beforeSaleDiscovery = warmReader::retireDiscovery,
+                        onCollectionPrompt = events::collectionPrompt,
                     )
                 },
                 permissionOwner = permissions::attach,
                 warmReader = warmReader,
+                events = events,
             )
         }.getOrNull()
     }
@@ -430,16 +442,21 @@ class KioskApplication : Application() {
         workflowFactory: () -> PreparedBridgeWorkflow,
         operationReferenceGenerator: () -> String = ::newPreparedBridgeOperationReference,
         permissionOwner: (android.app.Activity) -> Unit = {},
-        warmReader: WarmReaderLifecycle? = null,
+        warmReader: ReaderConnectionLifecycle? = null,
+        events: NativeWebEvents? = null,
     ): PreparedBridgeContext? {
         if (!configuration.collectionEnabled || configuration.approvedOrigin != admission.origin) return null
         return runCatching {
             val operations = PreparedBridgeOperations(workflowFactory())
+            val registry = operations.bridgeOperations() + listOfNotNull(events?.let { channel ->
+                NativeWebEvents.READ_STATUS to SecureBridgeOperation(emptyMap()) { channel.requestStatus(); SecureBridgeState.ACCEPTED }
+            })
             PreparedBridgeContext(
-                SecureWebBridge(operations.bridgeOperations()) { _, _ -> operationReferenceGenerator() },
+                SecureWebBridge(registry) { _, _ -> operationReferenceGenerator() },
                 operations,
                 permissionOwner,
                 warmReader,
+                events,
             )
         }.getOrNull()
     }
