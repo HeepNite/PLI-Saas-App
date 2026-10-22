@@ -7,8 +7,10 @@ import {
   hasNativeKioskBridgeRecoveryAttempted,
   isNativeKioskWebView,
   isNativePaymentBridgeAvailable,
+  nativeCardAvailability,
   recoverNativeKioskBridge,
 } from "@/components/front/courses/enroll/effects/native-payment-bridge"
+import { useNativeReaderStatus } from "@/components/front/courses/enroll/hooks/useNativeReader"
 
 type Props = {
   step: number
@@ -47,6 +49,8 @@ export default function EnrollFormFooter({
   const isFinalStripeStep = step === steps.length - 1 && isKioskTerminalFlow && paymentMethod === "stripe"
   const nativeBridgeAvailable = isNativePaymentBridgeAvailable()
   const missingNativeWebViewBridge = isFinalStripeStep && isNativeKioskWebView() && !nativeBridgeAvailable
+  const nativeReaderStatus = useNativeReaderStatus()
+  const nativeReaderBlocked = isFinalStripeStep && !nativeCardAvailability(nativeReaderStatus).available
 
   React.useEffect(() => {
     setClientReady(true)
@@ -95,7 +99,7 @@ export default function EnrollFormFooter({
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!canContinueCurrentStep || processing || identityCheckBusy || kioskQrCheckoutLocked}
+            disabled={!canContinueCurrentStep || processing || identityCheckBusy || kioskQrCheckoutLocked || nativeReaderBlocked}
             className={isInline ? "px-3 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50 text-sm" : "px-4 py-2 rounded-md bg-[var(--brand,#111)] text-white disabled:opacity-50"}
           >
             {processing
@@ -108,7 +112,9 @@ export default function EnrollFormFooter({
                     : missingNativeWebViewBridge
                       ? hasNativeKioskBridgeRecoveryAttempted() ? "Reopen PLI app" : "Reconnect reader"
                       : nativeBridgeAvailable
-                        ? t("confirm")
+                        ? nativeReaderBlocked
+                          ? nativeReaderStatus === "connecting" ? "Card reader connecting…" : "Card reader unavailable"
+                          : t("confirm")
                         : kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
                           ? "Create new QR"
                           : "Show QR"

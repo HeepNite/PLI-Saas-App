@@ -1,6 +1,9 @@
 import React from "react"
 import { buildKioskCheckoutQrImageUrl, type KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { BootstrapResponse } from "@/components/front/checkin/checkin.types"
+import { nativeCardAvailability } from "@/components/front/courses/enroll/effects/native-payment-bridge"
+import { useNativeReaderStatus } from "@/components/front/courses/enroll/hooks/useNativeReader"
+import { NativeReaderStatusDot } from "@/components/front/courses/enroll/steps/NativeReaderStatusDot"
 
 type QuickRepeatOverlayProps = {
   bootstrap: BootstrapResponse
@@ -51,6 +54,8 @@ export function KioskQuickRepeatOverlay({
   const firstName = bootstrap.customer.firstName
   const hasPromo = Boolean(consecutiveOffer)
   const paymentEnabled = !hasPromo || promoDecided
+  const readerStatus = useNativeReaderStatus()
+  const nativeCard = nativeCardAvailability(readerStatus)
 
   // When card QR checkout is active, render the QR panel within the overlay
   const isCardFlow = qrCheckout.phase !== "idle"
@@ -257,12 +262,18 @@ export function KioskQuickRepeatOverlay({
                 <button
                   type="button"
                   onClick={handleCard}
-                  disabled={isProcessing || !paymentEnabled}
+                  disabled={isProcessing || !paymentEnabled || !nativeCard.available}
                   className="flex-1 rounded-xl border border-white/20 bg-white/10 px-6 py-4 text-base font-semibold text-white transition hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Pay by Card
+                  <span className="inline-flex items-center gap-2">
+                    Pay by Card
+                    <NativeReaderStatusDot status={readerStatus} />
+                  </span>
                 </button>
               </div>
+              {nativeCard.reason && (
+                <p className="mt-2 text-center text-xs text-white/60">{nativeCard.reason}</p>
+              )}
             </div>
           </div>
         )}
