@@ -228,6 +228,13 @@ export function KioskQuickRepeatOverlay({
           </div>
         )}
 
+        {/* Native reader error — the payment choices stay available to retry or pay cash */}
+        {!isCardFlow && qrCheckout.error && (
+          <p role="alert" className="mt-5 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-center text-sm text-red-200">
+            {qrCheckout.error}
+          </p>
+        )}
+
         {/* Payment buttons — hidden until promo is decided, slide in with animation */}
         {!isCardFlow && (
           <div
