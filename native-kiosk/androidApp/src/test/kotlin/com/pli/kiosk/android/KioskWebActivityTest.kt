@@ -21,6 +21,21 @@ class KioskWebActivityTest {
     }
 
     @Test
+    fun kioskHidesSystemBarsStickilySoCustomersSeeOnlyTheTerminal() {
+        @Suppress("DEPRECATION")
+        val required = android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+        assertEquals(required, KioskWebActivity.LEGACY_IMMERSIVE_FLAGS and required)
+    }
+
+    @Test
+    fun kioskManifestUsesATitleBarFreeTheme() {
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("android:theme=\"@android:style/Theme.DeviceDefault.NoActionBar\""))
+    }
+
+    @Test
     fun onlyExactTopLevelTerminalCompletionIsACookieCaptureOpportunity() {
         val admission = requireNotNull(SecureWebAdmission.from(origin))
 
