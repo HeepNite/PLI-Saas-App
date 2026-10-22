@@ -78,7 +78,6 @@ export function CourseCardPanel({
           {showPastCourses ? (
             <div className="flex h-full min-h-full flex-col gap-6">
               <div>
-                <p className="mb-3 text-xs uppercase tracking-[0.2em] text-white/60">Current Course</p>
                 <div
                   className="grid items-start"
                   style={{ gridTemplateColumns: KIOSK_TOKENS.gridColumns }}
