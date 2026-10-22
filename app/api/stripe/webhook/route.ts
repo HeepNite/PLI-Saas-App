@@ -2,12 +2,12 @@ import { NextResponse } from "next/server"
 import { headers } from "next/headers"
 import Stripe from "stripe"
 import * as Sentry from "@sentry/nextjs"
-import { Prisma } from "@prisma/client"
+import { Prisma, type Purchase } from "@prisma/client"
 import type { ClerkClient } from "@clerk/backend"
 import { clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
-import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
+import { revokeUnusedInternalPackagePurchaseTx, syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { normalizePersistedPurchaseStatus, SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import {
   normalizeFailureFromPaymentIntent,
@@ -28,6 +28,7 @@ import {
   claimStripeWebhookEvent,
   completeStripeWebhookEvent,
   markStripeWebhookEventFailed,
+  markStripeWebhookEventManualResolutionTx,
   touchStripeWebhookEventHeartbeat,
 } from "@/lib/stripe/webhook-event-store"
 import { SPECIAL_SALSA_CLASS, isSpecialClassPriceCents } from "@/lib/special-salsa-class/config"
@@ -38,6 +39,20 @@ import {
   finalizeSpecialClassPaymentFailure,
 } from "@/lib/special-classes/fulfillment"
 import { awardHeritagePinFromPaidPurchase } from "@/lib/campaigns/heritage-pin-entitlement"
+import {
+  approvedInternalPurchase,
+  InternalPurchaseError,
+  internalAttemptKey,
+  internalPurchaseCreditReversalEnabled,
+  isVerifiedInternalPaymentEvent,
+  readInternalAttempt,
+  validateInternalIntent,
+} from "@/lib/stripe/internal-purchase"
+import {
+  isReservedPreparedNativePaymentMetadata,
+  validatePreparedNativePaymentIntent,
+  type PreparedNativePaymentPurchase,
+} from "@/lib/stripe/prepared-native-payment"
 
 export const runtime = "nodejs"
 
@@ -735,6 +750,457 @@ async function handlePaymentIntentFailure(event: Stripe.Event) {
   })
 }
 
+const INTERNAL_GENERAL_CREDIT = Object.freeze({
+  courseSlug: "general-class-credit",
+  packageId: "pli-internal-general-class-credit-v1",
+  packageLabel: "General class credit",
+  totalCredits: "1",
+  isUnlimited: "false",
+  validDays: "180",
+})
+
+const isBoundInternalPurchase = (purchase: {
+  id: string
+  userId: string
+  idempotencyKey: string | null
+  amount: number
+  currency: string
+  courseSlug: string
+  packageId: string | null
+  metadata: unknown
+}, intent: Stripe.PaymentIntent) => {
+  const metadata = intent.metadata || {}
+  const attempt = readInternalAttempt(metadata.pliInternalAttempt)
+  const bound = purchase.metadata && typeof purchase.metadata === "object" && !Array.isArray(purchase.metadata)
+    ? purchase.metadata as Record<string, unknown>
+    : null
+  return purchase.userId === attempt.userId && purchase.idempotencyKey === internalAttemptKey(metadata.pliInternalAttempt) &&
+    purchase.amount === 100 && purchase.currency === "usd" && purchase.courseSlug === INTERNAL_GENERAL_CREDIT.courseSlug &&
+    purchase.packageId === INTERNAL_GENERAL_CREDIT.packageId && bound?.flowContext === "pli_internal_purchase_v1" &&
+    bound.attemptId === attempt.id && bound.recipientUserId === attempt.userId &&
+    bound.creditType === "general_class_credit" && bound.creditQuantity === 1 &&
+    metadata.recipientUserId === attempt.userId && metadata.purchaseId === purchase.id
+}
+
+const isInternalPurchaseCandidate = (purchase: {
+  courseSlug: string
+  packageId: string | null
+  metadata: unknown
+}) => {
+  const metadata = purchase.metadata && typeof purchase.metadata === "object" && !Array.isArray(purchase.metadata)
+    ? purchase.metadata as Record<string, unknown>
+    : null
+  return purchase.courseSlug === INTERNAL_GENERAL_CREDIT.courseSlug ||
+    purchase.packageId === INTERNAL_GENERAL_CREDIT.packageId ||
+    metadata?.flowContext === "pli_internal_purchase_v1"
+}
+
+const reversalPaymentIntentId = (event: Stripe.Event) => {
+  if (event.type !== "charge.refunded" && event.type !== "charge.dispute.created") return null
+  const paymentIntent = (event.data.object as { payment_intent?: unknown }).payment_intent
+  if (typeof paymentIntent === "string") return paymentIntent
+  if (paymentIntent && typeof paymentIntent === "object" && "id" in paymentIntent && typeof paymentIntent.id === "string") {
+    return paymentIntent.id
+  }
+  return null
+}
+
+const assertFullInternalReversal = (event: Stripe.Event, paymentIntentId: string) => {
+  if (event.livemode !== true || (event.account && event.account !== approvedInternalPurchase.accountId)) {
+    throw new InternalPurchaseError("Internal reversal merchant or mode mismatch", 409)
+  }
+  const reversal = event.data.object as {
+    payment_intent?: unknown
+    amount?: unknown
+    amount_refunded?: unknown
+    refunded?: unknown
+    currency?: unknown
+  }
+  if (reversal.amount !== approvedInternalPurchase.amount || reversal.currency !== approvedInternalPurchase.currency) {
+    throw new InternalPurchaseError("Internal reversal amount or currency requires reconciliation", 409)
+  }
+  const linkedPaymentIntent = reversal.payment_intent
+  const linkedId = typeof linkedPaymentIntent === "string" ? linkedPaymentIntent
+    : linkedPaymentIntent && typeof linkedPaymentIntent === "object" && "id" in linkedPaymentIntent && typeof linkedPaymentIntent.id === "string"
+      ? linkedPaymentIntent.id
+      : null
+  if (linkedId !== paymentIntentId) {
+    throw new InternalPurchaseError("Internal reversal payment binding requires reconciliation", 409)
+  }
+  if (event.type === "charge.refunded" &&
+    (reversal.amount_refunded !== approvedInternalPurchase.amount || reversal.refunded !== true)) {
+    throw new InternalPurchaseError("Partial internal refund requires reconciliation", 409)
+  }
+}
+
+type InternalReversalCandidate = {
+  paymentIntentId: string
+  purchase: Purchase
+}
+
+const hasInternalReversalMarker = (event: Stripe.Event) => {
+  const metadata = (event.data.object as { metadata?: unknown }).metadata
+  return !!metadata && typeof metadata === "object" && !Array.isArray(metadata) &&
+    (metadata as Record<string, unknown>).flowContext === "pli_internal_purchase_v1"
+}
+
+async function classifyInternalReversal(event: Stripe.Event): Promise<InternalReversalCandidate | "missing-binding" | null> {
+  const paymentIntentId = reversalPaymentIntentId(event)
+  if (!paymentIntentId) return null
+  const purchase = await prisma.purchase.findUnique({ where: { stripePaymentIntentId: paymentIntentId } })
+  if (purchase) return isInternalPurchaseCandidate(purchase) ? { paymentIntentId, purchase } : hasInternalReversalMarker(event) ? "missing-binding" : null
+  // Only explicit reserved metadata can nominate an unbound Purchase. The
+  // PaymentIntent retrieval and signed binding validation remain authoritative.
+  if (!hasInternalReversalMarker(event)) return null
+  const purchaseId = (event.data.object as { metadata?: Record<string, unknown> }).metadata?.purchaseId
+  if (typeof purchaseId === "string") {
+    const pendingPurchase = await prisma.purchase.findUnique({ where: { id: purchaseId } })
+    if (pendingPurchase && isInternalPurchaseCandidate(pendingPurchase) &&
+      (pendingPurchase.stripePaymentIntentId === null || pendingPurchase.stripePaymentIntentId === paymentIntentId)) {
+      return { paymentIntentId, purchase: pendingPurchase }
+    }
+  }
+  return "missing-binding"
+}
+
+async function completeInternalWebhookEventTx(tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], eventId: string, purchaseId?: string) {
+  await tx.stripeWebhookEvent.update({
+    where: { eventId },
+    data: { status: "completed", ...(purchaseId ? { purchaseId } : {}), completedAt: new Date(), updatedAt: new Date() },
+  })
+}
+
+async function persistInternalManualResolution(eventId: string, reason: string, purchaseId?: string) {
+  await prisma.$transaction(async (tx) => {
+    if (purchaseId) {
+      await tx.purchase.updateMany({
+        where: { id: purchaseId, status: { in: ["pending", "paid"] } },
+        data: { status: "reversed" },
+      })
+    }
+    await markStripeWebhookEventManualResolutionTx(tx, { eventId, resolutionReason: reason, purchaseId })
+  })
+}
+
+async function fulfillInternalPaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
+  if (intent.status !== "succeeded") {
+    await completeStripeWebhookEvent(eventId)
+    return
+  }
+  const purchaseId = intent.metadata?.purchaseId
+  if (!purchaseId) throw new InternalPurchaseError("Internal purchase identity is missing", 400)
+
+  await prisma.$transaction(async (tx) => {
+    const purchase = await tx.purchase.findUnique({ where: { id: purchaseId } })
+    if (!purchase || !isBoundInternalPurchase(purchase, intent)) {
+      throw new InternalPurchaseError("Internal purchase binding requires reconciliation", 409)
+    }
+    // A reversal tombstone always wins, including a paid event delivered later.
+    if (purchase.status === "reversed") {
+      await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+      return
+    }
+    if (purchase.status !== "paid") {
+      const updated = await tx.purchase.updateMany({
+        where: {
+          id: purchase.id,
+          userId: purchase.userId,
+          idempotencyKey: purchase.idempotencyKey,
+          status: "pending",
+          OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }],
+        },
+        data: { status: "paid", stripePaymentIntentId: intent.id },
+      })
+      if (updated.count !== 1) {
+        const current = await tx.purchase.findUnique({ where: { id: purchase.id } })
+        if (current?.status === "reversed") {
+          await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+          return
+        }
+        throw new InternalPurchaseError("Internal purchase settlement conflict", 409)
+      }
+    } else if (purchase.stripePaymentIntentId !== intent.id) {
+      throw new InternalPurchaseError("Internal payment identity mismatch", 409)
+    }
+
+    await syncPackagePurchaseFromPaidPurchase({
+      userId: purchase.userId,
+      purchaseId: purchase.id,
+      tx,
+      source: "stripe_internal_terminal",
+      metadata: {
+        courseSlug: INTERNAL_GENERAL_CREDIT.courseSlug,
+        packageId: INTERNAL_GENERAL_CREDIT.packageId,
+        packageLabel: INTERNAL_GENERAL_CREDIT.packageLabel,
+        packageTotalCredits: INTERNAL_GENERAL_CREDIT.totalCredits,
+        packageIsUnlimited: INTERNAL_GENERAL_CREDIT.isUnlimited,
+        packageValidDays: INTERNAL_GENERAL_CREDIT.validDays,
+      },
+    })
+    await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+  })
+}
+
+const preparedNativePurchaseProof = (purchase: Pick<Purchase, "id" | "userId" | "amount" | "currency" | "idempotencyKey" | "metadata">): PreparedNativePaymentPurchase => {
+  if (!purchase.idempotencyKey || !purchase.metadata || typeof purchase.metadata !== "object" || Array.isArray(purchase.metadata)) {
+    throw new Error("Prepared native purchase proof is missing")
+  }
+  return {
+    id: purchase.id,
+    userId: purchase.userId,
+    amount: purchase.amount,
+    currency: purchase.currency,
+    idempotencyKey: purchase.idempotencyKey,
+    fulfillmentMetadata: purchase.metadata as Record<string, string>,
+  }
+}
+
+async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
+  if (intent.status !== "succeeded" || !intent.metadata || typeof intent.metadata.purchaseId !== "string") {
+    throw new Error("Prepared native payment is incomplete")
+  }
+  // The event provides only the closed Purchase key. Every proof fact and all
+  // fulfillment selection values are read from the durable Purchase instead.
+  const initial = await prisma.purchase.findUnique({ where: { id: intent.metadata.purchaseId } })
+  if (!initial) throw new Error("Prepared native purchase is missing")
+  validatePreparedNativePaymentIntent(intent, undefined, preparedNativePurchaseProof(initial))
+
+  const fulfillment = await prisma.$transaction(async (tx) => {
+    const purchase = await tx.purchase.findUnique({ where: { id: initial.id } })
+    if (!purchase) throw new Error("Prepared native purchase is missing")
+    const proof = preparedNativePurchaseProof(purchase)
+    validatePreparedNativePaymentIntent(intent, undefined, proof)
+
+    // A reversal/manual-resolution tombstone always wins over paid delivery.
+    if (purchase.status === "reversed") {
+      await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+      return null
+    }
+    if (purchase.status === "pending") {
+      if (purchase.stripePaymentIntentId && purchase.stripePaymentIntentId !== intent.id) {
+        throw new Error("Prepared native payment identity mismatch")
+      }
+      const updated = await tx.purchase.updateMany({
+        where: { id: purchase.id, status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
+        data: { status: "paid", stripePaymentIntentId: intent.id },
+      })
+      if (updated.count !== 1) {
+        const current = await tx.purchase.findUnique({ where: { id: purchase.id } })
+        if (current?.status === "reversed") {
+          await completeInternalWebhookEventTx(tx, eventId, purchase.id)
+          return null
+        }
+        if (current?.status !== "paid" || current.stripePaymentIntentId !== intent.id) {
+          throw new Error("Prepared native payment identity mismatch")
+        }
+      }
+    } else if (purchase.status !== "paid" || purchase.stripePaymentIntentId !== intent.id) {
+      throw new Error("Prepared native payment identity mismatch")
+    }
+
+    const metadata = proof.fulfillmentMetadata
+    const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
+      userId: purchase.userId,
+      purchaseId: purchase.id,
+      tx,
+      source: "stripe_prepared_native",
+      metadata: {
+        courseSlug: purchase.courseSlug,
+        packageId: purchase.packageId || undefined,
+        packageLabel: metadata.packageLabel,
+        packageTotalCredits: metadata.packageTotalCredits,
+        packageIsUnlimited: metadata.packageIsUnlimited,
+        packageCadence: metadata.packageCadence,
+        packageMakeUps: metadata.packageMakeUps,
+        packageValidDays: metadata.packageValidDays,
+      },
+    })
+    return { purchase, metadata, packagePurchaseId: packagePurchase?.id }
+  })
+  if (!fulfillment) return
+
+  // Attendance owns its root transaction and must observe the committed package.
+  // Its shared paid-Purchase guard remains the reversal/tombstone boundary.
+  await syncScheduledAttendanceFromPurchase({
+    userId: fulfillment.purchase.userId,
+    purchaseId: fulfillment.purchase.id,
+    courseSlug: fulfillment.purchase.courseSlug,
+    courseTitle: fulfillment.purchase.courseTitle,
+    date: fulfillment.metadata.date,
+    time: fulfillment.metadata.time,
+    packagePurchaseId: fulfillment.packagePurchaseId,
+    preferredStatus: resolveAttendanceStatusForFlow({
+      metadata: fulfillment.metadata as StripeMetadata,
+      hasPackagePurchase: Boolean(fulfillment.packagePurchaseId),
+    }),
+    source: "stripe_prepared_native",
+  })
+
+  // Event completion follows attendance in its own transaction. A failure above
+  // leaves the event retryable; paid Purchase/package/attendance operations are idempotent.
+  await prisma.$transaction(async (tx) => {
+    await completeInternalWebhookEventTx(tx, eventId, fulfillment.purchase.id)
+  })
+}
+
+async function handleReservedPreparedNativePaymentEvent(event: Stripe.Event) {
+  // Only a succeeded PaymentIntent fulfills. Other PaymentIntent lifecycle events
+  // and Charge events (Stripe copies PaymentIntent metadata onto Charges) are
+  // acknowledged as no-ops so they neither fulfill nor trigger endless retries.
+  if (event.type !== "payment_intent.succeeded") {
+    console.info("[native-m2-webhook:non-fulfilling-event-acknowledged]", { eventType: event.type })
+    return NextResponse.json({ received: true })
+  }
+  const claim = await claimStripeWebhookEvent(event.id, event.type)
+  if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
+  if (claim === "in-flight") return new NextResponse("Event is currently being processed", { status: 409 })
+  try {
+    await fulfillPreparedNativePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+  } catch {
+    await markStripeWebhookEventFailed(event.id)
+    return new NextResponse("Prepared native payment fulfillment failed", { status: 500 })
+  }
+  return NextResponse.json({ received: true })
+}
+
+const isReservedPreparedNativePaymentEvent = (event: Stripe.Event) =>
+  isReservedPreparedNativePaymentMetadata((event.data.object as { metadata?: unknown }).metadata)
+
+const isPreparedNativePurchase = (purchase: Pick<Purchase, "idempotencyKey" | "metadata">) => {
+  const metadata = purchase.metadata && typeof purchase.metadata === "object" && !Array.isArray(purchase.metadata)
+    ? purchase.metadata as Record<string, unknown>
+    : null
+  return metadata?.paymentSurface === "native_m2_prepare" || Boolean(purchase.idempotencyKey?.startsWith("native-m2-prepared:"))
+}
+
+type PreparedNativeReversalCandidate = { purchaseId: string | null }
+
+// Refunds and disputes on prepared native payments have no automatic credit
+// reversal rule yet. They are classified before the reserved fulfillment path so
+// they are never swallowed, and are recorded for manual resolution instead.
+async function classifyPreparedNativeReversal(event: Stripe.Event): Promise<PreparedNativeReversalCandidate | null> {
+  const paymentIntentId = reversalPaymentIntentId(event)
+  if (!paymentIntentId) return null
+  if (isReservedPreparedNativePaymentEvent(event)) {
+    const purchaseId = (event.data.object as { metadata?: Record<string, unknown> }).metadata?.purchaseId
+    const purchase = typeof purchaseId === "string" ? await prisma.purchase.findUnique({ where: { id: purchaseId } }) : null
+    const bound = !!purchase && isPreparedNativePurchase(purchase) &&
+      (purchase.stripePaymentIntentId === null || purchase.stripePaymentIntentId === paymentIntentId)
+    return { purchaseId: bound ? purchase.id : null }
+  }
+  const purchase = await prisma.purchase.findUnique({ where: { stripePaymentIntentId: paymentIntentId } })
+  return purchase && isPreparedNativePurchase(purchase) ? { purchaseId: purchase.id } : null
+}
+
+async function handlePreparedNativeReversalEvent(event: Stripe.Event, candidate: PreparedNativeReversalCandidate) {
+  const claim = await claimStripeWebhookEvent(event.id, event.type)
+  if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
+  if (claim === "in-flight") return new NextResponse("Event is currently being processed", { status: 409 })
+  const resolutionReason = candidate.purchaseId
+    ? "prepared_native_reversal_requires_review"
+    : "prepared_native_purchase_binding_missing"
+  try {
+    await markStripeWebhookEventManualResolutionTx(prisma, { eventId: event.id, resolutionReason, purchaseId: candidate.purchaseId })
+  } catch {
+    await markStripeWebhookEventFailed(event.id)
+    return new NextResponse("Prepared native reversal recording failed", { status: 500 })
+  }
+  console.warn("[native-m2-reversal:manual-resolution-required]", {
+    eventId: event.id, eventType: event.type, purchaseId: candidate.purchaseId,
+  })
+  return NextResponse.json({ received: true })
+}
+
+async function handleVerifiedInternalPaymentEvent(event: Stripe.Event) {
+  const claim = await claimStripeWebhookEvent(event.id, event.type)
+  if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
+  if (claim === "in-flight") return new NextResponse("Event is currently being processed", { status: 409 })
+  try {
+    await fulfillInternalPaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+  } catch {
+    await markStripeWebhookEventFailed(event.id)
+    return new NextResponse("Internal payment fulfillment failed", { status: 500 })
+  }
+  return NextResponse.json({ received: true })
+}
+
+async function handleInternalReversalEvent(event: Stripe.Event, candidate: InternalReversalCandidate | "missing-binding") {
+  const claim = await claimStripeWebhookEvent(event.id, event.type)
+  if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
+  if (claim === "in-flight") return new NextResponse("Event is currently being processed", { status: 409 })
+  if (candidate === "missing-binding") {
+    await persistInternalManualResolution(event.id, "purchase_binding_missing")
+    return NextResponse.json({ received: true })
+  }
+  // Disabled is a terminal, non-retryable manual path. Tombstoning precedes
+  // acknowledgement so a later paid replay can never regrant this credit.
+  if (!internalPurchaseCreditReversalEnabled()) {
+    await persistInternalManualResolution(event.id, "reversal_feature_disabled", candidate.purchase.id)
+    return NextResponse.json({ received: true })
+  }
+
+  try {
+    if (!stripe) throw new Error("Stripe client unavailable after webhook signature verification")
+    const intent = await stripe.paymentIntents.retrieve(candidate.paymentIntentId)
+    assertFullInternalReversal(event, candidate.paymentIntentId)
+    const ticket = intent.metadata?.pliInternalAttempt
+    if (typeof ticket !== "string") throw new InternalPurchaseError("Internal reversal payment binding requires reconciliation", 409)
+    validateInternalIntent(intent, ticket, candidate.purchase.id)
+    if (!isBoundInternalPurchase(candidate.purchase, intent)) {
+      throw new InternalPurchaseError("Internal reversal purchase binding requires reconciliation", 409)
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const purchase = await tx.purchase.findUnique({ where: { id: candidate.purchase.id } })
+      if (!purchase) {
+        await markStripeWebhookEventManualResolutionTx(tx, {
+          eventId: event.id, resolutionReason: "purchase_binding_missing",
+        })
+        return
+      }
+      if (purchase.status === "reversed") {
+        await completeInternalWebhookEventTx(tx, event.id, purchase.id)
+        return
+      }
+      const tombstoned = await tx.purchase.updateMany({
+        where: {
+          id: purchase.id,
+          status: { in: ["pending", "paid"] },
+          OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: candidate.paymentIntentId }],
+        },
+        data: { status: "reversed" },
+      })
+      if (tombstoned.count !== 1) {
+        await markStripeWebhookEventManualResolutionTx(tx, {
+          eventId: event.id, purchaseId: purchase.id, resolutionReason: "purchase_status_ambiguous",
+        })
+        return
+      }
+      // Do not branch on the Purchase snapshot captured before tombstoning.
+      // The guarded package outcome is fresh transaction state: before-paid
+      // has no package to revoke; paid-before-reversal either revokes it or
+      // retains its history for manual resolution.
+      const outcome = await revokeUnusedInternalPackagePurchaseTx(tx, { purchaseId: purchase.id, userId: purchase.userId })
+      if (outcome === "manual-resolution") {
+        await markStripeWebhookEventManualResolutionTx(tx, {
+          eventId: event.id, purchaseId: purchase.id, resolutionReason: "credit_consumed_or_ambiguous",
+        })
+        return
+      }
+      await completeInternalWebhookEventTx(tx, event.id, purchase.id)
+    })
+  } catch (error) {
+    if (error instanceof InternalPurchaseError) {
+      await persistInternalManualResolution(event.id, "internal_binding_invalid", candidate.purchase.id)
+      return NextResponse.json({ received: true })
+    }
+    await markStripeWebhookEventFailed(event.id)
+    return new NextResponse("Internal reversal processing failed", { status: 500 })
+  }
+
+  return NextResponse.json({ received: true })
+}
+
 async function handleCheckoutSessionTerminal(event: Stripe.Event, status: "expired" | "failed") {
   const session = event.data.object as Stripe.Checkout.Session
   const failure = normalizeFailureFromCheckoutSession(session, event)
@@ -772,6 +1238,27 @@ export async function POST(req: Request) {
     console.error("Stripe webhook: failed to construct event from signature", err)
     const message = err instanceof Error ? err.message : "Unknown error"
     return new NextResponse(`Webhook error: ${message}`, { status: 400 })
+  }
+
+  // Reversals are routed before the reserved fulfillment path so Charge and
+  // Dispute events carrying copied prepared-native metadata are never swallowed.
+  if (event.type === "charge.refunded" || event.type === "charge.dispute.created") {
+    const reversal = await classifyInternalReversal(event)
+    if (reversal) return handleInternalReversalEvent(event, reversal)
+    const preparedNativeReversal = await classifyPreparedNativeReversal(event)
+    if (preparedNativeReversal) return handlePreparedNativeReversalEvent(event, preparedNativeReversal)
+  }
+
+  // Reserved markers never fall through to ordinary checkout or historical USD1 handling.
+  if (isReservedPreparedNativePaymentEvent(event)) return handleReservedPreparedNativePaymentEvent(event)
+
+  // Reserved internal markers are verified before ordinary processing and dispatched only to their fulfillment path.
+  try {
+    if (isVerifiedInternalPaymentEvent(event)) return handleVerifiedInternalPaymentEvent(event)
+  } catch (error) {
+    return NextResponse.json({ error: "Internal payment event requires reconciliation" }, {
+      status: error instanceof InternalPurchaseError ? error.status : 400,
+    })
   }
 
   // Claim-then-process: the eventId unique constraint is the lock (design §3/§4).

@@ -111,6 +111,8 @@ model Purchase {
   createdAt               DateTime          @default(now())
   updatedAt               DateTime          @updatedAt
   packagePurchases        PackagePurchase[]
+  stripeWebhookEvents     StripeWebhookEvent[]
+  preparedNativePurchase  PreparedNativePurchase?
 
   @@index([userId])
   @@index([userId, status])
@@ -121,6 +123,22 @@ model Purchase {
   @@index([specialClassId, status, holdExpiresAt])
   @@index([classSessionId])
   @@unique([parentPurchaseId])
+}
+
+model PreparedNativePurchase {
+  id            String   @id @default(cuid())
+  referenceHash String   @unique
+  purchaseId    String   @unique
+  purchase      Purchase @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  terminalId    String
+  sessionId     String
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([terminalId, sessionId, expiresAt])
+  @@index([expiresAt])
 }
 
 model PackagePlan {
@@ -979,16 +997,20 @@ model MonthlyBoundary {
 }
 
 model StripeWebhookEvent {
-  id          String    @id @default(cuid())
-  eventId     String    @unique
-  eventType   String
-  status      String    @default("legacy")
-  attempts    Int       @default(0)
-  processedAt DateTime  @default(now())
-  completedAt DateTime?
-  updatedAt   DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  eventId          String    @unique
+  eventType        String
+  status           String    @default("legacy")
+  attempts         Int       @default(0)
+  purchaseId       String?
+  purchase         Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  resolutionReason String?
+  processedAt      DateTime  @default(now())
+  completedAt      DateTime?
+  updatedAt        DateTime  @updatedAt
 
   @@index([eventType])
+  @@index([purchaseId])
   @@index([processedAt])
   @@index([status])
 }

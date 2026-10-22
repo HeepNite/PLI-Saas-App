@@ -64,7 +64,7 @@ export async function claimStripeWebhookEvent(eventId: string, eventType: string
   }
 
   const existing = await prisma.stripeWebhookEvent.findUnique({ where: { eventId } })
-  if (existing?.status === "completed" || existing?.status === "legacy") {
+  if (existing?.status === "completed" || existing?.status === "legacy" || existing?.status === "manual_resolution") {
     return "duplicate"
   }
   // Fresh "processing" (not stale) — another worker genuinely owns this claim right now.
@@ -84,6 +84,26 @@ export async function markStripeWebhookEventFailed(eventId: string): Promise<voi
   await prisma.stripeWebhookEvent.update({
     where: { eventId },
     data: { status: "failed", updatedAt: new Date() },
+  })
+}
+
+/**
+ * Terminal reconciliation outcome for a permanent internal reversal problem.
+ * This state is deliberately excluded from `claimStripeWebhookEvent` reclaim.
+ */
+export async function markStripeWebhookEventManualResolutionTx(
+  tx: Prisma.TransactionClient | typeof prisma,
+  input: { eventId: string; resolutionReason: string; purchaseId?: string | null },
+): Promise<void> {
+  await tx.stripeWebhookEvent.update({
+    where: { eventId: input.eventId },
+    data: {
+      status: "manual_resolution",
+      resolutionReason: input.resolutionReason,
+      ...(input.purchaseId ? { purchaseId: input.purchaseId } : {}),
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    },
   })
 }
 

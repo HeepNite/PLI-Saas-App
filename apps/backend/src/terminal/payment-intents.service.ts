@@ -19,16 +19,14 @@ type StripeClientPort = {
   paymentIntents: StripePaymentIntentsPort
 }
 
-const secret = process.env.STRIPE_SECRET_KEY
-const stripeClient = secret
-  ? new Stripe(secret, {
-      apiVersion: "2026-01-28.clover",
-    })
-  : null
+const ordinaryStripeClient = () => {
+  const secret = process.env.STRIPE_SECRET_KEY
+  return secret ? new Stripe(secret, { apiVersion: "2026-01-28.clover" }) : null
+}
 
 export const createStripeTerminalPaymentIntent = async (
   client: StripeClientPort | null,
-  input: TerminalPaymentIntentGatewayRequest
+  input: Omit<TerminalPaymentIntentGatewayRequest, "receiptEmail"> & { receiptEmail?: string }
 ): Promise<TerminalPaymentIntentGatewayResponse> => {
   if (!client) {
     throw new Error("Stripe not configured")
@@ -55,7 +53,7 @@ export const createStripeTerminalPaymentIntent = async (
 }
 
 export class PaymentIntentsService {
-  constructor(private readonly client: StripeClientPort | null = stripeClient) {}
+  constructor(private readonly client: StripeClientPort | null = ordinaryStripeClient()) {}
 
   async createPaymentIntent(input: TerminalPaymentIntentGatewayRequest): Promise<TerminalPaymentIntentGatewayResponse> {
     return createStripeTerminalPaymentIntent(this.client, input)
