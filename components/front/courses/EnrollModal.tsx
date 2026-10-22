@@ -774,6 +774,8 @@ export default function EnrollModal({
   }
 
   const activeStepKey = steps[step]?.key || ""
+  const resetFormRef = React.useRef<() => void>(() => {})
+  const nativePaymentApprovedRef = React.useRef<() => void>(() => {})
 
   const {
     requestNewStudentOutcome,
@@ -844,6 +846,7 @@ export default function EnrollModal({
     setNewStudentFallbackPhoneKey,
     setFlowPopup,
     setResumeContactFlowAfterSignIn,
+    onNativePaymentApproved: () => nativePaymentApprovedRef.current(),
     t,
   })
 
@@ -868,6 +871,10 @@ export default function EnrollModal({
     kioskFastPathSubmitTriggeredRef,
     setSuccess,
     setSuccessMessage,
+    setService,
+    setPkg,
+    setCouponInput,
+    setAppliedCoupon,
     setAddons,
     setParticipants,
     setDate,
@@ -900,6 +907,21 @@ export default function EnrollModal({
     setConsecutiveChoiceMade,
     showRegularFallbackPopup,
   })
+
+  resetFormRef.current = resetForm
+  // A kiosk station returns to its landing screen after an approved native payment,
+  // matching the other station completions instead of reopening the booking form.
+  nativePaymentApprovedRef.current = () => {
+    if (isStationCompletion && onCompletedAction) {
+      if (stationCompletionTimeoutRef.current !== null) {
+        window.clearTimeout(stationCompletionTimeoutRef.current)
+        stationCompletionTimeoutRef.current = null
+      }
+      void onCompletedAction()
+      return
+    }
+    resetForm()
+  }
 
   // Cancel handling for the QR deep-link flow. Cancelling restarts the whole
   // booking, so we ask for confirmation first. Cancel means LEAVE the process

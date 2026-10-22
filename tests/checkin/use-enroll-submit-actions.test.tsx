@@ -23,6 +23,10 @@ const defaultInput = (override: Partial<UseEnrollSubmitActionsInput> = {}): UseE
   kioskFastPathSubmitTriggeredRef: { current: false },
   setSuccess: vi.fn(),
   setSuccessMessage: vi.fn(),
+  setService: vi.fn(),
+  setPkg: vi.fn(),
+  setCouponInput: vi.fn(),
+  setAppliedCoupon: vi.fn(),
   setAddons: vi.fn(),
   setParticipants: vi.fn(),
   setDate: vi.fn(),
@@ -93,6 +97,10 @@ describe("useEnrollSubmitActions", () => {
     it("resets all form state setters to their default initial values (non-kiosk flow)", async () => {
       const setSuccess = vi.fn()
       const setSuccessMessage = vi.fn()
+      const setService = vi.fn()
+      const setPkg = vi.fn()
+      const setCouponInput = vi.fn()
+      const setAppliedCoupon = vi.fn()
       const setAddons = vi.fn()
       const setParticipants = vi.fn()
       const setDate = vi.fn()
@@ -127,7 +135,8 @@ describe("useEnrollSubmitActions", () => {
       const { getResult } = await renderHook(
         defaultInput({
           isKioskTerminalFlow: false,
-          setSuccess, setSuccessMessage, setAddons, setParticipants, setDate, setTime,
+          setSuccess, setSuccessMessage, setService, setPkg, setCouponInput, setAppliedCoupon,
+          setAddons, setParticipants, setDate, setTime,
           setContact, setStep, setCheckInScheduleNotice, setRequiresSignIn, setExistingAccountDetected,
           setResumeAfterSignInStep, setPendingAutoPay, setResumeContactFlowAfterSignIn,
           setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase,
@@ -142,6 +151,10 @@ describe("useEnrollSubmitActions", () => {
 
       expect(setSuccess).toHaveBeenCalledWith(false)
       expect(setSuccessMessage).toHaveBeenCalledWith(null)
+      expect(setService).toHaveBeenCalledWith("")
+      expect(setPkg).toHaveBeenCalledWith("")
+      expect(setCouponInput).toHaveBeenCalledWith("")
+      expect(setAppliedCoupon).toHaveBeenCalledWith(null)
       expect(setAddons).toHaveBeenCalledWith([])
       expect(setParticipants).toHaveBeenCalledWith(1)
       expect(setDate).toHaveBeenCalledWith("")

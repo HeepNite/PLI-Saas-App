@@ -16,6 +16,11 @@ import {
 } from "@/lib/checkin/kiosk-qr-payment"
 import { requestCheckoutSessionApi } from "@/lib/checkin/checkin-qr-api"
 import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
+import {
+  buildQuickRepeatCardPayload,
+  resolveQuickRepeatCardSurface,
+  runQuickRepeatNativeCardCheckout,
+} from "@/components/front/checkin/quick-repeat-card"
 import { useConsecutiveOfferUiHandlers } from "@/components/front/checkin/hooks/useConsecutiveOfferUiHandlers"
 import { useKioskQrCheckoutPoller } from "@/components/front/checkin/hooks/useKioskQrCheckoutPoller"
 import { useCheckInPackageFlow } from "@/components/front/checkin/hooks/useCheckInPackageFlow"
@@ -525,7 +530,8 @@ export function useCheckInQrController({
       return
     }
 
-    // Card path — create a Stripe session and show QR within the overlay
+    // Card path — charge on the native M2 reader when the bridge is available,
+    // otherwise create a Stripe session and show QR within the overlay
     const baseAmountCentsCard = lastPurchasePattern?.amount ?? 0
     if (baseAmountCentsCard <= 0) {
       setError("Unable to determine amount for card payment.")
@@ -549,40 +555,36 @@ export function useCheckInQrController({
       return
     }
 
+    const sessionPayload = buildQuickRepeatCardPayload({
+      bootstrap,
+      consecutiveAccepted,
+      kioskSessionToken: kioskPinSessionToken,
+    })
+
+    if (resolveQuickRepeatCardSurface() === "native_m2") {
+      await runQuickRepeatNativeCardCheckout({
+        payload: sessionPayload,
+        kioskCurrentCourseDuration: context.durationMinutes,
+        setProcessing: setQuickRepeatProcessing,
+        setError: (message) => setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), error: message }),
+        onPaid: () => {
+          setQuickRepeatSuccessChannel("card")
+          setQuickRepeatSuccess(true)
+        },
+        onComplete: () => {
+          setShowQuickRepeat(false)
+          setQuickRepeatSuccess(false)
+          setQuickRepeatSuccessChannel(null)
+          setQuickRepeatQrCheckout(createEmptyKioskQrCheckoutState())
+          void handleStationCompletionFromRef()
+        },
+      })
+      return
+    }
+
     setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), phase: "creating" })
 
     try {
-      const consecutiveOfferForCard = consecutiveAccepted ? (bootstrap.consecutiveOffer ?? null) : null
-      const consecutivePriceCents = consecutiveOfferForCard
-        ? (consecutiveOfferForCard.dropInConsecutiveCents ?? null)
-        : null
-      const totalAmountCents = baseAmountCentsCard + (consecutivePriceCents ?? 0)
-
-      const sessionPayload: Record<string, unknown> = {
-        courseSlug: context.courseSlug,
-        courseTitle: context.courseTitle,
-        amount: totalAmountCents,
-        currency: "usd",
-        date: context.date,
-        time: context.time,
-        serviceId: lastPurchasePattern?.paymentChannel === "package" ? "package" : "dropin",
-        firstName: customer.firstName,
-        lastName: customer.lastName,
-        email: customer.email,
-        phone: customer.phone,
-        participants: 1,
-        photoContext: "kiosk_terminal",
-        ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-        ...(consecutiveOfferForCard && consecutivePriceCents != null
-          ? {
-              consecutivePriceCents,
-              consecutiveLinkedCourseSlug: consecutiveOfferForCard.linkedCourseSlug,
-              consecutiveCourseTitle: consecutiveOfferForCard.linkedCourseTitle,
-              consecutiveLinkedCourseTime: consecutiveOfferForCard.linkedCourseTime ?? context.time,
-            }
-          : {}),
-      }
-
       const { res, data } = await requestCheckoutSessionApi({ payload: sessionPayload })
 
       if (!res.ok || typeof data?.url !== "string" || typeof data?.sessionId !== "string") {

@@ -7,6 +7,9 @@ import type { EnrollmentOption } from "@/constants/courses"
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
 import type { I18nKey } from "@/lib/i18n-dict"
 import { formatFriendlyDateTime } from "@/components/front/courses/utils/datetime"
+import { nativeCardAvailability } from "@/components/front/courses/enroll/effects/native-payment-bridge"
+import { useNativeReaderStatus } from "@/components/front/courses/enroll/hooks/useNativeReader"
+import { NativeReaderStatusDot } from "@/components/front/courses/enroll/steps/NativeReaderStatusDot"
 
 type StepPaymentsProps = {
   isCheckInFlow: boolean
@@ -78,6 +81,9 @@ export default function StepPayments({
   t,
 }: StepPaymentsProps) {
   const mobileQrCheckin = isCheckInFlow && !isKioskTerminalFlow
+  const nativeReaderStatus = useNativeReaderStatus()
+  const readerStatus = isKioskTerminalFlow ? nativeReaderStatus : "unknown"
+  const nativeCard = nativeCardAvailability(readerStatus)
   const publicQuoteDisplay = !isPublicQuoteBooking
     ? "local"
     : publicQuoteLoading
@@ -239,7 +245,10 @@ export default function StepPayments({
       </div>
 
       <div>
-        <h4 className="text-sm font-semibold mb-2">{t("payments_method")}</h4>
+        <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+          {t("payments_method")}
+          <NativeReaderStatusDot status={readerStatus} />
+        </h4>
         <div className={`grid gap-3 ${mobileQrCheckin ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2"}`}>
           {!mobileQrCheckin && !isOrdinaryPublicBooking ? (
             <button
@@ -257,7 +266,7 @@ export default function StepPayments({
           ) : null}
           <button
             type="button"
-            disabled={kioskQrCheckoutLocked}
+            disabled={kioskQrCheckoutLocked || !nativeCard.available}
             onClick={() => setPaymentMethod("stripe")}
             className={`rounded-md border px-4 py-4 text-sm text-left ${paymentMethod === "stripe" ? "border-[var(--brand,#111)] bg-[var(--brand,#111)]/5" : "border-black/10 dark:border-white/10"}`}
           >
@@ -277,7 +286,9 @@ export default function StepPayments({
                 </>
               )}
             </div>
-            <div className="mt-1 text-xs text-neutral-500">{mobileQrCheckin ? "Pay with card or phone wallet." : t("payments_stripe_desc")}</div>
+            <div className="mt-1 text-xs text-neutral-500">
+              {nativeCard.reason ?? (mobileQrCheckin ? "Pay with card or phone wallet." : t("payments_stripe_desc"))}
+            </div>
           </button>
         </div>
       </div>
