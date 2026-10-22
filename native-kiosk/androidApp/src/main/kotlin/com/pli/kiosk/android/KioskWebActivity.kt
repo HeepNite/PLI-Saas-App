@@ -3,6 +3,7 @@ package com.pli.kiosk.android
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -194,6 +195,7 @@ class KioskWebActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(KIOSK_WINDOW_FLAGS)
         val admission = SecureWebAdmission.from(BuildConfig.APPROVED_HTTPS_ORIGIN) ?: run { finish(); return }
         val app = application as? KioskApplication ?: run { finish(); return }
         val view = WebView(this)
@@ -285,6 +287,8 @@ class KioskWebActivity : Activity() {
     }
 
     companion object {
+        // A self check-in kiosk never sleeps: screen-off stops the Activity, which releases the reader connection.
+        const val KIOSK_WINDOW_FLAGS = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         internal fun isExactTerminalCompletion(admission: SecureWebAdmission, completedUrl: String?, currentUrl: String?) =
             completedUrl == admission.terminalUrl && currentUrl == admission.terminalUrl
     }

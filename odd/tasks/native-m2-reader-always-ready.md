@@ -56,7 +56,14 @@ moment to tap.
   Commit `a9a442af` (+198/−0). `NativeTapToPayPopup` mounted once in `CheckInQrOverlays`; `runNativePreparedCheckout`
   clears a lingering prompt on finish. Video: the owner drops the final clip at `public/kiosk/tap-to-pay.mp4`
   (not committed); until then the CSS fallback shows. Tests: `native-tap-to-pay-popup.test.tsx` (4).
-- [ ] D1 — Build/install APK, deploy, physical validation: idle 30+ min without sales, then a sale; unplug/replug reader; reader off → card gated; tap popup timing.
+- [x] A3 — Keep the kiosk screen on (`FLAG_KEEP_SCREEN_ON`) so screen sleep (tablet timeout 10 min) never stops the
+  Activity and releases the reader. Found during D1: owner disconnected with `DISCONNECT_REQUESTED` at 17:59 exactly
+  10 min after connecting. Route: inline (one mechanical file + test). RED (unresolved constant) → GREEN, Android 248/248.
+- [~] D1 — Physical validation (PR #716 web `esmthac5z` + APK `59a4225a…`), 2026-10-22:
+  - Reader off at start: owner retried 17:49:42 / 17:49:57 / 17:50:17 (scan timeouts), connected by itself at 17:50:51 once powered on. PASS.
+  - Screen slept at 17:59 → owner released reader (fixed by A3). After ~30 min unconnected but on USB power the M2 stayed awake:
+    on wake the owner reconnected at 18:30:29; sale at 18:32:07 reused the connection instantly; Stripe `succeeded` USD 1.00. PASS.
+  - Pending: reader turned off mid-day → card gated + auto-recovery; tap popup timing observed by owner; 10 h idle power-down behavior.
 - [ ] S1 — Later: staff-panel reader-offline alert (heartbeat design).
 
 ## Checks
@@ -75,3 +82,4 @@ moment to tap.
 
 - 2026-10-22 — Document created after the failed unplugged live test; owner approved the always-ready plan and the tap popup.
 - 2026-10-22 — A1, A2, W1, W2 implemented with strict TDD (RED observed per task). Next: D1 physical validation.
+- 2026-10-22 — D1 partial pass (auto-connect, reconnect after idle, live sale). A3 keep-screen-on added.
