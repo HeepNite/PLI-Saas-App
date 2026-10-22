@@ -4,21 +4,17 @@ import type {
   TerminalConnectionTokenGatewayResponse,
 } from "@/lib/nest-gateway/contracts/terminal-precutover"
 
-const secret = process.env.STRIPE_SECRET_KEY
-const stripe = secret
-  ? new Stripe(secret, {
-      apiVersion: "2026-01-28.clover",
-    })
-  : null
-
 const createTerminalConnectionToken = async (
   input: TerminalConnectionTokenGatewayRequest
 ): Promise<TerminalConnectionTokenGatewayResponse> => {
   void input
-  if (!stripe) {
+  const secret = process.env.STRIPE_SECRET_KEY
+  if (!secret) {
     throw new Error("Stripe not configured")
   }
 
+  // Resolve the ordinary client only when the default adapter is used.
+  const stripe = new Stripe(secret, { apiVersion: "2026-01-28.clover" })
   const token = await stripe.terminal.connectionTokens.create()
   return { secret: token.secret }
 }

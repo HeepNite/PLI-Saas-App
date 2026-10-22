@@ -59,3 +59,6 @@ test-results/
 
 # production credential scratch space
 .scratch-prod/
+
+# local diagnostics and build scratch
+.build/

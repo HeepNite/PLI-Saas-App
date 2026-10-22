@@ -125,7 +125,16 @@ describe("Integration: Full override flow", () => {
       status: "active",
       expiresAt: null,
     })
-    mockPrisma.packagePurchase.update.mockResolvedValue({ id: PACKAGE_ID, remainingCredits: 4 })
+    mockPrisma.packagePurchase.updateMany.mockResolvedValue({ count: 1 })
+    mockPrisma.packagePurchase.findUnique.mockResolvedValue({
+      id: PACKAGE_ID,
+      userId: USER_ID,
+      remainingCredits: 4,
+      totalCredits: 10,
+      isUnlimited: false,
+      status: "active",
+      expiresAt: null,
+    })
     mockPrisma.packageUsageLedger.create.mockResolvedValue({ id: "ledger_1" })
 
     const { PATCH } = await import("@/app/api/staff/students/[userId]/attendance/route")
@@ -147,8 +156,13 @@ describe("Integration: Full override flow", () => {
 
     // Verify all operations happened in the transaction
     expect(mockPrisma.attendance.create).toHaveBeenCalled()
-    expect(mockPrisma.packagePurchase.update).toHaveBeenCalledWith({
-      where: { id: PACKAGE_ID },
+    expect(mockPrisma.packagePurchase.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: PACKAGE_ID,
+        userId: USER_ID,
+        status: "active",
+        remainingCredits: { gt: 0 },
+      }),
       data: { remainingCredits: { decrement: 1 }, lastUsedAt: NOW },
     })
     expect(mockPrisma.packageUsageLedger.create).toHaveBeenCalledWith({
