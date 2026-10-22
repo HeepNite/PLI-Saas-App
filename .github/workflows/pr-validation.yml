@@ -3,8 +3,11 @@ name: PR Validation
 on:
   pull_request:
     branches: [main, codex/develop]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
-permissions: {}
+permissions:
+  issues: read
+  pull-requests: read
 
 jobs:
   pr-size:
@@ -15,6 +18,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
+            const EXCEPTION_LABEL = "size:exception";
             const pullRequest = context.payload.pull_request;
             const additions = pullRequest?.additions;
             const deletions = pullRequest?.deletions;
@@ -36,8 +40,39 @@ jobs:
             const limit = 400;
             core.info(`PR size: ${total} changed lines (limit: ${limit}).`);
 
-            if (total > limit) {
-              core.setFailed(
-                `PR has ${total} changed lines, exceeding the ${limit}-line limit. Split this work into smaller PRs or use chained PRs.`
-              );
+            if (total <= limit) return;
+
+            // An oversized PR passes only when a repository admin applied the exception label.
+            // The label alone is not trusted: the actor of its latest "labeled" event must be an admin.
+            const hasLabel = (pullRequest.labels || []).some((label) => label.name === EXCEPTION_LABEL);
+            if (hasLabel) {
+              const { owner, repo } = context.repo;
+              const events = await github.paginate(github.rest.issues.listEvents, {
+                owner,
+                repo,
+                issue_number: pullRequest.number,
+                per_page: 100,
+              });
+              const labeled = events
+                .filter((event) => event.event === "labeled" && event.label?.name === EXCEPTION_LABEL)
+                .pop();
+              const actor = labeled?.actor?.login;
+              if (actor) {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username: actor,
+                });
+                if (data.permission === "admin") {
+                  core.warning(
+                    `PR has ${total} changed lines, exceeding the ${limit}-line limit; allowed by "${EXCEPTION_LABEL}" applied by admin ${actor}.`
+                  );
+                  return;
+                }
+                core.info(`"${EXCEPTION_LABEL}" was applied by ${actor}, who is not a repository admin.`);
+              }
             }
+
+            core.setFailed(
+              `PR has ${total} changed lines, exceeding the ${limit}-line limit. Split this work into smaller PRs or use chained PRs. A repository admin may apply the "${EXCEPTION_LABEL}" label for an approved exception.`
+            );
