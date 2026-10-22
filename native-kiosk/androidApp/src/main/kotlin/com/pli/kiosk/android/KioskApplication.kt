@@ -215,7 +215,7 @@ internal class PreparedBridgeContext(
     val bridge: SecureWebBridge,
     internal val operations: PreparedBridgeOperations,
     private val permissionOwner: (android.app.Activity) -> Unit = {},
-    private val warmReader: WarmReaderLifecycle? = null,
+    private val warmReader: ReaderConnectionLifecycle? = null,
 ) {
     internal val lifecycleOwner: PreparedBridgeLifecycle = object : PreparedBridgeLifecycle {
         override fun onBluetoothPermissionResult(granted: Boolean) {
@@ -356,7 +356,7 @@ class KioskApplication : Application() {
                 "Warm reader requires an empty current session context"
             }
             val terminal = StripeTerminalSdkAdapter(this, PROVISIONED_READER_ID, Approved.LOCATION)
-            val warmReader = ForegroundWarmReader(
+            val warmReader = ReaderConnectionOwner(
                 terminal, permissions,
                 connectionTokenProvider = {
                     val latest = store.read()
@@ -369,6 +369,7 @@ class KioskApplication : Application() {
                 },
                 provisionedReaderId = PROVISIONED_READER_ID,
                 locationId = Approved.LOCATION,
+                scheduler = AndroidCollectionDeadlineScheduler(),
             )
             val runtimeFactory = NativeCollectionRuntimeFactory { preparedAttempt ->
                 val latest = store.read()
@@ -430,7 +431,7 @@ class KioskApplication : Application() {
         workflowFactory: () -> PreparedBridgeWorkflow,
         operationReferenceGenerator: () -> String = ::newPreparedBridgeOperationReference,
         permissionOwner: (android.app.Activity) -> Unit = {},
-        warmReader: WarmReaderLifecycle? = null,
+        warmReader: ReaderConnectionLifecycle? = null,
     ): PreparedBridgeContext? {
         if (!configuration.collectionEnabled || configuration.approvedOrigin != admission.origin) return null
         return runCatching {

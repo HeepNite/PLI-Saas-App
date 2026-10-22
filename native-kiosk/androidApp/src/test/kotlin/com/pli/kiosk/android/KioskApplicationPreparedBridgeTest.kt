@@ -99,7 +99,7 @@ class KioskApplicationPreparedBridgeTest {
     private fun start(requestId: String, reference: String) =
         "{\"version\":1,\"operation\":\"${PreparedBridgeOperations.START}\",\"requestId\":\"$requestId\",\"payload\":{\"preparedPurchaseReference\":\"$reference\"}}"
 
-    private class RecordingWarmReader(private val events: MutableList<String>) : WarmReaderLifecycle {
+    private class RecordingWarmReader(private val events: MutableList<String>) : ReaderConnectionLifecycle {
         private var invalidated = false
         override fun start() { events += "warm-start" }
         override fun onBluetoothPermissionResult(granted: Boolean) { events += "warm-permission:$granted" }

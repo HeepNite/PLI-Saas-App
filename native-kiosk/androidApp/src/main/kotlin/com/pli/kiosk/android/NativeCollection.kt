@@ -43,6 +43,19 @@ fun interface NativeCancelable { fun cancel() }
 fun interface NativeStateSubscription { fun unsubscribe() }
 /** Stripe 5.6 retrieve/connect provide no cancellation handle. This is deliberately not a fake cancel. */
 object NonCancellableTerminalOperation : NativeCancelable { override fun cancel() = Unit }
+/** Returned when a connect request reuses the persistent owner's link; releasing it never disconnects. */
+object ReusedTerminalConnection : NativeCancelable { override fun cancel() = Unit }
+
+/** Reader-level SDK events. Exactly one listener (the persistent connection owner) is bound. */
+interface NativeReaderEvents {
+    fun onReconnectStarted() = Unit
+    fun onReconnectSucceeded() = Unit
+    fun onReconnectFailed() = Unit
+    /** A final disconnect: SDK-reported (after any auto-reconnect) or an explicit release. */
+    fun onDisconnected() = Unit
+    /** The reader is waiting for the customer to present a card. */
+    fun onReaderInputRequested() = Unit
+}
 
 /** Schedules the production collection deadline; tests provide deterministic implementations. */
 fun interface CollectionDeadlineScheduler { fun schedule(delayMs: Long, task: () -> Unit): NativeCancelable }
@@ -73,6 +86,7 @@ interface NativeTerminalAdapter {
     fun currentConnectedReader(): ConnectedReader? = null
     /** A stale successful noncancellable connection must still tear down the physical SDK link. */
     fun disconnect() = Unit
+    fun setReaderEvents(listener: NativeReaderEvents?) = Unit
 }
 
 data class NativeCollectionAuthority(
@@ -314,10 +328,11 @@ class NativeCollectionRuntime(
     }
     private fun invalidateDiscovery() { discoveryGeneration++; discoveryCancelable?.cancel(); discoveryCancelable = null }
     private fun invalidateConnection() {
-        val hadConnectedReader = connectedReaderId != null
+        // A reused link belongs to the persistent connection owner; this sale only releases its lease.
+        val ownsPhysicalLink = connectedReaderId != null && connectionCancelable !== ReusedTerminalConnection
         connectionGeneration++; connectionCancelable?.takeUnless { it === NonCancellableTerminalOperation }?.cancel()
         connectionCancelable = null; connectedReaderId = null; selectedReaderId = null
-        if (hadConnectedReader) terminal.disconnect()
+        if (ownsPhysicalLink) terminal.disconnect()
     }
     private fun invalidateContext(requireManualReconnect: Boolean = false) {
         manualReconnectRequired = manualReconnectRequired || requireManualReconnect
