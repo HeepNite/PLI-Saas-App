@@ -85,6 +85,9 @@ export type UseEnrollActionsInput = {
   resetVerification: () => void
   verification: { onSmsSent: () => void }
   setService: SetState<string>
+  setPkg: SetState<string>
+  setCouponInput: SetState<string>
+  setAppliedCoupon: SetState<Coupon>
   setAddons: SetState<string[]>
   setParticipants: SetState<number>
   setDate: SetState<string>
@@ -135,7 +138,8 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     kioskFastPathAdvanceTriggeredRef, kioskFastPathSubmitTriggeredRef,
     getToken, verifyNewStudent, verifiedPhoneKey = null,
     setVerifiedPhoneKey = () => undefined, markSmsVerified, resetVerification, verification,
-    setService, setAddons, setParticipants, setDate, setTime, setContact, setStep,
+    setService, setPkg, setCouponInput, setAppliedCoupon, setAddons,
+    setParticipants, setDate, setTime, setContact, setStep,
     setSuccess, setSuccessMessage, setProcessing, setFormError, setRequiresSignIn,
     setExistingAccountDetected, setResumeAfterSignInStep, setResumeContactFlowAfterSignIn,
     setPendingAutoPay, setKioskQrCheckout, setSignInPurpose, setIdentityCheckBusy, setPhoneTouched,
@@ -144,6 +148,8 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     setFlowPopup, setConsecutiveAccepted, setConsecutiveAddedCents, setConsecutiveChoiceMade,
     setShowKioskPaymentTransition, t,
   } = input
+  const nativePaidResetRef = React.useRef<() => void>(() => undefined)
+  const resetCompletedNativeKiosk = React.useCallback(() => nativePaidResetRef.current(), [])
 
   const validateBeforeSubmit = () =>
     validateEnrollBeforeSubmit({
@@ -177,6 +183,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     setRequiresSignIn, setExistingAccountDetected, setResumeAfterSignInStep, setPendingAutoPay,
     setKioskQrCheckout, setSignInPurpose, setStripeClientSecret, setShowStripeModal,
     setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup, setResumeContactFlowAfterSignIn,
+    onNativePaymentApproved: resetCompletedNativeKiosk,
     t,
   })
 
@@ -221,7 +228,8 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
     isKioskTerminalFlow, regularServicePrice, signInPurpose, onCloseAction,
     kioskPaymentTransitionTimeoutRef, kioskPaymentTransitionStartedAtRef,
     kioskFastPathAdvanceTriggeredRef, kioskFastPathSubmitTriggeredRef,
-    setSuccess, setSuccessMessage, setAddons, setParticipants, setDate, setTime,
+    setSuccess, setSuccessMessage, setService, setPkg, setCouponInput, setAppliedCoupon,
+    setAddons, setParticipants, setDate, setTime,
     setContact, setStep, setCheckInScheduleNotice, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setPendingAutoPay, setResumeContactFlowAfterSignIn,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase,
@@ -232,6 +240,7 @@ export function useEnrollActions(input: UseEnrollActionsInput) {
   })
 
   const { resetForm, handleClose, handleSignInDismiss } = submitActions
+  nativePaidResetRef.current = resetForm
 
   return {
     buildCheckoutPayload,

@@ -3,6 +3,12 @@ import React from "react"
 import { initialKioskInfoPhase, type KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { I18nKey } from "@/lib/i18n-dict"
+import {
+  hasNativeKioskBridgeRecoveryAttempted,
+  isNativeKioskWebView,
+  isNativePaymentBridgeAvailable,
+  recoverNativeKioskBridge,
+} from "@/components/front/courses/enroll/effects/native-payment-bridge"
 
 type Props = {
   step: number
@@ -34,9 +40,18 @@ export default function EnrollFormFooter({
   identityCheckBusy, consecutiveOfferLoading, canContinueCurrentStep,
   handleClose, handleSubmit, resetKioskQrCheckout, setStep, setKioskInfoPhase, setActiveNumericField, t,
 }: Props) {
+  const [clientReady, setClientReady] = React.useState(false)
   const initialPhase = initialKioskInfoPhase({ phoneFirst: isKioskTerminalFlow })
   const isLaterInfoPhase = usesPhasedInfoForm && step === 0 && kioskInfoPhase !== initialPhase
   const showBack = isLaterInfoPhase || step > 0
+  const isFinalStripeStep = step === steps.length - 1 && isKioskTerminalFlow && paymentMethod === "stripe"
+  const nativeBridgeAvailable = isNativePaymentBridgeAvailable()
+  const missingNativeWebViewBridge = isFinalStripeStep && isNativeKioskWebView() && !nativeBridgeAvailable
+
+  React.useEffect(() => {
+    setClientReady(true)
+    if (isFinalStripeStep && isNativeKioskWebView()) recoverNativeKioskBridge()
+  }, [isFinalStripeStep])
 
   const handleSecondaryAction = () => {
     if (kioskQrCheckoutLocked) {
@@ -88,9 +103,15 @@ export default function EnrollFormFooter({
               : consecutiveOfferLoading && activeStepKey === "payments"
                 ? "Checking promotions..."
                 : isKioskTerminalFlow && paymentMethod === "stripe"
-                  ? kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
-                    ? "Create new QR"
-                    : "Show QR"
+                  ? !clientReady
+                    ? "Checking reader..."
+                    : missingNativeWebViewBridge
+                      ? hasNativeKioskBridgeRecoveryAttempted() ? "Reopen PLI app" : "Reconnect reader"
+                      : nativeBridgeAvailable
+                        ? t("confirm")
+                        : kioskQrCheckout.phase === "expired" || kioskQrCheckout.phase === "error"
+                          ? "Create new QR"
+                          : "Show QR"
                   : t("confirm")}
           </button>
         )}

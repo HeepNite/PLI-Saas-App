@@ -1,6 +1,6 @@
 "use client"
 import React from "react"
-import type { EnrollmentContact } from "@/components/front/courses/types"
+import type { Coupon, EnrollmentContact } from "@/components/front/courses/types"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { PreparedAccountState } from "@/components/front/courses/enroll/types/enroll-modal-props"
 import type { SignInPurpose } from "@/components/front/courses/enroll/model/enroll-flow.types"
@@ -20,6 +20,10 @@ export type UseEnrollSubmitActionsInput = {
   kioskFastPathSubmitTriggeredRef: React.MutableRefObject<boolean>
   setSuccess: SetState<boolean>
   setSuccessMessage: SetState<string | null>
+  setService: SetState<string>
+  setPkg: SetState<string>
+  setCouponInput: SetState<string>
+  setAppliedCoupon: SetState<Coupon>
   setAddons: SetState<string[]>
   setParticipants: SetState<number>
   setDate: SetState<string>
@@ -58,7 +62,8 @@ export function useEnrollSubmitActions(input: UseEnrollSubmitActionsInput) {
     isKioskTerminalFlow, regularServicePrice, signInPurpose, onCloseAction,
     kioskPaymentTransitionTimeoutRef, kioskPaymentTransitionStartedAtRef,
     kioskFastPathAdvanceTriggeredRef, kioskFastPathSubmitTriggeredRef,
-    setSuccess, setSuccessMessage, setAddons, setParticipants, setDate, setTime,
+    setSuccess, setSuccessMessage, setService, setPkg, setCouponInput, setAppliedCoupon,
+    setAddons, setParticipants, setDate, setTime,
     setContact, setStep, setCheckInScheduleNotice, setRequiresSignIn, setExistingAccountDetected,
     setResumeAfterSignInStep, setPendingAutoPay, setResumeContactFlowAfterSignIn,
     setIdentityCheckBusy, setPhoneTouched, setActiveNumericField, setKioskInfoPhase,
@@ -75,6 +80,10 @@ export function useEnrollSubmitActions(input: UseEnrollSubmitActionsInput) {
     }
     setSuccess(false)
     setSuccessMessage(null)
+    setService("")
+    setPkg("")
+    setCouponInput("")
+    setAppliedCoupon(null)
     setAddons([])
     setParticipants(1)
     setDate("")
@@ -110,7 +119,8 @@ export function useEnrollSubmitActions(input: UseEnrollSubmitActionsInput) {
     kioskFastPathSubmitTriggeredRef.current = false
   }, [
     setAddons, setContact, setExistingAccountDetected, setFormError, setKioskQrCheckout,
-    setParticipants, setProcessing, setRequiresSignIn, setResumeAfterSignInStep,
+    setAppliedCoupon, setCouponInput, setParticipants, setPkg, setProcessing, setRequiresSignIn,
+    setResumeAfterSignInStep, setService,
     setResumeContactFlowAfterSignIn, setSignInPurpose, setStep, setSuccess, setSuccessMessage,
     setCheckInScheduleNotice, setIdentityCheckBusy, setPhoneTouched, setActiveNumericField,
     setKioskInfoPhase, setStripeClientSecret, setShowStripeModal, setPreparedAccount,
