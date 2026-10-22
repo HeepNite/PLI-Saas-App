@@ -2,7 +2,11 @@ package com.pli.kiosk.android
 
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -275,6 +279,24 @@ class KioskWebActivity : Activity() {
         super.onStop()
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    // Customers see only the terminal; an edge swipe reveals the bars briefly and they hide again.
+    private fun hideSystemBars() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let {
+                it.hide(WindowInsets.Type.systemBars())
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = LEGACY_IMMERSIVE_FLAGS
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (recreation.onResume()) recreate()
@@ -289,6 +311,11 @@ class KioskWebActivity : Activity() {
     companion object {
         // A self check-in kiosk never sleeps: screen-off stops the Activity, which releases the reader connection.
         const val KIOSK_WINDOW_FLAGS = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        @Suppress("DEPRECATION")
+        const val LEGACY_IMMERSIVE_FLAGS = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
         /** Invalidates the host first, then detaches the WebView as WebView.destroy() requires, then destroys it. */
         internal fun releaseWebView(view: WebView?, invalidateHost: () -> Unit) {
             invalidateHost()
