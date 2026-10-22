@@ -15,6 +15,12 @@ class KioskWebActivityTest {
     private val session = StaffSession(origin, "association", "cookie", Long.MAX_VALUE)
 
     @Test
+    fun kioskWindowKeepsTheScreenOnSoTheReaderConnectionIsNeverReleasedBySleep() {
+        val keepScreenOn = android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        assertEquals(keepScreenOn, KioskWebActivity.KIOSK_WINDOW_FLAGS and keepScreenOn)
+    }
+
+    @Test
     fun onlyExactTopLevelTerminalCompletionIsACookieCaptureOpportunity() {
         val admission = requireNotNull(SecureWebAdmission.from(origin))
 
