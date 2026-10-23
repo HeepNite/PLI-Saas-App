@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-// @ts-expect-error -- plain .mjs build script without type declarations
 import { checkVercelDeploy } from "../scripts/vercel-deploy-guard.mjs"
 
 describe("checkVercelDeploy", () => {
