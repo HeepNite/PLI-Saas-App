@@ -32,7 +32,7 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
 
-const hasVerifiedPhone = (user: ClerkUser | null) => {
+export const hasVerifiedPhone = (user: ClerkUser | null) => {
   if (!user) return false
   const primary = user.phoneNumbers.find((p) => p.id === user.primaryPhoneNumberId) || user.phoneNumbers[0]
   return primary?.verification?.status === "verified"
