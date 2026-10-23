@@ -31,6 +31,7 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - [x] S3 UI: Verify pill, Status filter option, yellow daily amount — commit 878c1e7a (route: delegated writer, resumed from interrupted diff)
 - [x] S4 Manual resolve actions (Collected / Dismiss) with audit — commits 09f2b307 (API) + 734174bb (UI) (route: delegated writer)
 - [x] D5 Pending is cash-only: uncharged card attempts (verify or resolved) out of the Pending pill/filter and API pendingStripe — commit b0c35a8a (route: direct, single writer)
+- [x] D5 extension: in-progress card processes are Verify (`in_progress`); Reports card metric reflects Verify — commit ea4ce8ca (route: direct, single writer)
 - [ ] S5 Payment history timeline (includes exposing `metadata.paymentAttempts` on payment rows; not exposed yet)
 - [ ] S6 Terminal outcome endpoint (`metadata.attemptOutcome`)
 
@@ -54,6 +55,15 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - S4 RED: API 8 failing (not-verify 409 x2, collected via cash path + audit, package sync on collect, dismiss reason required/kept status, idempotent, conflicting resolution, concurrent claim) + 4 predicate/row/route (dismissed out of verify and debt, readVerifyResolution allowlist, row exposes resolution, dismissed stays visible next to paid slot outside verify totals); UI 7 failing (no actions on non-verify, buttons + amount/reason, collected confirm, dismiss needs reason, error kept, resolved labels, card shows actions only on verify rows). GREEN: all pass.
 
 - D5 RED: 8 failing (filter pending excludes verify/dismissed/collected and collected matches paid; API pendingStripe excludes verify x4, expired-next-to-paid, dismissed; board Pending pill cash-only). GREEN: all pass.
+
+- D5 ext RED: 7 failing (in_progress reason x3, open checkout verify + success leaves, UI label, reports metric verify-only, reports label). GREEN, plus 2 existing route assertions updated to D5 (pending card next to paid slot now visible as Verify; old pending card no longer debt).
+
+## Verification evidence (after D5 extension)
+- `npx vitest run tests/api tests/checkin components/front/staff tests/reports-suggestions-provider.test.ts`: 267 files / 2706 tests passed. Full `npx vitest run`: only `tests/integration/prisma-security.test.ts` fails (needs DATABASE_URL; not run against DB by instruction).
+- `npx tsc --noEmit -p .`: exit 0.
+- `npx eslint <changed files>`: 0 errors (1 pre-existing warning).
+- `npx next build`: exit 0.
+- `git diff --check`: clean.
 
 ## Verification evidence (after D5)
 - `npx vitest run tests/api tests/checkin components/front/staff`: 266 files / 2698 tests passed.
@@ -96,7 +106,8 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - S4: `isVerifyCardAttempt` = `isUnchargedCardAttempt` && no resolution. Debt, latest-open and slot dedup use `isUnchargedCardAttempt`, so dismissed attempts are never debt and stay visible.
 - S4 open points: (resolved by D5) dismissed/verify rows no longer match Pending. A later decline on the same PaymentIntent after Dismiss keeps the resolution (the item does not re-enter Verify). The 24 h daily window only reloads unresolved verify rows, so a dismissed attempt from yesterday drops off today's board (still in history).
 
-- D5 scope: a card row that is unpaid but NOT verify (e.g. a Stripe Checkout still in progress, status pending) still matches Pending; Reports `pendingStripeSales` is unchanged. Confirm with the owner if those should change too.
+- D5 extension (ea4ce8ca): pending card processes are Verify `in_progress`; Reports "Stripe pending" became "Card to verify" (counts `verify` rows; field `pendingStripeSales` kept for the suggestions contract).
+- Risk to watch: staff can mark an in-progress QR/Checkout "Collected" while the session is still open; a later Stripe completion would then hit an already-paid row (native fulfillment only accepts pending/failed; Checkout path not re-verified here).
 
 ## Next step
 S5 (history timeline + expose `metadata.paymentAttempts` on rows), then S6.
