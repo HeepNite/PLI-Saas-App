@@ -223,6 +223,25 @@ Prompt scaffolding lives in:
 
 ---
 
+## Deployment Rules
+
+Vercel deploys only from git:
+
+- production deploys from `main`
+- the develop preview deploys from `codex/develop`
+- no other branch creates a deployment (`vercel.json` → `git.deploymentEnabled`)
+
+To deploy, follow: commit → issue → push → PR → merge into `main` (or `codex/develop`). Vercel builds the merged commit automatically. Wait for the deployment and verify it.
+
+Agents must not:
+
+- run `vercel deploy` or `vercel --prod` from a local folder
+- deploy uncommitted or unreviewed changes
+
+`scripts/vercel-deploy-guard.mjs` runs first in `npm run build` and fails any production build not from `main` and any preview build not from `codex/develop`.
+
+---
+
 ## Final Rule
 
 If behavior is not defined by the active spec, the resolved contract, or existing code contracts:
