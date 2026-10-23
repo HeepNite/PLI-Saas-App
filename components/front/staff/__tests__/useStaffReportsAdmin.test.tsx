@@ -87,6 +87,8 @@ const payments = [
     createdAt: "2026-04-01T12:00:00.000Z",
     classPaid: false,
     checkInStatus: "none",
+    verify: true,
+    verifyReason: "in_progress",
   }),
 ]
 
@@ -149,6 +151,16 @@ describe("useStaffReportsAdmin", () => {
     expect(hook.reportsData.checkInRate).toBe(50)
     expect(hook.reportsData.pendingStripeSales).toBe(1)
     expect(hook.reportsData.topCourses[0]?.courseTitle).toBe("Salsa")
+  })
+
+  // D5: the card metric reflects Verify (uncharged card processes); unpaid cash is not counted.
+  it("counts only verify card rows in the card-to-verify metric, never pending cash", async () => {
+    const hook = await renderHook([
+      createPayment({ id: "cash-pending", paymentChannel: "cash", classPaid: false, settlementStatus: "pending" }),
+      createPayment({ id: "card-unflagged", classPaid: false }),
+      createPayment({ id: "card-verify", classPaid: false, verify: true, verifyReason: "card_declined" }),
+    ])
+    expect(hook.reportsData.pendingStripeSales).toBe(1)
   })
 
   it("creates local suggestions and syncs the expanded suggestion with the active objective", async () => {

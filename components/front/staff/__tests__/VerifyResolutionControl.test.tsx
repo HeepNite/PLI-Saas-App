@@ -76,6 +76,11 @@ describe("VerifyResolutionControl", () => {
     expect(buttonByText(node, "Dismiss")).toBeDefined()
   })
 
+  it("labels a card payment still in progress", async () => {
+    const node = await render(verifyRow({ verifyReason: "in_progress" }))
+    expect(node.textContent).toContain("Payment in progress")
+  })
+
   it("asks for confirmation before marking a verify item collected", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }))
     vi.stubGlobal("fetch", fetchMock)

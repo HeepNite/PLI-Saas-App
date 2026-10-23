@@ -256,9 +256,23 @@ type VerifyCandidate = Pick<OutstandingBalancePurchase, "metadata" | "status" | 
  * It stays visible for staff to verify manually and is NEVER outstanding debt.
  * Pending cash is never a verify attempt.
  */
+/**
+ * A card process still in progress (open QR/Checkout session, PaymentIntent not yet charged):
+ * per D5 it is Verify, never Pending or debt. A later success makes it paid and it leaves Verify.
+ */
+const isInProgressCardAttempt = (purchase: VerifyCandidate) =>
+  normalizePaymentChannel({
+    metadata: purchase.metadata,
+    status: purchase.status,
+    stripePaymentIntentId: purchase.stripePaymentIntentId,
+    stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
+  }) === PAYMENT_CHANNEL.CARD
+  && asText(purchase.status).toLowerCase() === PURCHASE_STATUS.PENDING
+
 export const isUnchargedCardAttempt = (purchase: VerifyCandidate) => {
   if (isSettledOrCompleted(purchase)) return false
   if (isTerminalUnpaidCardAttempt(purchase)) return true
+  if (isInProgressCardAttempt(purchase)) return true
   if (!isNativeM2Preparation(purchase)) return false
   const status = asText(purchase.status).toLowerCase()
   return status === PURCHASE_STATUS.PENDING || isNeverCompletedCardAttemptStatus(status)
@@ -300,7 +314,7 @@ export const readVerifyResolution = (metadata: unknown): VerifyResolution | null
 export const isVerifyCardAttempt = (purchase: VerifyCandidate) =>
   isUnchargedCardAttempt(purchase) && readVerifyResolution(purchase.metadata) === null
 
-export type VerifyReason = "card_declined" | "payment_failed" | "checkout_expired" | "cancelled" | "attempt_no_charge"
+export type VerifyReason = "card_declined" | "payment_failed" | "checkout_expired" | "cancelled" | "attempt_no_charge" | "in_progress"
 
 const CANCELLED_ATTEMPT_OUTCOMES = new Set(["cancelled_by_customer", "canceled_by_customer"])
 const DECLINED_ATTEMPT_OUTCOMES = new Set(["declined", "card_declined"])
@@ -320,6 +334,10 @@ export const resolveVerifyReason = (purchase: VerifyCandidate): VerifyReason | n
   if (status === "cancelled" || status === "canceled" || eventType === "payment_intent.canceled" || CANCELLED_ATTEMPT_OUTCOMES.has(outcome)) return "cancelled"
   if (status === "expired" || eventType === "checkout.session.expired") return "checkout_expired"
   if (status === "failed" || Object.keys(error).length > 0) return "payment_failed"
+  // A kiosk outcome (e.g. reader timeout) means the attempt ended without a charge (D1);
+  // otherwise a pending card process is still in progress (D5).
+  if (outcome) return "attempt_no_charge"
+  if (status === PURCHASE_STATUS.PENDING) return "in_progress"
   return "attempt_no_charge"
 }
 

@@ -401,12 +401,27 @@ describe("staff payments shared helpers", () => {
     ["checkout_expired", cardAttempt("u", "expired")],
     ["cancelled", cardAttempt("u", "cancelled")],
     ["cancelled", nativeAttempt("u", "canceled", "pi_1", { stripeFailure: { eventType: "payment_intent.canceled", occurredAt: "x" } })],
-    ["attempt_no_charge", nativeAttempt("u", "pending", null)],
+    ["in_progress", nativeAttempt("u", "pending", null)],
+    ["in_progress", nativeAttempt("u", "pending", "pi_1")],
+    ["in_progress", cardAttempt("u", "pending")],
     ["card_declined", nativeAttempt("u", "pending", "pi_1", { stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "x", error: { code: "card_declined" } } })],
     ["attempt_no_charge", nativeAttempt("u", "pending", "pi_1", { attemptOutcome: { code: "reader_timeout" } })],
     ["cancelled", nativeAttempt("u", "pending", "pi_1", { attemptOutcome: { code: "cancelled_by_customer" } })],
   ])("labels the verify reason as %s", (reason, purchase) => {
     expect(resolveVerifyReason(purchase)).toBe(reason)
+  })
+
+  // D5 extension (owner, 2026-10-23): a card process still in progress is Verify, never Pending or debt.
+  it("treats an open card checkout still in progress as verify, and a later success leaves verify", () => {
+    const inProgress = cardAttempt("user_open_checkout", "pending")
+    expect(isVerifyCardAttempt(inProgress)).toBe(true)
+    expect(resolveVerifyReason(inProgress)).toBe("in_progress")
+    expect(buildOutstandingBalanceByUser([inProgress]).size).toBe(0)
+    expect(buildVerifyBalanceByUser([inProgress]).get("user_open_checkout")).toBe(2500)
+
+    const succeeded = { ...inProgress, status: "paid" }
+    expect(isVerifyCardAttempt(succeeded)).toBe(false)
+    expect(buildVerifyBalanceByUser([succeeded]).size).toBe(0)
   })
 
   // D4 (owner, 2026-10-23): verify items leave the state only by a manual staff resolution.

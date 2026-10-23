@@ -284,8 +284,14 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items).toHaveLength(1)
-    expect(data.items[0]).toMatchObject({
+    // D5: the pending card process stays visible as Verify (in progress) next to the paid owner row.
+    expect(data.items).toHaveLength(2)
+    expect(data.items.find((item: { id: string }) => item.id === "card_pending_latest")).toMatchObject({
+      verify: true,
+      verifyReason: "in_progress",
+      outstandingBalance: null,
+    })
+    expect(data.items.find((item: { id: string }) => item.id === "card_paid_older")).toMatchObject({
       id: "card_paid_older",
       paymentChannel: "card",
       paymentStatus: "paid",
@@ -295,6 +301,8 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({
       pendingStripe: 0,
       paidStripe: 1,
+      verifyItems: 1,
+      verifyAmount: 2000,
     })
   })
 
@@ -2032,7 +2040,9 @@ describe("staff payments route", () => {
       id: "elvira_daily_package",
       completedClassesTotal: 2,
       packageClassesUsedTotal: 2,
-      outstandingBalance: 2000,
+      // D5: the older uncharged card row is Verify, not debt.
+      outstandingBalance: null,
+      verifyBalance: 2000,
       activePackage: {
         totalCredits: 8,
         remainingCredits: 2,

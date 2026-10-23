@@ -17,6 +17,7 @@ const VERIFY_REASON_LABELS: Record<string, string> = {
   checkout_expired: "Checkout expired",
   cancelled: "Cancelled",
   attempt_no_charge: "Attempt, no charge",
+  in_progress: "Payment in progress",
 }
 
 const REASON_MAX_LENGTH = 300
