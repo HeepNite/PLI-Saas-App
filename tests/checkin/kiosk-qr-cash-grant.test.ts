@@ -30,7 +30,15 @@ describe("kiosk QR cash grant", () => {
     })).toMatchObject({ ok: true, terminalId: "terminal_1" })
     expect(verifyKioskQrCashGrant(grant, context, {
       secret,
+      now: new Date("2026-10-23T22:59:59.000Z"),
+    })).toMatchObject({ ok: true, terminalId: "terminal_1" })
+    expect(verifyKioskQrCashGrant(grant, context, {
+      secret,
       now: new Date("2026-10-23T23:00:00.000Z"),
+    })).toEqual({ ok: false })
+    expect(verifyKioskQrCashGrant(grant, context, {
+      secret: "wrong-secret",
+      now,
     })).toEqual({ ok: false })
   })
 

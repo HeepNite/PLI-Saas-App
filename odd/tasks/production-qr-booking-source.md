@@ -13,8 +13,8 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 ## Tasks
 
 - **T1** — S1, S3-S4 — Route: existing-customer QR pricing classification and regression tests. Commit: `85b35690` (`fix(qr): classify established scan customers`).
-- **T2** — S2-S4 — Route: trusted kiosk QR cash authority continuity and regression tests. Commit: this work-unit commit (`fix(qr): preserve scan cash authority`).
-- **T3** — S1-S4 — Route: production-equivalent verification, differential checks, and hotfix documentation. Commit: pending.
+- **T2** — S2-S4 — Route: trusted kiosk QR cash authority continuity and regression tests. Commit: `77a9efd8` (`fix(qr): preserve scan cash authority`).
+- **T3** — S1-S4 — Route: production-equivalent verification, differential checks, and hotfix documentation. Commit: this work-unit commit (`test(qr): close booking source hotfix`).
 
 ## Log
 
@@ -22,3 +22,4 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 - **L2** — “no aparece cash only solo... aparece como que no esta reconociendo el flujo de donde viene, como si fuera que lo tomo del link de booking o /friday y no del escaneo cuando lo que yo hice fue escanear. (esto en produccion no en dev) verificalo por que esto me va a hacer perder plata si no”
 - **L3** — “Sí, implementar hotfix”
 - **L4** — “pero antes de nada no mereeges nada sol mantenlo”
+- **L5** — Evidence: focused QR/cash suite 51/51; repository suite 3662 passed with only the credential-gated integration suite unavailable; typecheck and touched-file lint passed; independent verifier approved S1-S4 and matched shared-path results against `cfe0b91f`.

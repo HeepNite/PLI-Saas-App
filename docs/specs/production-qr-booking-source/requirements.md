@@ -16,8 +16,9 @@ Accepted for isolated hotfix implementation. Do not merge or deploy.
 
 ## Acceptance criteria
 
-- [ ] Signed-in established customer plus `newStudent=1` resolves to `checkin-existing`.
-- [ ] Signed-in customer without purchase history resolves to `checkin-new`.
-- [ ] A default kiosk QR grant remains valid after ten minutes.
-- [ ] A default kiosk QR grant is rejected after its booking completion window.
-- [ ] Existing public-booking and invalid-grant boundaries pass.
+- [x] Signed-in established customer plus `newStudent=1` resolves to `checkin-existing`.
+- [x] Signed-in customer without purchase history resolves to `checkin-new`.
+- [x] A default kiosk QR grant remains valid after ten minutes.
+- [x] A default kiosk QR grant is rejected after its booking completion window.
+- [x] Existing public-booking and invalid-grant boundaries pass.
+- [x] The hotfix remains isolated: no merge and no deployment.
