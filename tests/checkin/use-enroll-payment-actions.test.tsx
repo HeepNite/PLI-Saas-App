@@ -1317,6 +1317,39 @@ describe("useEnrollPaymentActions", () => {
       expect(setProcessing).toHaveBeenLastCalledWith(false)
     })
 
+    it("uses a kiosk session token minted mid-flow for refresh, native prepare, and attempt state", async () => {
+      vi.useFakeTimers()
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url, init) => {
+        if (url === "/api/checkout/native-attempt-state") return jsonResponse({ state: "absent" })
+        const payload = JSON.parse(init.body as string)
+        return payload.prepareOnly
+          ? jsonResponse({ account: { hasAvatar: false } })
+          : jsonResponse({ preparedPurchaseReference: reference, state: "prepared" })
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const postMessage = vi.fn((raw: string) => {
+        const request = JSON.parse(raw)
+        if (request.operation !== "startPreparedPurchase") return
+        ;(window as unknown as { pliNativeBridge: { onmessage?: (event: { data: unknown }) => void } }).pliNativeBridge.onmessage?.({ data: JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: request.requestId, payload: { operationReference: "op_1", state: "accepted" } }) })
+      })
+      installBridge(postMessage)
+      const { getResult, rerender } = await renderHook(defaultInput({ isKioskTerminalFlow: true }))
+
+      await rerender(defaultInput({ isKioskTerminalFlow: true, kioskSessionToken: "kiosk_new_1" }))
+      const first = getResult().handleSubmit()
+      await vi.waitFor(() => expect(postMessage).toHaveBeenCalledTimes(2))
+      const reader = (window as unknown as { pliNativeAttemptState: () => Promise<unknown> }).pliNativeAttemptState
+      await reader()
+
+      expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(init.body as string))).toMatchObject([
+        { refreshKioskPreparedContext: true, kioskSessionToken: "kiosk_new_1" },
+        { paymentSurface: "native_m2_prepare", kioskSessionToken: "kiosk_new_1" },
+        { kioskSessionToken: "kiosk_new_1" },
+      ])
+      await vi.advanceTimersByTimeAsync(5_000)
+      await first
+    })
+
     it.each(["non-ok", "malformed"] as const)("does not fall back to embedded checkout when native preparation is %s", async (mode) => {
       const fetchMock = vi.fn()
         .mockResolvedValueOnce(jsonResponse({ account: { hasAvatar: false } }))

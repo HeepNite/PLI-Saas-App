@@ -852,6 +852,109 @@ describe("resolveCheckoutPreparation", () => {
     })
   })
 
+  it("snapshots the session user's real Clerk phone verification for the new-student service", async () => {
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(
+      makeClerkUser({
+        id: "customer_clerk_1",
+        phoneNumbers: [{ id: "pn_default", phoneNumber: "+15551112222", verification: { status: "verified" } }],
+      })
+    )
+    mockClerkClient.mockResolvedValue(client)
+    const { resolveCheckoutPreparation } = await import("@/lib/checkout")
+
+    const result = await resolveCheckoutPreparation(
+      new Request("http://localhost/api/checkout/intent"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        allowExistingAccountLookup: true,
+        kioskSessionToken: "kiosk_session_1",
+        serviceId: "new-student",
+        validation: { courseSlug: "salsa", date: "2026-02-24", time: "11:00", durationMinutes: 60 },
+      }
+    )
+
+    if ("status" in result) throw new Error("Expected checkout preparation result")
+    expect(client.users.getUser).toHaveBeenCalledWith("customer_clerk_1")
+    expect(result.verification.hasVerifiedPhone).toBe(true)
+    expect(result.preparedAccount.resolvedUserId).toBe("customer_clerk_1")
+  })
+
+  it("keeps the new-student snapshot unverified when the session user's Clerk phone is unverified", async () => {
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(
+      makeClerkUser({
+        id: "customer_clerk_1",
+        phoneNumbers: [{ id: "pn_default", phoneNumber: "+15551112222", verification: { status: "unverified" } }],
+      })
+    )
+    mockClerkClient.mockResolvedValue(client)
+    const { resolveCheckoutPreparation } = await import("@/lib/checkout")
+
+    const result = await resolveCheckoutPreparation(
+      new Request("http://localhost/api/checkout/intent"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "kiosk_session_1",
+        serviceId: "new-student",
+        validation: { courseSlug: "salsa", date: "2026-02-24", time: "11:00", durationMinutes: 60 },
+      }
+    )
+
+    if ("status" in result) throw new Error("Expected checkout preparation result")
+    expect(result.verification.hasVerifiedPhone).toBe(false)
+  })
+
+  it("treats the session as unverified when the verified Clerk phone differs from the session user's phone", async () => {
+    const client = makeClerkClient()
+    client.users.getUser.mockResolvedValue(
+      makeClerkUser({
+        id: "customer_clerk_1",
+        phoneNumbers: [{ id: "pn_default", phoneNumber: "+15559998888", verification: { status: "verified" } }],
+      })
+    )
+    mockClerkClient.mockResolvedValue(client)
+    const { resolveCheckoutPreparation } = await import("@/lib/checkout")
+
+    const result = await resolveCheckoutPreparation(
+      new Request("http://localhost/api/checkout/intent"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "kiosk_session_1",
+        serviceId: "new-student",
+        validation: { courseSlug: "salsa", date: "2026-02-24", time: "11:00", durationMinutes: 60 },
+      }
+    )
+
+    if ("status" in result) throw new Error("Expected checkout preparation result")
+    expect(result.verification.hasVerifiedPhone).toBe(false)
+  })
+
+  it("does not read Clerk for kiosk-session customers outside the new-student service", async () => {
+    const client = makeClerkClient()
+    mockClerkClient.mockResolvedValue(client)
+    const { resolveCheckoutPreparation } = await import("@/lib/checkout")
+
+    const result = await resolveCheckoutPreparation(
+      new Request("http://localhost/api/checkout/intent"),
+      {},
+      {
+        photoContext: "kiosk_terminal",
+        kioskSessionToken: "kiosk_session_1",
+        serviceId: "dropin",
+        validation: { courseSlug: "salsa", date: "2026-02-24", time: "11:00", durationMinutes: 60 },
+      }
+    )
+
+    if ("status" in result) throw new Error("Expected checkout preparation result")
+    expect(client.users.getUser).not.toHaveBeenCalled()
+    expect(result.verification.hasVerifiedPhone).toBe(false)
+    expect(result.preparedAccount.clerkUser).toBeNull()
+  })
+
   it("falls back to the existing preparation path when PREPARED_CHECKOUT_CONTEXT=0", async () => {
     const { PREPARED_CHECKOUT_FALLBACK_REASONS } = await import("@/lib/checkout/prepared-context")
     const { resolveCheckoutPreparation } = await import("@/lib/checkout")
