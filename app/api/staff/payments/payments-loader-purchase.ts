@@ -19,6 +19,8 @@ export type StaffPaymentsTodayWindow = {
   todayNY: string
   startOfTodayNY: Date
   endOfTodayNY: Date
+  /** Start of the rolling 24 h window in which verify attempts stay on the daily board. */
+  verifyWindowStart?: Date
 }
 
 export type EnrichedPurchase = {
@@ -153,6 +155,12 @@ export const isTodayScopedPurchase = (input: {
   }
   return input.createdAt >= input.startOfTodayNY && input.createdAt <= input.endOfTodayNY
 }
+
+/** A verify attempt stays on the daily board for 24 h after it last changed (D3). */
+export const isWithinVerifyWindow = (
+  purchase: Parameters<typeof isVerifyCardAttempt>[0] & { updatedAt: Date },
+  verifyWindowStart: Date | undefined,
+) => Boolean(verifyWindowStart) && purchase.updatedAt >= verifyWindowStart! && isVerifyCardAttempt(purchase)
 
 export const filterPurchasesByClassDateRange = <TItem extends { classDate: string | null }>(
   items: TItem[],
@@ -311,7 +319,7 @@ export const scopePurchasesForResponse = (input: {
                 todayNY: todayWindow.todayNY,
                 startOfTodayNY: todayWindow.startOfTodayNY,
                 endOfTodayNY: todayWindow.endOfTodayNY,
-              })
+              }) || isWithinVerifyWindow(item.purchase, todayWindow.verifyWindowStart)
             ),
             ...standaloneItems,
           ].sort((a, b) => {

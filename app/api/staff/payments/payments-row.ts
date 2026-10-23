@@ -278,6 +278,8 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     // Verify: card process that did not charge — visible, never debt, resolved manually.
     verify: verifyReason !== null,
     verifyReason,
+    // When the attempt last changed; the daily board shows it as Verify for 24 h after this.
+    verifySince: verifyReason !== null ? purchase.updatedAt.toISOString() : null,
     verifyBalance: (() => {
       const value = context.verifyBalanceByUser.get(item.userId)
       return typeof value === "number" && value > 0 ? value : null

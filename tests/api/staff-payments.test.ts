@@ -518,6 +518,33 @@ describe("staff payments route", () => {
     ])
   })
 
+  it("keeps a card attempt that failed yesterday evening on today's board for 24 h", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-03-21T14:00:00.000Z"))
+    mockGetTodayNewYork.mockReturnValue("2026-03-21")
+    const failedCard = (id: string, updatedAt: string) => ({
+      ...buildPurchase({
+        id, userId: `user_${id}`, amount: 2500, status: "failed", createdAt: "2026-03-20T13:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "19:00", paymentChannel: "card", settlementStatus: "pending" },
+      }),
+      updatedAt: new Date(updatedAt),
+      stripePaymentIntentId: `pi_${id}`,
+      stripeCheckoutSessionId: null,
+    })
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      failedCard("recent", "2026-03-20T23:30:00.000Z"),
+      failedCard("stale", "2026-03-20T13:30:00.000Z"),
+      buildPurchase({ id: "paid_yesterday", userId: "user_paid", amount: 2500, status: "paid", createdAt: "2026-03-20T22:00:00.000Z", metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" } }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const data = await (await GET(new Request("http://localhost/api/staff/payments"))).json()
+    vi.useRealTimers()
+
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["recent"])
+    expect(data.items[0]).toMatchObject({ verify: true, verifySince: "2026-03-20T23:30:00.000Z" })
+  })
+
   it("keeps a declined attempt visible next to the paid row for the same class slot and out of revenue", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       buildPurchase({

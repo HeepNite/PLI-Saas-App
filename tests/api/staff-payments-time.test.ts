@@ -14,12 +14,16 @@ vi.mock("@/lib/class-schedule", () => ({
 import { getStaffPaymentsTodaySessionBounds, getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
 
 describe("staff payments time helpers", () => {
-  it("builds the current New York day window", () => {
+  it("builds the current New York day window and the rolling 24 h verify window", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-02-10T15:00:00.000Z"))
     expect(getStaffPaymentsTodayWindow()).toEqual({
       todayNY: "2026-02-10",
       startOfTodayNY: new Date("2026-02-10T05:00:00.000Z"),
       endOfTodayNY: new Date("2026-02-11T04:59:59.999Z"),
+      verifyWindowStart: new Date("2026-02-09T15:00:00.000Z"),
     })
+    vi.useRealTimers()
   })
 
   it("builds named session boundaries for valid staff payments day keys", () => {
