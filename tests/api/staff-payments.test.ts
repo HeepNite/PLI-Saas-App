@@ -332,7 +332,8 @@ describe("staff payments route", () => {
       expect(data.summary).toMatchObject({
         totalItems: 1,
         totalCollected: 0,
-        pendingStripe: 1,
+        // D5: an uncharged card is Verify only, never Pending.
+        pendingStripe: 0,
         paidStripe: 0,
         verifyItems: 1,
         verifyAmount: 2500,
@@ -420,7 +421,7 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({
       totalItems: 2,
       totalCollected: 2500,
-      pendingStripe: 1,
+      pendingStripe: 0,
       paidStripe: 1,
     })
   })
@@ -621,7 +622,7 @@ describe("staff payments route", () => {
         verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-03-20T17:00:00.000Z", reason: "Duplicate attempt" },
       }),
     ]))
-    expect(data.summary).toMatchObject({ verifyItems: 0, verifyAmount: 0 })
+    expect(data.summary).toMatchObject({ verifyItems: 0, verifyAmount: 0, pendingStripe: 0 })
   })
 
   it("does not flag consumed provisional PINs as active on the staff board", async () => {

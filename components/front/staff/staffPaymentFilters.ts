@@ -44,6 +44,13 @@ export const matchesPaymentCategory = (
   return true
 }
 
+/**
+ * An uncharged card attempt, open (Verify) or manually resolved. Per D5 it never counts
+ * as Pending: Pending is money the student has not handed over yet (cash).
+ */
+export const isUnchargedCardAttemptRow = (row: Pick<PaymentRow, "verify" | "verifyResolution">) =>
+  row.verify === true || Boolean(row.verifyResolution)
+
 export const matchesStripeStatus = (
   row: {
     classPaid: PaymentRow["classPaid"]
@@ -54,11 +61,13 @@ export const matchesStripeStatus = (
     checkInStatus?: PaymentRow["checkInStatus"]
     packageId?: PaymentRow["packageId"]
     verify?: PaymentRow["verify"]
+    verifyResolution?: PaymentRow["verifyResolution"]
   },
   filter: PaymentsStatusFilter
 ) => {
   if (filter === "all") return true
   if (filter === "verify") return row.verify === true
+  if (filter === "pending" && isUnchargedCardAttemptRow(row)) return false
   if (row.paymentChannel === "cash") {
     return filter === "paid" ? row.settlementStatus === "paid" : row.settlementStatus !== "paid"
   }

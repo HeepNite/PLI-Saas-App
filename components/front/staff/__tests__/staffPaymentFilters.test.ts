@@ -26,6 +26,23 @@ describe("Verify status filter", () => {
     expect(matchesStripeStatus(cashPending, "verify")).toBe(false)
   })
 
+  // D5 (owner, 2026-10-23): Pending is cash-only; an uncharged card is Verify only.
+  it("keeps verify and resolved card attempts out of Pending, and counts a collected row as paid", () => {
+    const dismissed = row({
+      id: "dismissed", paymentStatus: "failed", settlementStatus: "pending", classPaid: false, verify: false,
+      verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: "Class not taken" },
+    })
+    const collected = row({
+      id: "collected", paymentChannel: "cash", paymentStatus: "paid", settlementStatus: "paid", classPaid: true, verify: false,
+      verifyResolution: { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: null },
+    })
+    expect(matchesStripeStatus(declined, "pending")).toBe(false)
+    expect(matchesStripeStatus(dismissed, "pending")).toBe(false)
+    expect(matchesStripeStatus(collected, "pending")).toBe(false)
+    expect(matchesStripeStatus(collected, "paid")).toBe(true)
+    expect(matchesStripeStatus(cashPending, "pending")).toBe(true)
+  })
+
   it("lists only verify rows for a student under the Verify status", () => {
     const result = resolveStudentCardPayments([paid, declined, cashPending], {
       isHistoryMode: false, historyClassKey: "", historyPaymentMethodFilter: "all", historyAttendanceFilter: "all",

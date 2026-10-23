@@ -26,6 +26,7 @@ import {
 import {
   buildCurrentMonthStudentsSummary,
   isOpenSettlementRow,
+  isUnchargedCardAttemptRow,
   matchesStripeStatus,
   resolveDirectClassRevenueCents,
   resolveStudentCardPayments,
@@ -377,7 +378,8 @@ export function useStaffStudentsBoardAdmin({
       totalRevenueCents: filteredStudentCards.reduce((sum, item) => sum + resolveDirectClassRevenueCents(item.allPayments), 0),
       pendingByContext: filteredStudentCards.filter((item) => {
         if (paymentCategoryFilter === "cash") return item.latestPayment.settlementStatus === "pending"
-        if (!isPaymentPaidForUi(item.latestPayment)) return true
+        // D5: an uncharged card (Verify or resolved) is never pending; cash debt still is.
+        if (!isPaymentPaidForUi(item.latestPayment) && !isUnchargedCardAttemptRow(item.latestPayment)) return true
         const balance = "outstandingBalance" in item && typeof item.outstandingBalance === "number" ? item.outstandingBalance : item.latestPayment.outstandingBalance
         return typeof balance === "number" && balance > 0
       }).length,
