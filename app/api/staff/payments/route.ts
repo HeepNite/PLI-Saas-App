@@ -16,6 +16,7 @@ const buildPaymentsSummary = <TItem extends {
   paymentChannel: string
   settlementStatus: string
   classPaid: boolean
+  verify: boolean
 }>(items: TItem[]) => ({
   totalItems: items.length,
   totalCollected: items
@@ -25,6 +26,9 @@ const buildPaymentsSummary = <TItem extends {
   paidSettlement: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CASH && item.settlementStatus === SETTLEMENT_STATUS.PAID).length,
   pendingStripe: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CARD && !item.classPaid).length,
   paidStripe: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CARD && item.classPaid).length,
+  // Verify items never count as revenue (never completed) nor as debt.
+  verifyItems: items.filter((item) => item.verify).length,
+  verifyAmount: items.filter((item) => item.verify).reduce((sum, item) => sum + item.amount, 0),
 })
 
 export async function GET(req: Request) {

@@ -9,6 +9,7 @@ import {
   asObject,
   asText,
   isCompletedPaymentStatus,
+  isVerifyCardAttempt,
   normalizeSettlementStatus,
   attendanceSlotKey,
 } from "@/app/api/staff/payments/shared"
@@ -31,6 +32,8 @@ export type EnrichedPurchase = {
   classDate: string | null
   classTime: string | null
   classStartsAt: Date | null
+  /** A verify attempt kept visible next to the row that owns its class slot. */
+  verifyExtra?: boolean
 }
 
 export const buildPurchaseAttendanceDedupKey = (input: {
@@ -206,14 +209,24 @@ export const enrichPurchases = <TPurchase extends {
  * Dedup enrichedPurchases by slot key — when two purchases exist for the same
  * (userId, courseSlug, classStartsAt), keep the real payment (Stripe/cash) so
  * Payment History can surface it, and merge attendanceId from package_credit.
+ * A verify attempt (card process that did not charge) never owns a slot over another
+ * row and is never dropped: it is returned as an extra row flagged `verifyExtra`.
  */
 export const dedupEnrichedPurchasesBySlot = <TItem extends {
   metadata: Record<string, unknown>
   userId: string
   classStartsAt: Date | null
-  purchase: { id: string; courseSlug: string | null; status: string }
-}>(items: TItem[]): TItem[] => {
+  purchase: {
+    id: string
+    courseSlug: string | null
+    status: string
+    metadata: unknown
+    stripePaymentIntentId: string | null
+    stripeCheckoutSessionId: string | null
+  }
+}>(items: TItem[]): Array<TItem & { verifyExtra?: boolean }> => {
   const bySlot = new Map<string, TItem>()
+  const verifyExtras: TItem[] = []
   for (const item of items) {
     const key = buildPurchaseAttendanceDedupKey({
       purchaseId: item.purchase.id,
@@ -224,6 +237,17 @@ export const dedupEnrichedPurchasesBySlot = <TItem extends {
     const existing = bySlot.get(key)
     if (!existing) {
       bySlot.set(key, item)
+      continue
+    }
+    const existingIsVerify = isVerifyCardAttempt(existing.purchase)
+    const incomingIsVerify = isVerifyCardAttempt(item.purchase)
+    if (incomingIsVerify) {
+      verifyExtras.push(item)
+      continue
+    }
+    if (existingIsVerify) {
+      bySlot.set(key, item)
+      verifyExtras.push(existing)
       continue
     }
     const existingIsCredit = asText(existing.metadata.paymentChannel) === PAYMENT_CHANNEL.PACKAGE_CREDIT
@@ -252,7 +276,7 @@ export const dedupEnrichedPurchasesBySlot = <TItem extends {
     }
     // Otherwise keep existing (first-seen wins for equivalent rows).
   }
-  return [...bySlot.values()]
+  return [...bySlot.values(), ...verifyExtras.map((item) => ({ ...item, verifyExtra: true }))]
 }
 
 export const scopePurchasesForResponse = (input: {

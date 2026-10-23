@@ -58,6 +58,7 @@ const emptyContext = {
   completedOverrideByUser: new Map<string, number>(),
   packageUsedOverrideByUser: new Map<string, number>(),
   outstandingBalanceByUser: new Map<string, number>(),
+  verifyBalanceByUser: new Map<string, number>(),
   packagePurchaseIdByPurchaseId: new Map<string, string>(),
   packageClassNumberByUsageKey: new Map<string, number>(),
   fundingPurchaseByPackagePurchaseId: new Map<string, unknown>(),
@@ -225,5 +226,33 @@ describe("buildStaffPaymentResponseRow", () => {
     expect(row.attendanceId).toBe("attendance_123")
     expect(row.checkInStatus).toBe("checked_in")
     expect(row.packageClassNumber).toBe(3)
+  })
+
+  it("flags a card attempt that did not charge as verify with a coarse reason and the student's verify amount", () => {
+    const metadata = {
+      paymentChannel: "card",
+      stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-02-10T14:00:00.000Z", error: { code: "card_declined" } },
+    }
+    const row = buildStaffPaymentResponseRow({
+      ...baseItem,
+      metadata,
+      settlementStatus: "pending",
+      purchase: { ...baseItem.purchase, status: "failed", stripePaymentIntentId: "pi_declined", metadata },
+    }, { ...emptyContext, verifyBalanceByUser: new Map([["user_123", 2500]]) })
+
+    expect(row).toMatchObject({ verify: true, verifyReason: "card_declined", verifyBalance: 2500, outstandingBalance: null })
+  })
+
+  it("does not flag pending cash or paid rows as verify", () => {
+    const pendingCash = buildStaffPaymentResponseRow({
+      ...baseItem,
+      settlementStatus: "pending",
+      metadata: { paymentChannel: "cash", settlementStatus: "pending" },
+      purchase: { ...baseItem.purchase, status: "pending", metadata: { paymentChannel: "cash", settlementStatus: "pending" } },
+    }, emptyContext)
+    const paid = buildStaffPaymentResponseRow(baseItem, emptyContext)
+
+    expect(pendingCash).toMatchObject({ verify: false, verifyReason: null, verifyBalance: null })
+    expect(paid).toMatchObject({ verify: false, verifyReason: null })
   })
 })

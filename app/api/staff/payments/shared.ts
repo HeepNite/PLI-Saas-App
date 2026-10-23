@@ -189,11 +189,10 @@ const isRefundedCard = (paymentChannel: PaymentChannel, status: unknown) =>
 
 /**
  * A card attempt where no money ever moved (expired, failed, cancelled/canceled while unpaid).
- * This no longer influences isOpenPurchase — a student who started a card checkout and
- * never finished it still owes the class, so the row stays open/visible. This predicate
- * only classifies the row so the UI can label it distinctly from a cash-pending row.
+ * It does not influence isOpenPurchase; it feeds isVerifyCardAttempt, which keeps the row
+ * visible as a "Verify" item and out of the outstanding balance (owner decision D2).
  */
-export const isTerminalUnpaidCardAttempt = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
+export const isTerminalUnpaidCardAttempt = (purchase: VerifyCandidate) => {
   const paymentChannel = normalizePaymentChannel({
     metadata: purchase.metadata,
     status: purchase.status,
@@ -243,42 +242,72 @@ export const isPendingProcessablePurchase = <TPurchase extends OutstandingBalanc
   return paymentChannel === "unknown" && !purchase.stripePaymentIntentId && !purchase.stripeCheckoutSessionId
 }
 
-const isCompletedForDebtSuppression = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) =>
+const isSettledOrCompleted = (purchase: Pick<OutstandingBalancePurchase, "status" | "metadata">) =>
   isCompletedPaymentStatus(purchase.status) || normalizeSettlementStatus(asObject(purchase.metadata).settlementStatus) === SETTLEMENT_STATUS.PAID
 
-// Same class = same courseSlug + metadata.date when a date is present; courseSlug alone otherwise
-// (special-class checkouts carry the date in the slug instead of metadata).
-const classKey = (courseSlug: string, date: string) => (date ? `${courseSlug}|${date}` : courseSlug)
+const isNativeM2Preparation = (purchase: Pick<OutstandingBalancePurchase, "metadata">) =>
+  asText(asObject(purchase.metadata).paymentSurface) === "native_m2_prepare"
 
-/** Per user, keys every completed class so a never-completed card attempt for it can be recognized. */
-const buildCompletedClassKeysByUser = <TPurchase extends OutstandingBalancePurchase>(purchases: TPurchase[]) => {
-  const keysByUser = new Map<string, Set<string>>()
-  for (const purchase of purchases) {
-    if (!purchase.courseSlug || !isCompletedForDebtSuppression(purchase)) continue
-    const keys = keysByUser.get(purchase.userId) ?? new Set<string>()
-    keys.add(purchase.courseSlug).add(classKey(purchase.courseSlug, asText(asObject(purchase.metadata).date)))
-    keysByUser.set(purchase.userId, keys)
-  }
-  return keysByUser
+type VerifyCandidate = Pick<OutstandingBalancePurchase, "metadata" | "status" | "stripePaymentIntentId" | "stripeCheckoutSessionId">
+
+/**
+ * "Verify" state (owner decisions D1-D3, 2026-10-23): a card process that did not charge —
+ * declined, failed, expired, cancelled, or a native M2 preparation that never charged.
+ * It stays visible for staff to verify manually and is NEVER outstanding debt.
+ * Pending cash is never a verify attempt.
+ */
+export const isVerifyCardAttempt = (purchase: VerifyCandidate) => {
+  if (isSettledOrCompleted(purchase)) return false
+  if (isTerminalUnpaidCardAttempt(purchase)) return true
+  if (!isNativeM2Preparation(purchase)) return false
+  const status = asText(purchase.status).toLowerCase()
+  return status === PURCHASE_STATUS.PENDING || isNeverCompletedCardAttemptStatus(status)
 }
 
-const hasCompletedSiblingClass = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase, keysByUser: Map<string, Set<string>>) =>
-  Boolean(purchase.courseSlug) && (keysByUser.get(purchase.userId)?.has(classKey(purchase.courseSlug!, asText(asObject(purchase.metadata).date))) ?? false)
+export type VerifyReason = "card_declined" | "payment_failed" | "checkout_expired" | "cancelled" | "attempt_no_charge"
 
-const isUnchargedNativeM2Preparation = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) =>
-  asText(asObject(purchase.metadata).paymentSurface) === "native_m2_prepare" && !purchase.stripePaymentIntentId
+const CANCELLED_ATTEMPT_OUTCOMES = new Set(["cancelled_by_customer", "canceled_by_customer"])
+const DECLINED_ATTEMPT_OUTCOMES = new Set(["declined", "card_declined"])
+
+/** Coarse, PII-free label key for a verify attempt; null when the purchase is not in the verify state. */
+export const resolveVerifyReason = (purchase: VerifyCandidate): VerifyReason | null => {
+  if (!isVerifyCardAttempt(purchase)) return null
+  const metadata = asObject(purchase.metadata)
+  const failure = asObject(metadata.stripeFailure)
+  const error = asObject(failure.error)
+  const eventType = asText(failure.eventType)
+  const outcome = asText(asObject(metadata.attemptOutcome).code).toLowerCase()
+  const status = asText(purchase.status).toLowerCase()
+
+  if (asText(error.code) === "card_declined" || asText(error.declineCode)) return "card_declined"
+  if (DECLINED_ATTEMPT_OUTCOMES.has(outcome)) return "card_declined"
+  if (status === "cancelled" || status === "canceled" || eventType === "payment_intent.canceled" || CANCELLED_ATTEMPT_OUTCOMES.has(outcome)) return "cancelled"
+  if (status === "expired" || eventType === "checkout.session.expired") return "checkout_expired"
+  if (status === "failed" || Object.keys(error).length > 0) return "payment_failed"
+  return "attempt_no_charge"
+}
 
 export const buildOutstandingBalanceByUser = <TPurchase extends OutstandingBalancePurchase>(purchases: TPurchase[]) => {
   const totals = new Map<string, number>()
-  const completedClasses = buildCompletedClassKeysByUser(purchases)
 
   for (const purchase of purchases) {
-    if (isUnchargedNativeM2Preparation(purchase)) continue
+    if (isVerifyCardAttempt(purchase)) continue
 
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
-    if (isTerminalUnpaidCardAttempt(purchase) && hasCompletedSiblingClass(purchase, completedClasses)) continue
 
+    totals.set(purchase.userId, (totals.get(purchase.userId) || 0) + purchase.amount)
+  }
+
+  return totals
+}
+
+/** Per user, the amount that should have been charged by card processes in the verify state. */
+export const buildVerifyBalanceByUser = <TPurchase extends OutstandingBalancePurchase>(purchases: TPurchase[]) => {
+  const totals = new Map<string, number>()
+
+  for (const purchase of purchases) {
+    if (!isVerifyCardAttempt(purchase)) continue
     totals.set(purchase.userId, (totals.get(purchase.userId) || 0) + purchase.amount)
   }
 
@@ -289,12 +318,11 @@ export type OpenPurchase = OutstandingBalancePurchase & { id: string; userId: st
 
 export const buildLatestOpenPurchaseByUser = <TPurchase extends OpenPurchase>(purchases: TPurchase[]) => {
   const latestByUser = new Map<string, TPurchase>()
-  const completedClasses = buildCompletedClassKeysByUser(purchases)
 
   for (const purchase of purchases) {
+    if (isVerifyCardAttempt(purchase)) continue
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
-    if (isTerminalUnpaidCardAttempt(purchase) && hasCompletedSiblingClass(purchase, completedClasses)) continue
 
     const current = latestByUser.get(purchase.userId)
     if (!current) {
