@@ -20,13 +20,18 @@ A new student ("I am new" on /staff/terminal in the Android PLI app) can pay by 
 
 ## Tasks
 
-- [ ] N1. Server: `POST /api/checkin/qr/new-student/kiosk-session` mints a `new_student_sms` kiosk session (terminal auth, 30/min per terminal+IP, miss throttle, Clerk verified phone, DB/Clerk match, no prior successful purchase). Returns only token + expiry.
+- [x] N1. Server: `POST /api/checkin/qr/new-student/kiosk-session` mints a `new_student_sms` kiosk session (terminal auth, 30/min per terminal+IP, miss throttle, Clerk verified phone, DB/Clerk match, no prior successful purchase). Returns only token + expiry.
   - Route: inline (single new route + test).
-- [ ] N2. Server: kiosk-session preparation branch snapshots real verified-phone state from Clerk for the new-student service.
+  - Evidence: commit b86680ec. RED 10/10 failing against 501 stub; GREEN 10/10. `hasVerifiedPhone` exported from lib/checkout.ts and reused; eligibility via `enforceNewStudentRules`.
+- [x] N2. Server: kiosk-session preparation branch snapshots real verified-phone state from Clerk for the new-student service.
   - Route: inline (one function in lib/checkout.ts + test).
-- [ ] N3. Client: kiosk new-student EnrollModal mints the session after SMS success and adopts the token mid-flow; failure keeps cash.
+  - Evidence: commit 0d1a3f5b. RED 1 failing (Clerk not read); GREEN 18/18 in tests/lib/checkout-prepare.test.ts. Uncached `clerkClient().users.getUser` only for the new-student service; other services unchanged (test asserts no Clerk read).
+- [x] N3. Client: kiosk new-student EnrollModal mints the session after SMS success and adopts the token mid-flow; failure keeps cash.
   - Route: inline (small hook + API wrapper + modal wiring).
-- [ ] N4. Tests and checks: vitest (api, checkin, components relevant), tsc, eslint changed files, next build, git diff --check.
+  - Evidence: commit a3b16b3e. RED 1 failing (stub hook, no mint); GREEN 5/5 hook tests + mid-flow token test in use-enroll-payment-actions (84/84). Mint is fire-and-forget after SMS success so it never blocks SMS completion or cash; token is dropped if the phone changes.
+- [x] N4. Tests and checks: vitest (api, checkin, components relevant), tsc, eslint changed files, next build, git diff --check.
+
+  - Evidence: vitest tests/api tests/checkin tests/lib/checkout-prepare.test.ts components: 273 files / 2765 tests passed. `tsc --noEmit` clean. eslint changed files: 0 errors (6 pre-existing warnings in EnrollModal.tsx, untouched lines). `next build` exit 0. `git diff --check` clean.
 
 ## Checks
 
@@ -35,6 +40,13 @@ A new student ("I am new" on /staff/terminal in the Android PLI app) can pay by 
 - `npx eslint <changed files>`
 - `npx next build`
 - `git diff --check`
+
+## Residual notes
+
+- No full EnrollModal render test for the SMS onSuccessAction wiring (3-line glue); covered by hook + payment-actions tests.
+- Not verified here: if the staff recovery-code path finishes without a Clerk-verified phone, the mint is refused (card fails closed, cash only); SMS proof stays mandatory.
+- Kiosk-session branch still reports `hasAvatar: true` (pre-existing); the new-student flow keeps the earlier prepared account for the photo step.
+- No on-device M2 validation (adb/device out of scope).
 
 ## Progress
 
