@@ -635,6 +635,14 @@ describe("internal LIVE preflight and connection-token boundary", () => {
         expect(mocks.create).toHaveBeenCalledTimes(1)
       })
 
+      it("creates a fresh PaymentIntent for a canceled attempt reopened on re-prepare", async () => {
+        preparePurchase()
+        boundPurchase = { ...boundPurchase!, metadata: { ...(boundPurchase!.metadata as Record<string, unknown>), paymentAttemptGeneration: "1" } }
+        const { ticket } = await admit()
+        expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(200)
+        expect(mocks.create).toHaveBeenCalledWith(expect.anything(), { idempotencyKey: "prepared-native-m2:v1:native-m2-prepared:purchase_dynamic_1:r1" })
+      })
+
       it("rejects Purchase mutations before payment creation or retrieval and requires pending for a fresh intent", async () => {
         preparePurchase()
         const { ticket } = await admit()

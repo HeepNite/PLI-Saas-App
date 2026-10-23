@@ -209,9 +209,27 @@ describe("prepared native purchase capability", () => {
     expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({ where: { id: "purchase_1", status: "failed" }, data: { status: "pending" } })
   })
 
-  it("does not reopen a canceled prepared purchase", async () => {
+  it("reopens a canceled prepared purchase as pending with a fresh PaymentIntent generation so the customer can retry", async () => {
     const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
-    mockPurchaseFindUnique.mockResolvedValue({ ...(await storedPurchase()), status: "canceled" })
+    const base = await storedPurchase()
+    const canceled = {
+      ...base, status: "canceled", stripePaymentIntentId: "pi_canceled",
+      metadata: { ...base.metadata, paymentAttempts: [{ at: "2026-02-10T15:00:00.000Z", channel: "native_m2", status: "canceled", paymentIntentId: "pi_canceled" }] },
+    }
+    const reopened = { ...canceled, status: "pending", stripePaymentIntentId: null, metadata: { ...canceled.metadata, paymentAttemptGeneration: "1" } }
+    mockPurchaseFindUnique.mockResolvedValueOnce(canceled).mockResolvedValueOnce(reopened)
+    mockPurchaseUpdateMany.mockResolvedValue({ count: 1 })
+
+    await expect(createOrReuseNativePreparedPurchase(reuseInput)).resolves.toMatchObject({ id: "purchase_1", status: "pending" })
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({
+      where: { id: "purchase_1", status: "canceled", stripePaymentIntentId: "pi_canceled" },
+      data: { status: "pending", stripePaymentIntentId: null, metadata: reopened.metadata },
+    })
+  })
+
+  it("does not reopen a paid prepared purchase", async () => {
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    mockPurchaseFindUnique.mockResolvedValue({ ...(await storedPurchase()), status: "paid" })
 
     await expect(createOrReuseNativePreparedPurchase(reuseInput)).rejects.toMatchObject({ code: "mismatch", status: 409 })
     expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()

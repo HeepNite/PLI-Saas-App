@@ -25,6 +25,7 @@ export type PreparedNativePaymentPurchase = {
   currency: string
   idempotencyKey: string
   fulfillmentMetadata: Record<string, string>
+  attemptGeneration?: number
 }
 export type PreparedNativePaymentAttempt = PreparedNativePaymentCaller & {
   v: 1
@@ -72,7 +73,19 @@ function canonicalFulfillmentMetadata(value: unknown): string {
 
 // Purchase.metadata keys that annotate an attempt's outcome (decline reason, kiosk outcome,
 // manual verify resolution). They are never part of the fulfillment selection or its digest.
-const ATTEMPT_ANNOTATION_KEYS = new Set(["stripeFailure", "paymentAttempts", "attemptOutcome", "verifyResolution"])
+const ATTEMPT_ANNOTATION_KEYS = new Set(["stripeFailure", "paymentAttempts", "paymentAttemptGeneration", "attemptOutcome", "verifyResolution"])
+
+/**
+ * How many times a canceled prepared Purchase was reopened for retry. Each generation gets
+ * its own PaymentIntent idempotency key, because a canceled PaymentIntent cannot collect.
+ */
+export const preparedNativeAttemptGeneration = (metadata: unknown): number => {
+  const raw = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>).paymentAttemptGeneration
+    : undefined
+  const value = typeof raw === "string" && /^[1-9][0-9]{0,3}$/.test(raw) ? Number(raw) : 0
+  return value
+}
 
 /** Fulfillment selection stored on a prepared Purchase, without attempt-outcome annotations. */
 export const preparedNativeFulfillmentMetadata = (metadata: unknown): Record<string, string> => {
@@ -145,7 +158,10 @@ export function readPreparedNativePaymentAttempt(ticket: unknown, caller?: Prepa
 
 export function preparedNativePaymentIdempotencyKey(purchase: PreparedNativePaymentPurchase) {
   assertPurchase(purchase)
-  return `prepared-native-m2:v1:${purchase.idempotencyKey}`
+  const generation = purchase.attemptGeneration ?? 0
+  if (!Number.isSafeInteger(generation) || generation < 0) throw invalidPurchase()
+  const base = `prepared-native-m2:v1:${purchase.idempotencyKey}`
+  return generation > 0 ? `${base}:r${generation}` : base
 }
 
 function boundAttempt(ticket: unknown, purchase: PreparedNativePaymentPurchase) {

@@ -981,6 +981,16 @@ const PREPARED_NATIVE_FAILURE_STATUS_BY_EVENT: Partial<Record<Stripe.Event.Type,
   "payment_intent.canceled": "canceled",
 }
 
+const isCanceledLoggedPaymentIntent = (metadata: unknown, paymentIntentId: string) => {
+  const attempts = metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>).paymentAttempts
+    : undefined
+  return Array.isArray(attempts) && attempts.some((attempt) =>
+    Boolean(attempt) && typeof attempt === "object" &&
+    (attempt as Record<string, unknown>).paymentIntentId === paymentIntentId &&
+    (attempt as Record<string, unknown>).status === "canceled")
+}
+
 // Records a declined/canceled prepared native attempt on its unpaid Purchase so staff can
 // verify it. Never fulfills, never binds a PaymentIntent, never downgrades a paid row.
 async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, event: Stripe.Event, status: "failed" | "canceled") {
@@ -995,6 +1005,11 @@ async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, 
     } catch {
       bound = false
     }
+  }
+  // A canceled PaymentIntent is unbound when its Purchase is reopened for retry; its late
+  // events must never touch the new attempt.
+  if (purchase && bound && purchase.stripePaymentIntentId === null && isCanceledLoggedPaymentIntent(purchase.metadata, intent.id)) {
+    bound = false
   }
   if (!purchase || !bound) {
     console.warn("[native-m2-webhook:failure-binding-mismatch]", { eventId: event.id, eventType: event.type })

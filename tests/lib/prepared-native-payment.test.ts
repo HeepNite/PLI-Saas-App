@@ -64,6 +64,16 @@ describe("prepared native payment proof", () => {
       .toBe(proof.nativeFulfillmentMetadataDigest(purchase.fulfillmentMetadata))
   })
 
+  it("derives a distinct PaymentIntent idempotency key for each reopened attempt generation", async () => {
+    const proof = await import("@/lib/stripe/prepared-native-payment")
+    expect(proof.preparedNativePaymentIdempotencyKey({ ...purchase, attemptGeneration: 0 })).toBe("prepared-native-m2:v1:native-m2-prepared:purchase_1")
+    expect(proof.preparedNativePaymentIdempotencyKey({ ...purchase, attemptGeneration: 2 })).toBe("prepared-native-m2:v1:native-m2-prepared:purchase_1:r2")
+    expect(proof.preparedNativeAttemptGeneration({ paymentAttemptGeneration: "2" })).toBe(2)
+    expect(proof.preparedNativeAttemptGeneration({ paymentAttemptGeneration: "x" })).toBe(0)
+    expect(proof.preparedNativeAttemptGeneration({})).toBe(0)
+    expect(proof.preparedNativeFulfillmentMetadata({ courseSlug: "salsa", paymentAttemptGeneration: "2" })).toEqual({ courseSlug: "salsa" })
+  })
+
   it("uses code-unit metadata key ordering for mixed-case keys", async () => {
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const first = { aZ: "upper", aa: "lower" }

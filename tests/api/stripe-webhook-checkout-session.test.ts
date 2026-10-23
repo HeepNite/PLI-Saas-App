@@ -399,6 +399,29 @@ describe("stripe webhook checkout session persistence", () => {
       ] }),
     }) }))
   })
+  const canceledThenReopened = (purchase: { metadata: Record<string, string> }) => ({
+    ...purchase, status: "pending", stripePaymentIntentId: null,
+    metadata: { ...purchase.metadata, paymentAttemptGeneration: "1", paymentAttempts: [{ at: "2026-10-04T16:59:00.000Z", channel: "native_m2", status: "canceled", paymentIntentId: "pi_dynamic_1" }] },
+  })
+  it("ignores a late failure event for a canceled PaymentIntent after the Purchase was reopened for retry", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.canceled")
+    mockPurchaseFindUnique.mockResolvedValue(canceledThenReopened(purchase))
+    mockConstructEvent.mockReturnValue(event)
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+  })
+  it("pays a reopened canceled Purchase when the retry PaymentIntent succeeds", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    const retry = { ...event, id: "evt_retry_succeeded", data: { object: { ...event.data.object, id: "pi_retry_1" } } }
+    mockPurchaseFindUnique.mockResolvedValue(canceledThenReopened(purchase))
+    mockConstructEvent.mockReturnValue(retry)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "paid", stripePaymentIntentId: "pi_retry_1" } }))
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalled()
+  })
   it("never downgrades a prepared native Purchase that is no longer pending", async () => {
     const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
     mockPurchaseFindUnique.mockResolvedValue({ ...purchase, status: "paid", stripePaymentIntentId: "pi_dynamic_1" })

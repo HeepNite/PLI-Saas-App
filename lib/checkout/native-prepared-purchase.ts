@@ -1,7 +1,7 @@
 import "server-only"
 import { createHash } from "node:crypto"
 import { prisma } from "@/lib/prisma"
-import { preparedNativeFulfillmentMetadata } from "@/lib/stripe/prepared-native-payment"
+import { preparedNativeAttemptGeneration, preparedNativeFulfillmentMetadata } from "@/lib/stripe/prepared-native-payment"
 
 type Selection = {
   courseSlug: string
@@ -33,6 +33,7 @@ type PurchaseRecord = {
   addonsCsv: string | null
   idempotencyKey: string | null
   metadata: unknown
+  stripePaymentIntentId?: string | null
 }
 
 export type NativePreparedPurchaseInput = {
@@ -102,14 +103,29 @@ const assertExactPurchase = (purchase: PurchaseRecord | null, expected: Omit<Pur
   return purchase
 }
 
-// A declined card-present attempt keeps its PaymentIntent collectible, so re-preparing the
-// same context and selection reopens that Purchase (keeping its recorded decline) instead of
-// creating a second one. Canceled and other terminal statuses stay unavailable.
-async function reopenDeclinedPurchase(existing: PurchaseRecord, expected: Omit<PurchaseRecord, "id">) {
-  assertExactPurchase(existing, { ...expected, status: "failed" })
-  await prisma.purchase.updateMany({ where: { id: existing.id, status: "failed" }, data: { status: "pending" } })
+// After a decline or cancel the student stays on payment and may retry (owner decision OQ4),
+// so re-preparing the same context and selection reopens that Purchase (keeping its attempt
+// log) instead of creating a second one. A declined PaymentIntent stays collectible and stays
+// bound; a canceled one cannot collect, so it is unbound and the next attempt generation gets
+// a fresh PaymentIntent idempotency key. Paid and other statuses stay unavailable.
+async function reopenRetryablePurchase(existing: PurchaseRecord, expected: Omit<PurchaseRecord, "id">) {
+  assertExactPurchase(existing, { ...expected, status: existing.status })
+  if (existing.status === "failed") {
+    await prisma.purchase.updateMany({ where: { id: existing.id, status: "failed" }, data: { status: "pending" } })
+  } else {
+    const metadata = {
+      ...(existing.metadata as Record<string, unknown>),
+      paymentAttemptGeneration: String(preparedNativeAttemptGeneration(existing.metadata) + 1),
+    }
+    await prisma.purchase.updateMany({
+      where: { id: existing.id, status: "canceled", stripePaymentIntentId: existing.stripePaymentIntentId ?? null },
+      data: { status: "pending", stripePaymentIntentId: null, metadata },
+    })
+  }
   return assertExactPurchase(await prisma.purchase.findUnique({ where: { idempotencyKey: expected.idempotencyKey! } }), expected)
 }
+
+const RETRYABLE_PREPARED_STATUSES = new Set(["failed", "canceled"])
 
 export async function createOrReuseNativePreparedPurchase(input: NativePreparedPurchaseInput) {
   const selection = normalizeSelection(input.selection)
@@ -139,7 +155,7 @@ export async function createOrReuseNativePreparedPurchase(input: NativePreparedP
   }
 
   const existing = await prisma.purchase.findUnique({ where: { idempotencyKey } })
-  if (existing?.status === "failed") return reopenDeclinedPurchase(existing, expected)
+  if (existing && RETRYABLE_PREPARED_STATUSES.has(existing.status)) return reopenRetryablePurchase(existing, expected)
   if (existing) return assertExactPurchase(existing, expected)
 
   try {
