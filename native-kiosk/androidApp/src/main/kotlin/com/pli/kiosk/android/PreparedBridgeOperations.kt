@@ -316,6 +316,10 @@ class PreparedBridgeOperations(
         }
     }
 
+    /** A sale is in flight; its page must not be replaced without invalidating it. */
+    @Synchronized
+    fun hasPendingOperation() = operations.values.any { it.state == SecureBridgeState.PENDING }
+
     @Synchronized
     fun poll(operationReference: String) = pollResult(operationReference).state
 

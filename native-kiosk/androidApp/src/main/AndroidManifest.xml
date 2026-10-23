@@ -10,7 +10,8 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:usesCleartextTraffic="false"
-        android:label="PLI LIVE Foundation">
+        android:label="PLI LIVE Foundation"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity
             android:name="${launcherActivity}"
             android:exported="true">

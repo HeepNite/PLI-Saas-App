@@ -81,6 +81,9 @@ class SecureWebMessageHost(
     private val featureAvailable: Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER),
 ) {
     private val mainThread = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pushTarget = events?.let { channel ->
+        HostBoundWebEventTarget<JavaScriptReplyProxy>(channel, { task -> mainThread.post(task) }) { proxy, event -> reply(proxy, event) }
+    }
     private val adapter = bridge?.let { SecureWebMessageAdapter(admission, it) }
     private val enabled = canAttach(admission, collectionEnabled, featureAvailable, bridge)
     private var attached = false
@@ -93,20 +96,31 @@ class SecureWebMessageHost(
         return true
     }
 
+    /**
+     * A main-frame navigation (reload included) replaced the page: synchronously retire the old
+     * document's reply proxy so no push or late message from it can reach Chromium again.
+     */
+    fun retireDocument() {
+        pushTarget?.retireDocument()
+    }
+
     fun invalidate() {
         if (invalidated) return
         invalidated = true
+        pushTarget?.retireDocument()
         adapter?.invalidate()
-        events?.invalidate()
+        pushTarget?.invalidate()
         if (attached && featureAvailable) WebViewCompat.removeWebMessageListener(webView, OBJECT_NAME)
         attached = false
     }
 
     private val listener = WebViewCompat.WebMessageListener { _, message, sourceOrigin, isMainFrame, replyProxy ->
+        // A message still in flight from a replaced document is never dispatched or answered.
+        if (pushTarget?.isRetired(replyProxy) == true) return@WebMessageListener
         val response = adapter?.handle(sourceOrigin.toString(), isMainFrame, webView.url, message.data) ?: return@WebMessageListener
         reply(replyProxy, response)
         // Only an admitted message may become the push target; pushes hop to the UI thread.
-        events?.bind { event -> mainThread.post { if (!invalidated) reply(replyProxy, event) } }
+        pushTarget?.bindProxy(replyProxy)
     }
 
     private fun reply(proxy: JavaScriptReplyProxy, value: String) = proxy.postMessage(value)
@@ -115,5 +129,57 @@ class SecureWebMessageHost(
         const val OBJECT_NAME = "pliNativeBridge"
         fun canAttach(admission: SecureWebAdmission?, collectionEnabled: Boolean, featureAvailable: Boolean, bridge: SecureWebBridge?) =
             admission != null && collectionEnabled && featureAvailable && bridge != null
+    }
+}
+
+/**
+ * The push edge of exactly one host/WebView lifetime. Every push hops to [schedule] (the UI thread in
+ * production) and re-checks this host's validity there immediately before delivery, so nothing reaches
+ * a reply proxy after [invalidate]. Invalidation unbinds only this target from the shared channel.
+ * Each bound proxy belongs to one document generation; [retireDocument] advances the generation, so a
+ * push queued for an older document is dropped and a proxy of a replaced document can never rebind.
+ */
+internal class HostBoundWebEventTarget<P : Any>(
+    private val events: NativeWebEvents,
+    private val schedule: (Runnable) -> Unit,
+    private val deliver: (P, String) -> Unit,
+) : NativeWebEventTarget {
+    private class Bound<P>(val proxy: P, val generation: Long)
+
+    @Volatile private var bound: Bound<P>? = null
+    @Volatile private var generation = 0L
+    @Volatile private var valid = true
+    private val retired = java.util.Collections.newSetFromMap(java.util.WeakHashMap<P, Boolean>())
+
+    @Synchronized fun bindProxy(next: P): Boolean {
+        if (!valid || next in retired) return false
+        bound = Bound(next, generation)
+        events.bind(this)
+        return true
+    }
+
+    /** Retires the current document's proxy; nothing reaches it again, even a push already queued. */
+    @Synchronized fun retireDocument() {
+        bound?.let { retired += it.proxy }
+        bound = null
+        generation++
+    }
+
+    @Synchronized fun isRetired(candidate: P) = candidate in retired
+
+    override fun post(message: String) {
+        val queuedFor = generation
+        schedule(Runnable {
+            val current = bound
+            if (valid && current != null && current.generation == queuedFor && generation == queuedFor) {
+                deliver(current.proxy, message)
+            }
+        })
+    }
+
+    fun invalidate() {
+        valid = false
+        retireDocument()
+        events.unbind(this)
     }
 }

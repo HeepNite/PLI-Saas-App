@@ -21,6 +21,21 @@ class KioskWebActivityTest {
     }
 
     @Test
+    fun kioskHidesSystemBarsStickilySoCustomersSeeOnlyTheTerminal() {
+        @Suppress("DEPRECATION")
+        val required = android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+            android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+        assertEquals(required, KioskWebActivity.LEGACY_IMMERSIVE_FLAGS and required)
+    }
+
+    @Test
+    fun kioskManifestUsesATitleBarFreeTheme() {
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        assertTrue(manifest.contains("android:theme=\"@android:style/Theme.DeviceDefault.NoActionBar\""))
+    }
+
+    @Test
     fun onlyExactTopLevelTerminalCompletionIsACookieCaptureOpportunity() {
         val admission = requireNotNull(SecureWebAdmission.from(origin))
 
@@ -201,7 +216,7 @@ class KioskWebActivityTest {
 
         assertInvalidates("context.session") { onNavigation("https://foreign.invalid", false, true) }
         assertInvalidates("context.session") { onNavigation(terminal, true, true) }
-        assertInvalidates("context.session") { onNavigation(terminal, false, true) }
+        assertInvalidates("context.session", Fixture(survivesReload = false)) { onNavigation(terminal, false, true) }
         assertInvalidates("context.background") { onApplicationBackgrounded() }
         assertInvalidates("context.session") { onSessionInvalidated() }
         assertInvalidates("context.reader") { onReaderInvalidated() }
@@ -224,14 +239,68 @@ class KioskWebActivityTest {
         assertTrue(fixture.events.isEmpty())
     }
 
-    private fun attachedFixture() = Fixture().also {
+    @Test
+    fun idleTerminalReloadRetiresOnlyTheOldDocumentAndKeepsTheBridgeAndReader() {
+        val fixture = attachedFixture()
+
+        assertFalse(fixture.controller.onNavigation(terminal, false, true))
+        fixture.controller.onPageStarted(terminal)
+        assertEquals(listOf("host.retire", "host.retire"), fixture.events)
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(listOf("host.retire", "host.retire"), fixture.events)
+
+        fixture.controller.onPageStarted(terminal)
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, fixture.controller.onPageFinished(terminal, terminal))
+        assertEquals(1, fixture.contextCreations)
+        assertEquals(1, fixture.host.attachments)
+    }
+
+    @Test
+    fun reloadStartRetiresTheOldDocumentBeforeAnyInvalidation() {
+        val fixture = attachedFixture(Fixture(survivesReload = false))
+
+        fixture.controller.onPageStarted(terminal)
+        assertEquals(listOf("host.retire", "host.invalidate", "context.session"), fixture.events)
+
+        val foreign = attachedFixture()
+        foreign.controller.onPageStarted("$terminal?next=1")
+        assertEquals(listOf("host.retire", "host.invalidate", "context.session"), foreign.events)
+    }
+
+    @Test
+    fun terminalReloadMustCompleteExactlyWithTheSameSessionAuthority() {
+        var current: StaffSession? = session
+        val changed = attachedFixture(Fixture(currentSession = { current }))
+        changed.controller.onPageStarted(terminal)
+        current = session.copy(cookie = "changed")
+        assertEquals(KioskWebPageResult.REJECTED, changed.controller.onPageFinished(terminal, terminal))
+        assertEquals(listOf("host.retire", "host.invalidate", "context.session"), changed.events)
+
+        val inexact = attachedFixture()
+        inexact.controller.onPageStarted(terminal)
+        assertEquals(KioskWebPageResult.REJECTED, inexact.controller.onPageFinished("$terminal?next=1", terminal))
+        assertEquals(listOf("host.retire", "host.invalidate", "context.session"), inexact.events)
+    }
+
+    @Test
+    fun pageStartBeforeTheBridgeIsActiveOnlyRetiresTheDocument() {
+        val fixture = Fixture()
+        fixture.controller.onPageStarted(terminal)
+        assertTrue(fixture.events.isEmpty())
+        assertEquals(KioskWebPageResult.RELOAD_REQUIRED, fixture.controller.onPageFinished(terminal, terminal))
+        fixture.controller.onPageStarted(terminal)
+        assertEquals(listOf("host.attach", "host.retire"), fixture.events)
+        assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, fixture.controller.onPageFinished(terminal, terminal))
+    }
+
+    private fun attachedFixture(fixture: Fixture = Fixture()) = fixture.also {
         assertEquals(KioskWebPageResult.RELOAD_REQUIRED, it.controller.onPageFinished(terminal, terminal))
         assertEquals(KioskWebPageResult.BRIDGE_ACTIVE, it.controller.onPageFinished(terminal, terminal))
         it.events.clear()
     }
 
-    private fun assertInvalidates(event: String, action: KioskWebHostLifecycle.() -> Unit) {
-        val fixture = attachedFixture()
+    private fun assertInvalidates(event: String, base: Fixture = Fixture(), action: KioskWebHostLifecycle.() -> Unit) {
+        val fixture = attachedFixture(base)
         fixture.controller.action()
         assertEquals(listOf("host.invalidate", event), fixture.events)
         assertEquals(KioskWebPageResult.REJECTED, fixture.controller.onPageFinished(terminal, terminal))
@@ -244,9 +313,10 @@ class KioskWebActivityTest {
         private val contextAvailable: Boolean = true,
         hostAttaches: Boolean = true,
         hostThrows: Boolean = false,
+        survivesReload: Boolean = true,
     ) {
         val events = mutableListOf<String>()
-        val context = RecordingContext(events)
+        val context = RecordingContext(events, survivesReload)
         val host = RecordingHost(events, hostAttaches, hostThrows)
         var captures = 0
         var contextCreations = 0
@@ -270,9 +340,13 @@ class KioskWebActivityTest {
             return attaches
         }
         override fun invalidate() { events += "host.invalidate" }
+        override fun retireDocument() { events += "host.retire" }
     }
 
-    private class RecordingContext(private val events: MutableList<String>) : KioskWebHostContext {
+    private class RecordingContext(
+        private val events: MutableList<String>, private val survivesReload: Boolean,
+    ) : KioskWebHostContext {
+        override fun survivesDocumentReplacement() = survivesReload
         override fun onBluetoothPermissionResult(granted: Boolean) { events += "context.permission:$granted" }
         override fun onApplicationBackgrounded() { events += "context.background" }
         override fun onSessionInvalidated() { events += "context.session" }

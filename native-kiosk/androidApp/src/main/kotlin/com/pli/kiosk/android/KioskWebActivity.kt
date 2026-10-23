@@ -2,7 +2,11 @@ package com.pli.kiosk.android
 
 import android.app.Activity
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
@@ -15,12 +19,16 @@ import java.util.concurrent.TimeUnit
 internal interface KioskWebHost {
     fun attach(): Boolean
     fun invalidate()
+    /** Synchronously drops the replaced document's reply proxy; the bridge itself stays attached. */
+    fun retireDocument() = Unit
 }
 
 /** Context callbacks are delivered only while this controller owns an attached host. */
 internal interface KioskWebHostContext {
     val bridge: SecureWebBridge? get() = null
     val webEvents: NativeWebEvents? get() = null
+    /** True only when no sale is in flight, so a same-page reload cannot orphan one. */
+    fun survivesDocumentReplacement() = false
     fun attachPermissionOwner() = Unit
     fun onBluetoothPermissionResult(granted: Boolean)
     fun onApplicationBackgrounded()
@@ -34,7 +42,10 @@ internal enum class KioskWebPageResult { IGNORED, RELOAD_REQUIRED, BRIDGE_ACTIVE
 
 /**
  * Pure admission/lifecycle policy. A terminal controller never creates a replacement bridge;
- * navigation or lifecycle replacement requires a newly-created Activity instead.
+ * navigation or lifecycle replacement requires a newly-created Activity instead. The one exception is
+ * an idle reload of the exact terminal page (the web deploy watchdog): the old document is retired
+ * synchronously, the bridge and reader stay, and the reload must complete exactly with the same
+ * session authority or the host is invalidated.
  */
 internal class KioskWebHostLifecycle(
     private val admission: SecureWebAdmission,
@@ -47,6 +58,8 @@ internal class KioskWebHostLifecycle(
     private var host: KioskWebHost? = null
     private var awaitingReload = false
     private var awaitingSession: StaffSession? = null
+    private var activeSession: StaffSession? = null
+    private var reloading = false
     private var active = false
     private var terminal = false
 
@@ -56,6 +69,14 @@ internal class KioskWebHostLifecycle(
         if (terminal) return KioskWebPageResult.REJECTED
         val exactCompletion = KioskWebActivity.isExactTerminalCompletion(admission, completedUrl, currentTopLevelUrl)
         if (active) {
+            if (exactCompletion && reloading) {
+                if (!runCatching { captureSession(completedUrl, currentTopLevelUrl) &&
+                        sameSessionAuthority(currentSession(), activeSession) }.getOrDefault(false)) {
+                    invalidate(KioskWebHostContext::onSessionInvalidated)
+                    return KioskWebPageResult.REJECTED
+                }
+                reloading = false
+            }
             if (exactCompletion) return KioskWebPageResult.BRIDGE_ACTIVE
             invalidate(KioskWebHostContext::onSessionInvalidated)
             return KioskWebPageResult.REJECTED
@@ -71,6 +92,7 @@ internal class KioskWebHostLifecycle(
                 return KioskWebPageResult.REJECTED
             }
             awaitingReload = false
+            activeSession = awaitingSession
             awaitingSession = null
             active = true
             return KioskWebPageResult.BRIDGE_ACTIVE
@@ -104,10 +126,28 @@ internal class KioskWebHostLifecycle(
             current.association == captured.association &&
             current.cookie == captured.cookie
 
+    /** Main-frame page start (reload included): the previous document is gone before anything else runs. */
+    fun onPageStarted(url: String?) {
+        if (terminal) return
+        runCatching { host?.retireDocument() }
+        if (active && !keepsBridgeAcross(url, isRedirect = false)) invalidate(KioskWebHostContext::onSessionInvalidated)
+    }
+
     fun onNavigation(url: String?, isRedirect: Boolean, isMainFrame: Boolean): Boolean {
         val blocked = admission.shouldOverrideNavigation(url, isRedirect, isMainFrame)
-        if (blocked || isMainFrame && active) invalidate(KioskWebHostContext::onSessionInvalidated)
+        if (blocked) invalidate(KioskWebHostContext::onSessionInvalidated)
+        else if (isMainFrame && active) {
+            if (keepsBridgeAcross(url, isRedirect)) runCatching { host?.retireDocument() }
+            else invalidate(KioskWebHostContext::onSessionInvalidated)
+        }
         return blocked
+    }
+
+    private fun keepsBridgeAcross(url: String?, isRedirect: Boolean): Boolean {
+        if (!admission.allowsMainFrameNavigation(url, isRedirect)) return false
+        if (!runCatching { context?.survivesDocumentReplacement() == true }.getOrDefault(false)) return false
+        reloading = true
+        return true
     }
 
     fun onPermissionResult(requestCode: Int, granted: Boolean) {
@@ -123,6 +163,8 @@ internal class KioskWebHostLifecycle(
         terminal = true
         awaitingReload = false
         awaitingSession = null
+        activeSession = null
+        reloading = false
         active = false
         context = null
         host = null
@@ -135,6 +177,8 @@ internal class KioskWebHostLifecycle(
         terminal = true
         awaitingReload = false
         awaitingSession = null
+        activeSession = null
+        reloading = false
         active = false
         val ownedHost = host
         val ownedContext = context
@@ -217,6 +261,7 @@ class KioskWebActivity : Activity() {
                     object : KioskWebHostContext {
                         override val bridge = prepared.bridge
                         override val webEvents = prepared.events
+                        override fun survivesDocumentReplacement() = !prepared.operations.hasPendingOperation()
                         override fun attachPermissionOwner() = prepared.attachPermissionOwner(this@KioskWebActivity)
                         override fun onBluetoothPermissionResult(granted: Boolean) =
                             prepared.lifecycleOwner.onBluetoothPermissionResult(granted)
@@ -247,6 +292,10 @@ class KioskWebActivity : Activity() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) =
                 lifecycle?.onNavigation(request.url.toString(), request.isRedirect, request.isForMainFrame) ?: true
 
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                lifecycle?.onPageStarted(url)
+            }
+
             override fun onPageFinished(view: WebView, url: String?) {
                 if (lifecycle?.onPageFinished(url, view.url) == KioskWebPageResult.RELOAD_REQUIRED) view.reload()
             }
@@ -275,20 +324,51 @@ class KioskWebActivity : Activity() {
         super.onStop()
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    // Customers see only the terminal; an edge swipe reveals the bars briefly and they hide again.
+    private fun hideSystemBars() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let {
+                it.hide(WindowInsets.Type.systemBars())
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = LEGACY_IMMERSIVE_FLAGS
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         if (recreation.onResume()) recreate()
     }
 
     override fun onDestroy() {
-        lifecycle?.onDestroy()
-        webView?.destroy()
+        releaseWebView(webView) { lifecycle?.onDestroy() }
+        webView = null
         super.onDestroy()
     }
 
     companion object {
         // A self check-in kiosk never sleeps: screen-off stops the Activity, which releases the reader connection.
         const val KIOSK_WINDOW_FLAGS = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        @Suppress("DEPRECATION")
+        const val LEGACY_IMMERSIVE_FLAGS = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+            View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_FULLSCREEN or
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+            View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        /** Invalidates the host first, then detaches the WebView as WebView.destroy() requires, then destroys it. */
+        internal fun releaseWebView(view: WebView?, invalidateHost: () -> Unit) {
+            invalidateHost()
+            if (view == null) return
+            (view.parent as? android.view.ViewGroup)?.removeView(view)
+            view.destroy()
+        }
+
         internal fun isExactTerminalCompletion(admission: SecureWebAdmission, completedUrl: String?, currentUrl: String?) =
             completedUrl == admission.terminalUrl && currentUrl == admission.terminalUrl
     }

@@ -28,6 +28,11 @@ class NativeWebEvents {
         }
     }
 
+    /** Clears the binding only when it is still [target], so an older host never clears a newer one. */
+    @Synchronized fun unbind(target: NativeWebEventTarget) {
+        if (this.target === target) this.target = null
+    }
+
     /** Answers a page `getReaderStatus` request at the next bind with the current status. */
     @Synchronized fun requestStatus() {
         if (!invalidated) statusRequested = true

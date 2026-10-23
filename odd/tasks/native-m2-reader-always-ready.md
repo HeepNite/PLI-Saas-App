@@ -59,6 +59,44 @@ moment to tap.
 - [x] A3 — Keep the kiosk screen on (`FLAG_KEEP_SCREEN_ON`) so screen sleep (tablet timeout 10 min) never stops the
   Activity and releases the reader. Found during D1: owner disconnected with `DISCONNECT_REQUESTED` at 17:59 exactly
   10 min after connecting. Route: inline (one mechanical file + test). RED (unresolved constant) → GREEN, Android 248/248.
+- [x] A4 — Crash fix: stale web event target / WebView destroy (branch `fix/kiosk-stale-web-event-target`, commit `75420dfe`).
+  Route: delegated writer. Evidence: SM-T727V Android 11 debug APK, 2026-10-22 18:39:42.817 `reader disconnected
+  reason=DISCONNECT_REQUESTED`, 18:39:44.512 main-thread abort `JNI DETECTED ERROR ... use of deleted weak global
+  reference 0xefefefefefefefef` from `MessageQueue.nativePollOnce` into libwebviewchromium.so (SIGABRT).
+  Root cause analysis: the stale-proxy hypothesis is NOT confirmed by code. `NativeWebEvents` is per prepared context
+  (`KioskApplication.kt:365`, one per page admission), and every lifecycle path (onStop/onDestroy/navigation) already ran
+  `SecureWebMessageHost.invalidate()` (host flag + `events.invalidate()`) before `webView.destroy()`, so the posted
+  lambda dropped after invalidation. The DISCONNECT_REQUESTED line is the owner's own `terminal.disconnect()` on stop.
+  The confirmed contract violation is `KioskWebActivity.onDestroy` calling `webView.destroy()` while the WebView was
+  still attached to the window (Android requires removal from the view system first); this matches a Chromium-internal
+  weak-ref use-after-free on a later UI-loop task, but is not proven on device.
+  Fix: per-host `HostBoundWebEventTarget` (main-thread delivery, validity re-checked right before `postMessage`,
+  identity-checked `NativeWebEvents.unbind`, host invalidation never clears a newer host's binding);
+  `KioskWebActivity.releaseWebView` invalidates the host, detaches the WebView, then destroys it. Event schema and money
+  paths unchanged. TDD: RED (unresolved `unbind`/`HostBoundWebEventTarget`/`releaseWebView`) → GREEN, Android 255/255.
+  APK (prod origin, collection on) sha256 `eab4c562022c0ff3cdab3ea64036e5ddba092b314b6ef42fd0c78ebe5c5b002a`.
+  Pending: on-device reproduction (stop/resume/recreate cycles) to confirm the crash is gone.
+- [x] A5 — Crash fix: page reload tears down the bridge (branch `fix/kiosk-reload-stale-reply-proxy`, commit `8be6806c`).
+  Route: delegated writer. Repro (SM-T727V Android 11, debug APK, CheckJNI): kiosk open, owner connected,
+  `window.location.reload()` via WebView devtools → `reader disconnected reason=DISCONNECT_REQUESTED` → ~3 s later
+  `JNI ERROR (app bug): accessed stale WeakGlobal 0xefefefefefefefef` from `MessageQueue.nativePollOnce` into
+  libwebviewchromium. Production trigger: web deploy watchdog `useKioskDeployRefresh.ts` reload every 5 min (crashes
+  at ~5 min uptime). Cause in code: any main-frame navigation while the bridge was active terminally invalidated the
+  host (`KioskWebActivity.kt:113` `isMainFrame && active` in `onNavigation`, or `:64` in `onPageFinished`): that runs
+  `WebViewCompat.removeWebMessageListener` mid-navigation and `stopReader()` (the DISCONNECT_REQUESTED). The
+  stale-reply-proxy post hypothesis is NOT confirmed by code: A4 already invalidated the push target before the reader
+  stop, so no push reached the old proxy on that path; the remaining native work on the crash path is the listener
+  removal during an in-flight navigation (Chromium-internal weak-ref use-after-free, not proven on device).
+  Fix: an idle reload of the exact terminal URL (no PENDING prepared operation) no longer invalidates: `onNavigation`
+  and the new `onPageStarted` synchronously `retireDocument()` (old proxy dropped, document generation advanced,
+  generation re-checked on the main thread right before `postMessage`, late messages from a retired proxy are neither
+  dispatched nor answered nor rebound); bridge, listener and reader owner stay; completion must be exact with the same
+  session authority (origin/association/cookie) or the host is invalidated. A reload during an in-flight sale, a
+  redirect, or a non-terminal URL still invalidates as before. Closed schema and money paths unchanged.
+  TDD: RED compile, then RED assertions (7 failing with stubs) → GREEN, Android 264/264.
+  APK (prod origin, collection on) sha256 `af5e57ddecbe1912f7cb17766f791b86cf2344100975015cc30704bd4248b4d4`,
+  androidTest `05ace5a38e99c60bfd521931e1a5ef7aba73dac3e7672ce525bae250c888f427`.
+  Pending: on-device reload repro (devtools reload + 5-min watchdog soak) to confirm no abort and no reader disconnect.
 - [~] D1 — Physical validation (PR #716 web `esmthac5z` + APK `59a4225a…`), 2026-10-22:
   - Reader off at start: owner retried 17:49:42 / 17:49:57 / 17:50:17 (scan timeouts), connected by itself at 17:50:51 once powered on. PASS.
   - Screen slept at 17:59 → owner released reader (fixed by A3). After ~30 min unconnected but on USB power the M2 stayed awake:
@@ -83,3 +121,5 @@ moment to tap.
 - 2026-10-22 — Document created after the failed unplugged live test; owner approved the always-ready plan and the tap popup.
 - 2026-10-22 — A1, A2, W1, W2 implemented with strict TDD (RED observed per task). Next: D1 physical validation.
 - 2026-10-22 — D1 partial pass (auto-connect, reconnect after idle, live sale). A3 keep-screen-on added.
+- 2026-10-22 — A4 crash hardening committed (`75420dfe`); root cause not confirmed on device, needs recreate-cycle soak.
+- 2026-10-22 — A5 reload crash fix committed (`8be6806c`); idle reload keeps bridge and reader; needs device repro.
