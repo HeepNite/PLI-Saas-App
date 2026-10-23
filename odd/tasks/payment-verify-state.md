@@ -28,9 +28,9 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 ## Tasks
 - [x] S1 Capture native M2 card failures (webhook + prepared purchase reuse) — commit f96fa8ac (route: delegated writer)
 - [x] S2 Verify predicate, no-hide dedup, balance exclusion, row verify flag/reason — commit 1e848273 (route: delegated writer)
-- [ ] S3 UI: Verify pill, Status filter option, yellow daily amount
+- [x] S3 UI: Verify pill, Status filter option, yellow daily amount — commit 878c1e7a (route: delegated writer, resumed from interrupted diff)
 - [ ] S4 Manual resolve actions (Collected / Dismiss) with audit
-- [ ] S5 Payment history timeline
+- [ ] S5 Payment history timeline (includes exposing `metadata.paymentAttempts` on payment rows; not exposed yet)
 - [ ] S6 Terminal outcome endpoint (`metadata.attemptOutcome`)
 
 ## Acceptance criteria
@@ -47,6 +47,16 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - S1 RED: 12 failing (webhook record/idempotency/succeeded-after-decline, normalizer, annotation strip, reuse/reopen, backend retry). GREEN: all pass.
 - S2 RED: 27 failing (predicate, balances, latest-open, reason keys, row flags, route verify/dedup/summary). GREEN: all pass.
 
+- Post-S2 commits: attempt log 97ba5446, retry after cancel 08d635ef, 24 h daily verify window server-side 63e9abef.
+- S3 RED: 9 failing (filter verify-only, monthly summary verify totals, 24 h verify amount helper, pill order/count/amount/yellow, Status Verify option, daily card yellow within 24 h and hidden after, red debt excludes verify, board pill counts each verify row once and revenue excludes it). GREEN: all pass.
+
+## Verification evidence (after S3)
+- `npx vitest run tests/api tests/checkin components/front/staff`: 264 files / 2674 tests passed.
+- `npx tsc --noEmit -p .`: exit 0.
+- `npx eslint <changed files>`: exit 0, no output.
+- `npx next build`: exit 0.
+- `git diff --check`: clean.
+
 ## Verification evidence (after S2)
 - `npx vitest run tests/api tests/checkin components/front/staff` + S1 lib tests: 266 files / 2728 tests passed.
 - `npx tsc --noEmit -p .`: exit 0.
@@ -60,5 +70,8 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - All non-completed native M2 preparations are verify (including pending with a bound PaymentIntent), per D1.
 - Summary keeps `pendingStripe` unchanged; `verifyItems`/`verifyAmount` added for S3.
 
+- S3: the Verify pill counts verify rows (items), Pending keeps counting students; client Pending filter/pill still include unpaid card rows that are also verify (unchanged per D3 "existing pills stay"). Flag for owner if Pending should exclude verify.
+- S3: yellow daily amount renders only on the daily card context (not history/global search).
+
 ## Next step
-S3 (UI pill/filter/yellow daily amount), then S4-S6.
+S4 (manual resolve actions with audit), then S5 (history timeline + expose attempt log), S6.
