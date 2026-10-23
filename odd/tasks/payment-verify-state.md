@@ -32,6 +32,7 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - [x] S4 Manual resolve actions (Collected / Dismiss) with audit — commits 09f2b307 (API) + 734174bb (UI) (route: delegated writer)
 - [x] D5 Pending is cash-only: uncharged card attempts (verify or resolved) out of the Pending pill/filter and API pendingStripe — commit b0c35a8a (route: direct, single writer)
 - [x] D5 extension: in-progress card processes are Verify (`in_progress`); Reports card metric reflects Verify — commit ea4ce8ca (route: direct, single writer)
+- [x] Double-collection guard: in-progress items not resolvable (409 + UI hint); webhook success after desk collection → manual_resolution — commit 46b7ab03 (route: direct, single writer)
 - [ ] S5 Payment history timeline (includes exposing `metadata.paymentAttempts` on payment rows; not exposed yet)
 - [ ] S6 Terminal outcome endpoint (`metadata.attemptOutcome`)
 
@@ -57,6 +58,15 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - D5 RED: 8 failing (filter pending excludes verify/dismissed/collected and collected matches paid; API pendingStripe excludes verify x4, expired-next-to-paid, dismissed; board Pending pill cash-only). GREEN: all pass.
 
 - D5 ext RED: 7 failing (in_progress reason x3, open checkout verify + success leaves, UI label, reports metric verify-only, reports label). GREEN, plus 2 existing route assertions updated to D5 (pending card next to paid slot now visible as Verify; old pending card no longer debt).
+
+- Guard RED: 6 failing (route 409 for open checkout and native pending, UI hint without buttons, webhook manual_resolution for native success / checkout.session.completed / payment_intent.succeeded on a collected purchase). GREEN: all pass.
+
+## Verification evidence (after double-collection guard)
+- `npx vitest run tests/api tests/checkin components/front/staff tests/lib tests/reports-suggestions-provider.test.ts`: 309 files / 3139 tests passed.
+- `npx tsc --noEmit -p .`: exit 0.
+- `npx eslint <changed files>`: no output.
+- `npx next build`: exit 0.
+- `git diff --check`: clean.
 
 ## Verification evidence (after D5 extension)
 - `npx vitest run tests/api tests/checkin components/front/staff tests/reports-suggestions-provider.test.ts`: 267 files / 2706 tests passed. Full `npx vitest run`: only `tests/integration/prisma-security.test.ts` fails (needs DATABASE_URL; not run against DB by instruction).
@@ -107,7 +117,7 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - S4 open points: (resolved by D5) dismissed/verify rows no longer match Pending. A later decline on the same PaymentIntent after Dismiss keeps the resolution (the item does not re-enter Verify). The 24 h daily window only reloads unresolved verify rows, so a dismissed attempt from yesterday drops off today's board (still in history).
 
 - D5 extension (ea4ce8ca): pending card processes are Verify `in_progress`; Reports "Stripe pending" became "Card to verify" (counts `verify` rows; field `pendingStripeSales` kept for the suggestions contract).
-- Risk to watch: staff can mark an in-progress QR/Checkout "Collected" while the session is still open; a later Stripe completion would then hit an already-paid row (native fulfillment only accepts pending/failed; Checkout path not re-verified here).
+- Risk closed (46b7ab03): in-progress items cannot be resolved; a Stripe success after a desk collection becomes StripeWebhookEvent manual_resolution `verify_collected_then_card_succeeded` (no fulfillment). Not covered: the signed internal-payment path (`handleVerifiedInternalPaymentEvent`), which has its own binding rules; and a payment_intent.succeeded that arrives before checkout.session.completed for a Checkout whose PI is not yet bound still follows the pre-existing upsert path, but the later checkout.session.completed is caught.
 
 ## Next step
 S5 (history timeline + expose `metadata.paymentAttempts` on rows), then S6.
