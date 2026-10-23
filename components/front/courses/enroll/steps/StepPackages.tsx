@@ -6,19 +6,19 @@ import type { EnrollmentOption } from "@/constants/courses"
 
 type StepPackagesProps = {
   isCheckInNewFlow: boolean
-  isQrMobileCompactFlow?: boolean
   course: CourseEnrollmentData
   pkg: string
   setPkg: (value: React.SetStateAction<string>) => void
   to12h: (value: string) => string
   time: string
   formatPackageMeta: (option?: EnrollmentOption | null) => string | undefined
-  dropInPrice?: number
+  /** Real price of the selected single-class service (null => not shown). */
+  dropInPrice?: number | null
+  promotionLabel?: string | null
 }
 
 export default function StepPackages({
   isCheckInNewFlow,
-  isQrMobileCompactFlow,
   course,
   pkg,
   setPkg,
@@ -26,7 +26,9 @@ export default function StepPackages({
   time,
   formatPackageMeta,
   dropInPrice,
+  promotionLabel,
 }: StepPackagesProps) {
+  const dropInPriceLabel = formatEnrollmentOptionPrice(dropInPrice)
   return (
     <div className="space-y-4">
       <div className={`grid gap-2.5 ${course.enrollment.packages.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -89,7 +91,14 @@ export default function StepPackages({
                 <p className="text-sm font-semibold uppercase tracking-[-0.01em] text-white">Drop-in</p>
                 <p className="mt-0.5 text-[11px] text-white/50">{course.title} / {to12h(time)}</p>
               </div>
-              <p className="shrink-0 text-right text-lg font-semibold text-white">${isCheckInNewFlow || isQrMobileCompactFlow ? "15" : dropInPrice ?? 20}</p>
+              {dropInPriceLabel && (
+                <div className="shrink-0 text-right">
+                  <p className="text-lg font-semibold text-white">{dropInPriceLabel}</p>
+                  {promotionLabel && (
+                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-[#ff7a82]">{promotionLabel}</p>
+                  )}
+                </div>
+              )}
             </div>
             <p className="w-full text-xs leading-snug text-white/68">
               {isCheckInNewFlow ? "First-time student single class." : "Single class without a package."}

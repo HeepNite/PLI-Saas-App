@@ -252,6 +252,19 @@ describe("useEnrollDerivedState", () => {
       expect(r.regularServicePrice).toBe(20)
     })
 
+    it("uses the real regular service price and has no hardcoded $20 fallback", async () => {
+      const course = baseCourse()
+      const priced = await renderHook(defaultInput({
+        course: { ...course, enrollment: { ...course.enrollment, services: [{ id: "dropin", label: "Single class", price: 1 }] } },
+      }))
+      expect(priced.getResult().regularServicePrice).toBe(1)
+
+      const missing = await renderHook(defaultInput({
+        course: { ...course, enrollment: { ...course.enrollment, services: [{ id: "dropin", label: "Single class" }] } },
+      }))
+      expect(missing.getResult().regularServicePrice).toBeNull()
+    })
+
     it("wires currentUserContact from the Clerk user object", async () => {
       const { getResult } = await renderHook(
         defaultInput({

@@ -13,6 +13,8 @@ import StepParty from "./StepParty"
 import StepDateTime from "./StepDateTime"
 import StepPhoto from "./StepPhoto"
 import StepPackages from "./StepPackages"
+import { resolveServiceDisplayPrice } from "@/lib/promotions/course-display-prices"
+import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
 import StepPromo from "./StepPromo"
 import StepConsecutive from "./StepConsecutive"
 import StepPayments from "./StepPayments"
@@ -117,6 +119,17 @@ type EnrollStepRouterProps = {
 
 export default function EnrollStepRouter(props: EnrollStepRouterProps) {
   const { activeStepKey } = props
+  const dropInCard = activeStepKey === "packages"
+    ? resolveServiceDisplayPrice({
+        services: props.availableServices,
+        serviceId: props.service,
+        promotions: getCoursePromotions(props.course.scheduleRules),
+        // Checkout only applies course promotions on the trusted kiosk terminal channel here.
+        channel: props.isKioskTerminalFlow ? "trusted_kiosk" : null,
+        classDate: props.date,
+        purchaseDate: getNewYorkDateKey(),
+      })
+    : null
 
   return (
     <>
@@ -211,13 +224,14 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
       {activeStepKey === "packages" && (
         <StepPackages
           isCheckInNewFlow={props.isCheckInNewFlow}
-          isQrMobileCompactFlow={props.isQrMobileCompactFlow}
           course={props.course}
           pkg={props.pkg}
           setPkg={props.setPkg}
           to12h={props.to12h}
           time={props.time}
           formatPackageMeta={props.formatPackageMeta}
+          dropInPrice={dropInCard?.price}
+          promotionLabel={dropInCard?.promotionLabel}
         />
       )}
 
@@ -305,3 +319,6 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
     </>
   )
 }
+
+const getCoursePromotions = (scheduleRules: unknown) =>
+  scheduleRules && typeof scheduleRules === "object" ? (scheduleRules as Record<string, unknown>).promotions : []

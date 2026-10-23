@@ -231,7 +231,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
   )
 
   const regularServicePrice = React.useMemo(
-    () => availableServices.find((item) => item.id === regularServiceId)?.price || 20,
+    () => availableServices.find((item) => item.id === regularServiceId)?.price ?? null,
     [availableServices, regularServiceId]
   )
 

@@ -48,3 +48,24 @@ export const resolveCourseDisplayPrices = (input: {
     promotionLabel: promotion.promotion.label,
   }
 }
+
+/**
+ * Display price for the selected enrollment service (single drop-in, no package).
+ * Checkout only applies course promotions to the "dropin" / "new-student" services.
+ */
+export const resolveServiceDisplayPrice = (input: {
+  services: readonly EnrollmentOption[] | undefined
+  serviceId: string
+  promotions: unknown
+  channel: CoursePromotionChannel | null
+  classDate: string
+  purchaseDate: string
+}): { price: number | null; promotionLabel: string | null } => {
+  if (input.serviceId === "dropin" || input.serviceId === "new-student") {
+    const prices = resolveCourseDisplayPrices(input)
+    const price = input.serviceId === "dropin" ? prices.dropIn : prices.firstClass
+    const listPrice = servicePrice(input.services, input.serviceId)
+    return { price, promotionLabel: price !== listPrice ? prices.promotionLabel : null }
+  }
+  return { price: servicePrice(input.services, input.serviceId), promotionLabel: null }
+}

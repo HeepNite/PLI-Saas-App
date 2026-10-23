@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { resolveCourseDisplayPrices } from "@/lib/promotions/course-display-prices"
+import { resolveCourseDisplayPrices, resolveServiceDisplayPrice } from "@/lib/promotions/course-display-prices"
 
 const services = [
   { id: "dropin", label: "Single class", price: 1 },
@@ -54,5 +54,28 @@ describe("resolveCourseDisplayPrices", () => {
     const promo = { ...kioskPromotion, pricing: { kind: "fixed", amountCents: 1200 } }
     expect(resolveCourseDisplayPrices({ services: priced, promotions: [promo], channel: "trusted_kiosk", classDate: "2026-10-23", purchaseDate: "2026-10-23" }))
       .toEqual({ dropIn: 12, firstClass: 10, promotionLabel: "October special" })
+  })
+})
+
+describe("resolveServiceDisplayPrice", () => {
+  const priced = [
+    { id: "dropin", label: "Single class", price: 20 },
+    { id: "new-student", label: "New students", price: 15 },
+    { id: "private", label: "Private", price: 90 },
+  ]
+  const base = { services: priced, promotions: [kioskPromotion], classDate: "2026-10-23", purchaseDate: "2026-10-23" }
+
+  it("returns the selected service's charged price", () => {
+    expect(resolveServiceDisplayPrice({ ...base, serviceId: "new-student", channel: null })).toEqual({ price: 15, promotionLabel: null })
+  })
+
+  it("applies the kiosk promotion to drop-in and new-student services like checkout", () => {
+    expect(resolveServiceDisplayPrice({ ...base, serviceId: "dropin", channel: "trusted_kiosk" })).toEqual({ price: 0.5, promotionLabel: "October special" })
+    expect(resolveServiceDisplayPrice({ ...base, serviceId: "new-student", channel: "trusted_kiosk" })).toEqual({ price: 0.5, promotionLabel: "October special" })
+  })
+
+  it("never applies promotions to other services and returns null when the service has no price", () => {
+    expect(resolveServiceDisplayPrice({ ...base, serviceId: "private", channel: "trusted_kiosk" })).toEqual({ price: 90, promotionLabel: null })
+    expect(resolveServiceDisplayPrice({ ...base, serviceId: "missing", channel: "trusted_kiosk" })).toEqual({ price: null, promotionLabel: null })
   })
 })
