@@ -12,8 +12,8 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 
 ## Tasks
 
-- **T1** — S1, S3-S4 — Route: existing-customer QR pricing classification and regression tests. Commit: this work-unit commit (`fix(qr): classify established scan customers`).
-- **T2** — S2-S4 — Route: trusted kiosk QR cash authority continuity and regression tests. Commit: pending.
+- **T1** — S1, S3-S4 — Route: existing-customer QR pricing classification and regression tests. Commit: `85b35690` (`fix(qr): classify established scan customers`).
+- **T2** — S2-S4 — Route: trusted kiosk QR cash authority continuity and regression tests. Commit: this work-unit commit (`fix(qr): preserve scan cash authority`).
 - **T3** — S1-S4 — Route: production-equivalent verification, differential checks, and hotfix documentation. Commit: pending.
 
 ## Log
