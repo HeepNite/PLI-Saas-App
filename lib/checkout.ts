@@ -32,6 +32,11 @@ import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 
 const NEW_STUDENT_SERVICE_IDS = new Set(["new-student"])
 
+const toUsPhoneKey = (value?: string | null) => {
+  const digits = normalizePhone(value || "") || ""
+  return digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits
+}
+
 export const hasVerifiedPhone = (user: ClerkUser | null) => {
   if (!user) return false
   const primary = user.phoneNumbers.find((p) => p.id === user.primaryPhoneNumberId) || user.phoneNumbers[0]
@@ -280,7 +285,10 @@ const resolveKioskSessionAccount = async (
   let clerkUser: ClerkUser | null = null
   if (clerkId && options.serviceId && NEW_STUDENT_SERVICE_IDS.has(options.serviceId)) {
     try {
-      clerkUser = await (await clerkClient()).users.getUser(clerkId)
+      const sessionClerkUser = await (await clerkClient()).users.getUser(clerkId)
+      // Only the verified primary phone that IS the session user's phone counts as SMS proof.
+      const primaryPhone = sessionClerkUser.phoneNumbers.find((p) => p.id === sessionClerkUser.primaryPhoneNumberId)
+      clerkUser = toUsPhoneKey(primaryPhone?.phoneNumber) === toUsPhoneKey(phoneRaw) ? sessionClerkUser : null
     } catch (err) {
       console.warn("[checkout] Clerk lookup failed for kiosk new-student session", err)
     }

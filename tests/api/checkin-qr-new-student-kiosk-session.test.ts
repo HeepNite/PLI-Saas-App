@@ -31,8 +31,11 @@ vi.mock("@/lib/security/student-pin", () => ({
   clearTerminalMisses: (...args: unknown[]) => mockClearTerminalMisses(...args),
 }))
 
+const NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS = 30 * 60_000
+
 vi.mock("@/lib/checkin/kiosk-session", () => ({
   createKioskIdentificationSession: (...args: unknown[]) => mockCreateKioskIdentificationSession(...args),
+  NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS: 30 * 60_000,
 }))
 
 vi.mock("@/lib/clerk-users", () => ({
@@ -51,8 +54,9 @@ const TERMINAL_ID = "terminal_1"
 const PHONE = "+1 (305) 555-0101"
 const EXPIRES_AT = new Date("2026-10-23T12:15:00.000Z")
 
-const makeClerkUser = (overrides: { phone?: string; status?: string } = {}) => ({
+const makeClerkUser = (overrides: { phone?: string; status?: string; createdAt?: number } = {}) => ({
   id: "user_clerk_1",
+  createdAt: overrides.createdAt ?? Date.now() - 5 * 60_000,
   primaryPhoneNumberId: "phone_1",
   phoneNumbers: [
     {
@@ -187,13 +191,28 @@ describe("new-student kiosk session mint route", () => {
     expect(mockCreateKioskIdentificationSession).not.toHaveBeenCalled()
   })
 
-  it("refuses a student with a prior successful purchase", async () => {
+  it("refuses a prior purchaser with the uniform response and records a miss", async () => {
     mockPurchaseFindFirst.mockResolvedValue({ id: "purchase_1" })
     const POST = await loadRoute()
     const res = await POST(makeRequest({ phone: PHONE }))
 
-    expect(res.status).toBe(409)
-    expect(await res.json()).toEqual(expect.objectContaining({ code: "NEW_STUDENT_ALREADY" }))
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Phone verification required before card payment." })
+    expect(mockRecordTerminalMiss).toHaveBeenCalled()
+    expect(mockCreateKioskIdentificationSession).not.toHaveBeenCalled()
+  })
+
+  it("refuses an old verified account not created during this visit", async () => {
+    expect(NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS).toBe(30 * 60_000)
+    mockFindClerkUserByIdentifiers.mockResolvedValue(
+      makeClerkUser({ createdAt: Date.now() - NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS - 60_000 })
+    )
+    const POST = await loadRoute()
+    const res = await POST(makeRequest({ phone: PHONE }))
+
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: "Phone verification required before card payment." })
+    expect(mockRecordTerminalMiss).toHaveBeenCalled()
     expect(mockCreateKioskIdentificationSession).not.toHaveBeenCalled()
   })
 

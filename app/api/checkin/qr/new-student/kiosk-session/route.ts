@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { enforceNewStudentRules, hasVerifiedPhone } from "@/lib/checkout"
-import { createKioskIdentificationSession } from "@/lib/checkin/kiosk-session"
+import { createKioskIdentificationSession, NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS } from "@/lib/checkin/kiosk-session"
 import { findClerkUserByIdentifiers } from "@/lib/clerk-users"
 import { prisma } from "@/lib/prisma"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
@@ -71,7 +71,10 @@ export async function POST(req: Request) {
 
   const clerkUser = await findClerkUserByIdentifiers({ phone: rawPhone })
   const clerkPhone = clerkUser?.phoneNumbers.find((p) => p.id === clerkUser.primaryPhoneNumberId) || clerkUser?.phoneNumbers[0]
-  if (!clerkUser || !hasVerifiedPhone(clerkUser) || toPhoneKey(clerkPhone?.phoneNumber) !== phoneKey) {
+  // Bind the mint to this visit: an old, abandoned verified account must not be reusable by phone alone.
+  const createdRecently = typeof clerkUser?.createdAt === "number" &&
+    Date.now() - clerkUser.createdAt <= NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS
+  if (!clerkUser || !createdRecently || !hasVerifiedPhone(clerkUser) || toPhoneKey(clerkPhone?.phoneNumber) !== phoneKey) {
     return refuse()
   }
 
@@ -91,11 +94,9 @@ export async function POST(req: Request) {
     resolvedEmail: clerkUser.primaryEmailAddress?.emailAddress || "",
     phoneNormalized: normalizePhone(rawPhone) || "",
   })
+  // Uniform refusal (and a recorded miss) so the endpoint cannot be used to probe phones.
   if (eligibilityError) {
-    return NextResponse.json(
-      { error: eligibilityError.error, ...("code" in eligibilityError ? { code: eligibilityError.code } : {}) },
-      { status: eligibilityError.status }
-    )
+    return refuse()
   }
 
   const session = await prisma.$transaction(async (tx) => {
