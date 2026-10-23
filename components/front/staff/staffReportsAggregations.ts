@@ -320,7 +320,9 @@ export const buildReportsData = (filteredPayments: PaymentRow[]): ReportsData =>
     cohortRetention,
     paidPackageSales,
     paidDropInSales,
-    pendingStripeSales: filteredPayments.filter((item) => !item.classPaid).length,
+    // D5: card processes that did not charge are Verify, never "pending" (field name kept for the
+    // suggestions contract). Unpaid cash is not a card metric.
+    pendingStripeSales: filteredPayments.filter((item) => item.verify === true).length,
     totalRows: filteredPayments.length,
   }
 }
@@ -448,7 +450,7 @@ const buildPendingRecoverySuggestion = (pendingStripeSales: number): ReportsSugg
     objective: "pending_recovery",
     title: "Recover pending payments",
     priority,
-    insight: `Pending Stripe payments in range: ${pendingStripeSales}.`,
+    insight: `Card payments to verify in range: ${pendingStripeSales}.`,
     proposal:
       pendingStripeSales > 0
         ? "Automate recovery touchpoints for pending checkouts to reduce lost demand."
@@ -458,7 +460,7 @@ const buildPendingRecoverySuggestion = (pendingStripeSales: number): ReportsSugg
       "Prioritize manual follow-up for high-intent students (repeat profile or package interest).",
       "Track recovery rate by payment channel and time window.",
     ],
-    aiBrief: `Goal: recover pending payments. Current pending Stripe count: ${pendingStripeSales}. Propose automation and manual follow-up playbook with measurable KPIs.`,
+    aiBrief: `Goal: recover pending payments. Current card payments to verify: ${pendingStripeSales}. Propose automation and manual follow-up playbook with measurable KPIs.`,
   }
 }
 

@@ -5,7 +5,9 @@ import {
   normalizePaymentChannel,
   normalizePurchaseCategory,
   normalizePurchaseSource,
+  readVerifyResolution,
   resolveCanonicalName,
+  resolveVerifyReason,
 } from "@/app/api/staff/payments/shared"
 import { isStripeFailureInfo, type StripeFailureInfo } from "@/lib/stripe-failure"
 import type { PaymentsMode } from "@/app/api/staff/payments/payments-request"
@@ -24,6 +26,7 @@ type PaymentRowSource = {
   classDate: string | null
   classTime: string | null
   classStartsAt: Date | null
+  verifyExtra?: boolean
   purchase: {
     id: string
     specialClassId?: string | null
@@ -97,6 +100,7 @@ type StaffPaymentRowContext = {
   completedOverrideByUser: Map<string, number | null>
   packageUsedOverrideByUser: Map<string, number | null>
   outstandingBalanceByUser: Map<string, number>
+  verifyBalanceByUser: Map<string, number>
   packagePurchaseIdByPurchaseId: Map<string, string>
   packageClassNumberByUsageKey: Map<string, number>
   fundingPurchaseByPackagePurchaseId: Map<string, FundingPaymentRow>
@@ -189,7 +193,8 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     ? attendanceSlotKey(item.userId, courseSlug, item.classStartsAt.getTime())
     : null
   const slotAttendance = slotKey ? context.attendanceBySlot.get(slotKey) || null : null
-  const resolvedAttendance = isPackageCredit
+  // A verify attempt shown next to its slot owner never borrows the owner's slot attendance.
+  const resolvedAttendance = isPackageCredit || item.verifyExtra
     ? explicitAttendance || purchaseLinkedAttendance
     : explicitAttendance || purchaseLinkedAttendance || slotAttendance
   const activePackage = context.activePackageByUser.get(item.userId)
@@ -204,6 +209,7 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     hasOutstandingBalance: (context.outstandingBalanceByUser.get(item.userId) ?? 0) > 0,
   })
   const checkInStatus = resolveCheckInStatus(resolvedAttendance?.status)
+  const verifyReason = resolveVerifyReason(purchase)
   const packageClassesUsedTotal = context.packageUsedOverrideByUser.get(item.userId)
     ?? (activePackage
       ? (context.activePackageClassesUsedById.get(activePackage.packagePurchaseId) || 0)
@@ -273,6 +279,17 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     packageClassesUsedTotal,
     outstandingBalance: (() => {
       const value = context.outstandingBalanceByUser.get(item.userId)
+      return typeof value === "number" && value > 0 ? value : null
+    })(),
+    // Verify: card process that did not charge — visible, never debt, resolved manually.
+    verify: verifyReason !== null,
+    verifyReason,
+    // When the attempt last changed; the daily board shows it as Verify for 24 h after this.
+    verifySince: verifyReason !== null ? purchase.updatedAt.toISOString() : null,
+    // Manual staff resolution (D4): kept on the row so resolved attempts stay visible with it.
+    verifyResolution: readVerifyResolution(purchase.metadata),
+    verifyBalance: (() => {
+      const value = context.verifyBalanceByUser.get(item.userId)
       return typeof value === "number" && value > 0 ? value : null
     })(),
     studentPin: context.studentPinByUserId.get(item.userId) || defaultStudentPin,

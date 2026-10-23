@@ -295,7 +295,7 @@ describe("stripe webhook checkout session persistence", () => {
 
     expect((await sendInternalEvent()).status).toBe(200)
     expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "purchase_dynamic_1", status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed"] }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
       data: { status: "paid", stripePaymentIntentId: "pi_dynamic_1" },
     }))
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledWith(expect.objectContaining({
@@ -383,8 +383,6 @@ describe("stripe webhook checkout session persistence", () => {
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(2)
   })
   it.each([
-    ["payment_intent.payment_failed", "requires_payment_method"],
-    ["payment_intent.canceled", "canceled"],
     ["payment_intent.created", "requires_payment_method"],
     ["payment_intent.processing", "processing"],
   ])("acknowledges a prepared native %s as a no-op without fulfillment", async (type, status) => {
@@ -399,6 +397,171 @@ describe("stripe webhook checkout session persistence", () => {
     expect(info).toHaveBeenCalledWith("[native-m2-webhook:non-fulfilling-event-acknowledged]", { eventType: type })
     expectNoDynamicFallback()
     info.mockRestore()
+  })
+  const preparedNativeFailureEvent = async (type: "payment_intent.payment_failed" | "payment_intent.canceled") => {
+    const fixture = await preparedNativeEvent()
+    const declined = type === "payment_intent.payment_failed"
+    const intent = {
+      ...fixture.event.data.object, status: declined ? "requires_payment_method" : "canceled", amount_received: 0,
+      last_payment_error: declined
+        ? { message: "Your card was declined.", code: "card_declined", decline_code: "insufficient_funds", type: "card_error",
+            payment_method: { card_present: { brand: "visa", last4: "4242" } } }
+        : null,
+    }
+    return { ...fixture, event: { ...fixture.event, id: `evt_${type}`, type, created: 1_790_000_000, data: { object: intent } } }
+  }
+  it.each([
+    ["payment_intent.payment_failed", "failed", { code: "card_declined", declineCode: "insufficient_funds", type: "card_error", message: "Your card was declined." }],
+    ["payment_intent.canceled", "canceled", undefined],
+  ] as const)("records a prepared native %s on the pending Purchase as %s with an allowlisted reason and no fulfillment", async (type, status, error) => {
+    const { event, purchase } = await preparedNativeFailureEvent(type)
+    const bound = { ...purchase, stripePaymentIntentId: "pi_dynamic_1" }
+    mockPurchaseFindUnique.mockResolvedValue(bound)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledOnce()
+    const at = new Date(1_790_000_000 * 1000).toISOString()
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({
+      where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed", "canceled"] }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      data: {
+        status,
+        metadata: {
+          ...purchase.metadata,
+          stripeFailure: {
+            eventType: type, occurredAt: at, paymentIntentId: "pi_dynamic_1",
+            ...(error ? { error } : {}),
+          },
+          paymentAttempts: [{
+            at, channel: "native_m2", status, paymentIntentId: "pi_dynamic_1",
+            ...(error ? { code: error.code, declineCode: error.declineCode } : {}),
+          }],
+        },
+      },
+    })
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", purchaseId: "purchase_dynamic_1" }) }))
+    expectNoDynamicFallback()
+  })
+  it("records a second decline on an already failed prepared native Purchase without losing the first attempt", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    const first = { at: "2026-10-04T16:59:00.000Z", channel: "native_m2", status: "failed", code: "card_declined", declineCode: "do_not_honor", paymentIntentId: "pi_dynamic_1" }
+    mockPurchaseFindUnique.mockResolvedValue({
+      ...purchase, status: "failed", stripePaymentIntentId: "pi_dynamic_1",
+      metadata: { ...purchase.metadata, stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: first.at, error: { code: "card_declined", declineCode: "do_not_honor" } }, paymentAttempts: [first] },
+    })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    const data = mockPurchaseUpdateMany.mock.calls[0][0].data as { status: string; metadata: { stripeFailure: { error: { declineCode: string } }; paymentAttempts: Array<{ declineCode?: string }> } }
+    expect(data.status).toBe("failed")
+    expect(data.metadata.stripeFailure.error.declineCode).toBe("insufficient_funds")
+    expect(data.metadata.paymentAttempts.map((attempt) => attempt.declineCode)).toEqual(["do_not_honor", "insufficient_funds"])
+  })
+  it("appends embedded card and checkout attempts to the attempt log", async () => {
+    mockPurchaseFindUnique.mockResolvedValueOnce({
+      id: "purchase_embedded", status: "failed", metadata: { paymentAttempts: [{ at: "2026-10-04T16:00:00.000Z", channel: "card", status: "failed", code: "card_declined" }] },
+    })
+    mockConstructEvent.mockReturnValueOnce({
+      id: "evt_embedded_failed", type: "payment_intent.payment_failed", created: 1_790_000_000,
+      data: { object: { id: "pi_embedded", metadata: {}, last_payment_error: { code: "expired_card", type: "card_error" } } },
+    })
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    expect((await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))).status).toBe(200)
+    expect(mockPurchaseUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      status: "failed",
+      metadata: expect.objectContaining({ paymentAttempts: [
+        { at: "2026-10-04T16:00:00.000Z", channel: "card", status: "failed", code: "card_declined" },
+        { at: new Date(1_790_000_000 * 1000).toISOString(), channel: "card", status: "failed", code: "expired_card", paymentIntentId: "pi_embedded" },
+      ] }),
+    }) }))
+
+    mockPurchaseFindUnique.mockResolvedValueOnce({ id: "purchase_qr", status: "pending", metadata: {} })
+    mockConstructEvent.mockReturnValueOnce({
+      id: "evt_qr_expired", type: "checkout.session.expired", created: 1_790_000_000,
+      data: { object: { id: "cs_qr", metadata: {} } },
+    })
+    expect((await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))).status).toBe(200)
+    expect(mockPurchaseUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      status: "expired",
+      metadata: expect.objectContaining({ paymentAttempts: [
+        { at: new Date(1_790_000_000 * 1000).toISOString(), channel: "checkout", status: "expired", checkoutSessionId: "cs_qr" },
+      ] }),
+    }) }))
+  })
+  const canceledThenReopened = (purchase: { metadata: Record<string, string> }) => ({
+    ...purchase, status: "pending", stripePaymentIntentId: null,
+    metadata: { ...purchase.metadata, paymentAttemptGeneration: "1", paymentAttempts: [{ at: "2026-10-04T16:59:00.000Z", channel: "native_m2", status: "canceled", paymentIntentId: "pi_dynamic_1" }] },
+  })
+  it("ignores a late failure event for a canceled PaymentIntent after the Purchase was reopened for retry", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.canceled")
+    mockPurchaseFindUnique.mockResolvedValue(canceledThenReopened(purchase))
+    mockConstructEvent.mockReturnValue(event)
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+  })
+  it("pays a reopened canceled Purchase when the retry PaymentIntent succeeds", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    const retry = { ...event, id: "evt_retry_succeeded", data: { object: { ...event.data.object, id: "pi_retry_1" } } }
+    mockPurchaseFindUnique.mockResolvedValue(canceledThenReopened(purchase))
+    mockConstructEvent.mockReturnValue(retry)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { status: "paid", stripePaymentIntentId: "pi_retry_1" } }))
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalled()
+  })
+  it("never downgrades a prepared native Purchase that is no longer pending", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    mockPurchaseFindUnique.mockResolvedValue({ ...purchase, status: "paid", stripePaymentIntentId: "pi_dynamic_1" })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }))
+    expectNoDynamicFallback()
+  })
+  it("acknowledges a prepared native failure whose PaymentIntent is bound elsewhere without recording or binding it", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    mockPurchaseFindUnique.mockResolvedValue({ ...purchase, stripePaymentIntentId: "pi_other" })
+    mockConstructEvent.mockReturnValue(event)
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expect(mockPurchaseUpdate).not.toHaveBeenCalled()
+    expectNoDynamicFallback()
+  })
+  it("records a prepared native failure only once across a duplicate delivery", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    mockPurchaseFindUnique.mockResolvedValue(purchase)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    const { Prisma } = await import("@prisma/client")
+    mockStripeWebhookEventCreate.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" }))
+    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({ eventId: event.id, status: "completed" })
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledOnce()
+  })
+  it("fulfills a prepared native success after an earlier recorded decline on the same PaymentIntent", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    const declined = {
+      ...purchase, status: "failed", stripePaymentIntentId: "pi_dynamic_1",
+      metadata: { ...purchase.metadata, stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-10-04T17:00:00.000Z", error: { code: "card_declined" } } },
+    }
+    mockPurchaseFindUnique.mockResolvedValue(declined)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed"] }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      data: { status: "paid", stripePaymentIntentId: "pi_dynamic_1" },
+    }))
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ packageId: "package_dynamic_1", packageTotalCredits: "10" }),
+    }))
   })
   it("acknowledges a prepared native charge.succeeded carrying copied PaymentIntent metadata without fulfillment", async () => {
     const { event, purchase } = await preparedNativeEvent()
@@ -759,6 +922,72 @@ describe("stripe webhook checkout session persistence", () => {
       expectNoInternalSideEffects()
     },
   )
+
+  // Verify "Collected" (D4) means staff already took the money at the desk. A later card success
+  // for the same purchase must not fulfill again; it is recorded for manual resolution (refund one).
+  const collectedResolution = { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: null, previousPaymentChannel: "card" }
+  const expectCollectedManualResolution = (purchaseId: string) => {
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "verify_collected_then_card_succeeded", purchaseId }),
+    }))
+    expect(mockStripeWebhookEventUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }))
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+  }
+
+  it("records a prepared native success on a purchase already collected at the desk for manual resolution", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    mockPurchaseFindUnique.mockResolvedValue({
+      ...purchase, status: "paid",
+      metadata: { ...purchase.metadata, paymentChannel: "cash", settlementStatus: "paid", verifyResolution: collectedResolution },
+    })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expectCollectedManualResolution("purchase_dynamic_1")
+  })
+
+  it("records a hosted checkout success on a purchase already collected at the desk for manual resolution", async () => {
+    mockPurchaseFindUnique.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      where.stripeCheckoutSessionId === "cs_collected"
+        ? { id: "purchase_collected", metadata: { paymentChannel: "cash", settlementStatus: "paid", verifyResolution: collectedResolution } }
+        : null)
+    mockConstructEvent.mockReturnValue({
+      id: "evt_collected_checkout",
+      type: "checkout.session.completed",
+      data: { object: {
+        id: "cs_collected", payment_status: "paid", amount_total: 2000, currency: "usd", customer: "cus_123", payment_intent: "pi_collected",
+        customer_details: { email: "test@example.com", name: "Test User", phone: null },
+        metadata: { courseSlug: "salsa", courseTitle: "Salsa", date: "2026-10-23", time: "18:00", userId: "guest", email: "test@example.com" },
+      } },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+
+    expect(res.status).toBe(200)
+    expectCollectedManualResolution("purchase_collected")
+  })
+
+  it("records a payment_intent success bound to a purchase already collected at the desk for manual resolution", async () => {
+    mockPurchaseFindUnique.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      where.stripePaymentIntentId === "pi_collected_card"
+        ? { id: "purchase_collected_card", metadata: { paymentChannel: "cash", settlementStatus: "paid", verifyResolution: collectedResolution } }
+        : null)
+    mockConstructEvent.mockReturnValue({
+      id: "evt_collected_pi",
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_collected_card", object: "payment_intent", status: "succeeded", amount: 2000, currency: "usd", customer: null, receipt_email: null, metadata: {} } },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+
+    expect(res.status).toBe(200)
+    expectCollectedManualResolution("purchase_collected_card")
+  })
 
   it("persists hosted checkout success through Purchase upsert", async () => {
     mockConstructEvent.mockReturnValue({

@@ -8,6 +8,7 @@ const mockUpdateMany = vi.fn()
 const mockFindUnique = vi.fn()
 const mockPurchaseFindUnique = vi.fn()
 const mockPurchaseCreate = vi.fn()
+const mockPurchaseUpdateMany = vi.fn()
 const transactionClient = {
   preparedNativePurchase: {
     updateMany: (...args: unknown[]) => mockUpdateMany(...args),
@@ -27,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
     purchase: {
       findUnique: (...args: unknown[]) => mockPurchaseFindUnique(...args),
       create: (...args: unknown[]) => mockPurchaseCreate(...args),
+      updateMany: (...args: unknown[]) => mockPurchaseUpdateMany(...args),
     },
   },
 }))
@@ -47,6 +49,7 @@ describe("prepared native purchase capability", () => {
     mockFindUnique.mockReset()
     mockPurchaseFindUnique.mockReset()
     mockPurchaseCreate.mockReset()
+    mockPurchaseUpdateMany.mockReset()
     mockTransaction.mockClear()
   })
 
@@ -163,6 +166,73 @@ describe("prepared native purchase capability", () => {
     await expect(createOrReuseNativePreparedPurchase(input)).rejects.toMatchObject({
       name: NativePreparedPurchaseError.name, code: "mismatch", status: 409,
     })
+  })
+
+  const reuseInput = {
+    preparedContextId: "prepared_ctx_1",
+    recipient: { userId: "user_123", email: "student@example.com", name: "Student", phone: "9293876584" },
+    selection: {
+      courseSlug: "salsa-femenina-matutina", courseTitle: "Course booking", amount: 2000, currency: "usd",
+      packageId: "", serviceId: "dropin", addons: ["shoes"], participants: 2, coupon: "PLI10",
+    },
+    fulfillmentMetadata: { courseSlug: "salsa-femenina-matutina", date: "2026-02-10", time: "11:00", serviceId: "dropin" },
+  }
+  const storedPurchase = async () => {
+    const { buildNativePreparedPurchaseIdempotencyKey } = await import("@/lib/checkout/native-prepared-purchase")
+    return {
+      id: "purchase_1", userId: "user_123", courseSlug: "salsa-femenina-matutina", courseTitle: "Course booking", amount: 2000,
+      currency: "usd", status: "pending", email: "student@example.com", name: "Student", phone: "9293876584", participants: 2,
+      coupon: "PLI10", packageId: null, serviceId: "dropin", addonsCsv: "shoes",
+      idempotencyKey: buildNativePreparedPurchaseIdempotencyKey(reuseInput),
+      metadata: { ...reuseInput.fulfillmentMetadata, paymentSurface: "native_m2_prepare", preparedContextId: "prepared_ctx_1", recipientUserId: "user_123" },
+    }
+  }
+  const stripeFailure = { eventType: "payment_intent.payment_failed", occurredAt: "2026-02-10T15:00:00.000Z", error: { code: "card_declined" } }
+
+  it("reuses a pending prepared purchase that already carries a recorded decline", async () => {
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const existing = { ...(await storedPurchase()), metadata: { ...(await storedPurchase()).metadata, stripeFailure } }
+    mockPurchaseFindUnique.mockResolvedValue(existing)
+
+    await expect(createOrReuseNativePreparedPurchase(reuseInput)).resolves.toMatchObject({ id: "purchase_1" })
+    expect(mockPurchaseCreate).not.toHaveBeenCalled()
+  })
+
+  it("reopens a declined (failed) prepared purchase as pending so the customer can retry the same attempt", async () => {
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const base = await storedPurchase()
+    const failed = { ...base, status: "failed", metadata: { ...base.metadata, stripeFailure } }
+    mockPurchaseFindUnique.mockResolvedValueOnce(failed).mockResolvedValueOnce({ ...failed, status: "pending" })
+    mockPurchaseUpdateMany.mockResolvedValue({ count: 1 })
+
+    await expect(createOrReuseNativePreparedPurchase(reuseInput)).resolves.toMatchObject({ id: "purchase_1", status: "pending" })
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({ where: { id: "purchase_1", status: "failed" }, data: { status: "pending" } })
+  })
+
+  it("reopens a canceled prepared purchase as pending with a fresh PaymentIntent generation so the customer can retry", async () => {
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const base = await storedPurchase()
+    const canceled = {
+      ...base, status: "canceled", stripePaymentIntentId: "pi_canceled",
+      metadata: { ...base.metadata, paymentAttempts: [{ at: "2026-02-10T15:00:00.000Z", channel: "native_m2", status: "canceled", paymentIntentId: "pi_canceled" }] },
+    }
+    const reopened = { ...canceled, status: "pending", stripePaymentIntentId: null, metadata: { ...canceled.metadata, paymentAttemptGeneration: "1" } }
+    mockPurchaseFindUnique.mockResolvedValueOnce(canceled).mockResolvedValueOnce(reopened)
+    mockPurchaseUpdateMany.mockResolvedValue({ count: 1 })
+
+    await expect(createOrReuseNativePreparedPurchase(reuseInput)).resolves.toMatchObject({ id: "purchase_1", status: "pending" })
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({
+      where: { id: "purchase_1", status: "canceled", stripePaymentIntentId: "pi_canceled" },
+      data: { status: "pending", stripePaymentIntentId: null, metadata: reopened.metadata },
+    })
+  })
+
+  it("does not reopen a paid prepared purchase", async () => {
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    mockPurchaseFindUnique.mockResolvedValue({ ...(await storedPurchase()), status: "paid" })
+
+    await expect(createOrReuseNativePreparedPurchase(reuseInput)).rejects.toMatchObject({ code: "mismatch", status: 409 })
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
   })
 
   it.each([

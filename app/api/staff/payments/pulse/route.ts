@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
-import { getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
+import { buildVerifyWindowPurchaseWhere, getStaffPaymentsTodayWindow } from "@/app/api/staff/payments/payments-time"
 
 export const runtime = "nodejs"
 
@@ -39,7 +39,7 @@ export async function GET() {
     return NextResponse.json({ error: authResult.error }, { status: authResult.status })
   }
 
-  const { startOfTodayNY, endOfTodayNY, todayNY } = getStaffPaymentsTodayWindow()
+  const { startOfTodayNY, endOfTodayNY, todayNY, verifyWindowStart } = getStaffPaymentsTodayWindow()
 
   try {
     const [purchaseAgg, attendanceCount] = await Promise.all([
@@ -48,6 +48,8 @@ export async function GET() {
           OR: [
             { createdAt: { gte: startOfTodayNY, lte: endOfTodayNY } },
             { metadata: { path: ["date"], equals: todayNY } },
+            // Same rolling verify window as the board, so a late decline refreshes it.
+            buildVerifyWindowPurchaseWhere(verifyWindowStart),
           ],
         },
         _count: true,

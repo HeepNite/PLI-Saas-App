@@ -166,6 +166,9 @@ describe("StaffReportsPanel", () => {
     expect(node.textContent).toContain("Salsa")
     expect(node.textContent).toContain("May 2026")
     expect(node.textContent).toContain("Increase Monday demand")
+    // D5: uncharged card processes are Verify, never "pending".
+    expect(node.textContent).toContain("card to verify")
+    expect(node.textContent).not.toContain("stripe pending")
   })
 
   it("wires date controls and export buttons", async () => {
