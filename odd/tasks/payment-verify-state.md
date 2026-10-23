@@ -30,6 +30,7 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - [x] S2 Verify predicate, no-hide dedup, balance exclusion, row verify flag/reason — commit 1e848273 (route: delegated writer)
 - [x] S3 UI: Verify pill, Status filter option, yellow daily amount — commit 878c1e7a (route: delegated writer, resumed from interrupted diff)
 - [x] S4 Manual resolve actions (Collected / Dismiss) with audit — commits 09f2b307 (API) + 734174bb (UI) (route: delegated writer)
+- [x] D5 Pending is cash-only: uncharged card attempts (verify or resolved) out of the Pending pill/filter and API pendingStripe — commit b0c35a8a (route: direct, single writer)
 - [ ] S5 Payment history timeline (includes exposing `metadata.paymentAttempts` on payment rows; not exposed yet)
 - [ ] S6 Terminal outcome endpoint (`metadata.attemptOutcome`)
 
@@ -51,6 +52,15 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - S3 RED: 9 failing (filter verify-only, monthly summary verify totals, 24 h verify amount helper, pill order/count/amount/yellow, Status Verify option, daily card yellow within 24 h and hidden after, red debt excludes verify, board pill counts each verify row once and revenue excludes it). GREEN: all pass.
 
 - S4 RED: API 8 failing (not-verify 409 x2, collected via cash path + audit, package sync on collect, dismiss reason required/kept status, idempotent, conflicting resolution, concurrent claim) + 4 predicate/row/route (dismissed out of verify and debt, readVerifyResolution allowlist, row exposes resolution, dismissed stays visible next to paid slot outside verify totals); UI 7 failing (no actions on non-verify, buttons + amount/reason, collected confirm, dismiss needs reason, error kept, resolved labels, card shows actions only on verify rows). GREEN: all pass.
+
+- D5 RED: 8 failing (filter pending excludes verify/dismissed/collected and collected matches paid; API pendingStripe excludes verify x4, expired-next-to-paid, dismissed; board Pending pill cash-only). GREEN: all pass.
+
+## Verification evidence (after D5)
+- `npx vitest run tests/api tests/checkin components/front/staff`: 266 files / 2698 tests passed.
+- `npx tsc --noEmit -p .`: exit 0.
+- `npx eslint <changed files>`: 0 errors (1 pre-existing warning, tests/api/staff-payments.test.ts:14).
+- `npx next build`: exit 0.
+- `git diff --check`: clean.
 
 ## Verification evidence (after S4)
 - `npx vitest run tests/api tests/checkin components/front/staff`: 266 files / 2696 tests passed.
@@ -79,12 +89,14 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 - All non-completed native M2 preparations are verify (including pending with a bound PaymentIntent), per D1.
 - Summary keeps `pendingStripe` unchanged; `verifyItems`/`verifyAmount` added for S3.
 
-- S3: the Verify pill counts verify rows (items), Pending keeps counting students; client Pending filter/pill still include unpaid card rows that are also verify (unchanged per D3 "existing pills stay"). Flag for owner if Pending should exclude verify.
+- S3: the Verify pill counts verify rows (items), Pending keeps counting students; client Pending filter/pill still include unpaid card rows that are also verify (unchanged per D3 "existing pills stay"). Superseded by D5 (b0c35a8a).
 - S3: yellow daily amount renders only on the daily card context (not history/global search).
 
 - S4: actions `verify_collected` / `verify_dismissed` on the existing PATCH route, same guard (`students` section), rate limit and role rule as `mark_paid`. Collected rewrites the channel to cash (`previousPaymentChannel` kept in the resolution) and status paid, then runs the shared cash-settlement side effects (extracted `applyCashSettlementSideEffects`). Claim + StudentDataAudit run in one transaction with an `updatedAt` optimistic guard (409 on conflict).
 - S4: `isVerifyCardAttempt` = `isUnchargedCardAttempt` && no resolution. Debt, latest-open and slot dedup use `isUnchargedCardAttempt`, so dismissed attempts are never debt and stay visible.
-- S4 open points: a dismissed row still matches the client Pending filter (unpaid card), like verify rows — waits on the Pending owner decision. A later decline on the same PaymentIntent after Dismiss keeps the resolution (the item does not re-enter Verify). The 24 h daily window only reloads unresolved verify rows, so a dismissed attempt from yesterday drops off today's board (still in history).
+- S4 open points: (resolved by D5) dismissed/verify rows no longer match Pending. A later decline on the same PaymentIntent after Dismiss keeps the resolution (the item does not re-enter Verify). The 24 h daily window only reloads unresolved verify rows, so a dismissed attempt from yesterday drops off today's board (still in history).
+
+- D5 scope: a card row that is unpaid but NOT verify (e.g. a Stripe Checkout still in progress, status pending) still matches Pending; Reports `pendingStripeSales` is unchanged. Confirm with the owner if those should change too.
 
 ## Next step
 S5 (history timeline + expose `metadata.paymentAttempts` on rows), then S6.
