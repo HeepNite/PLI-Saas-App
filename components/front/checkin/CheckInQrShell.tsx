@@ -1,5 +1,6 @@
 import { CheckInHeader } from "@/components/front/checkin/CheckInHeader"
 import { CourseCardPanel } from "@/components/front/checkin/CourseCardPanel"
+import type { CourseDisplayPrices } from "@/lib/promotions/course-display-prices"
 import { QrPromptText, ContextWarning } from "@/components/front/checkin/CheckInQrPrompts"
 import { LatePaymentPanel } from "@/components/front/checkin/LatePaymentPanel"
 import { EntrySelectionButtons } from "@/components/front/checkin/EntrySelectionButtons"
@@ -63,6 +64,7 @@ export type CheckInQrShellProps = {
   checkInCardDuration: string
   checkInCardStudents: string
   checkInCardDescription: string
+  checkInCardPrices?: CourseDisplayPrices
   checkInCardTeacher: string
   checkInDisplayDate: string
   checkInDisplayTime: string
@@ -226,6 +228,7 @@ export function CheckInQrShell({
   checkInCardDuration,
   checkInCardStudents,
   checkInCardDescription,
+  checkInCardPrices,
   checkInCardTeacher,
   checkInDisplayDate,
   checkInDisplayTime,
@@ -395,6 +398,7 @@ export function CheckInQrShell({
                 duration={terminalActiveClass?.durationMinutes ? `${terminalActiveClass.durationMinutes} min` : checkInCardDuration}
                 students={checkInCardStudents}
                 description={checkInCardDescription}
+                prices={checkInCardPrices}
                 teacher={checkInCardTeacher}
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}
@@ -417,6 +421,7 @@ export function CheckInQrShell({
                 duration={checkInCardDuration}
                 students={checkInCardStudents}
                 description={checkInCardDescription}
+                prices={checkInCardPrices}
                 teacher={checkInCardTeacher}
                 displayDate={checkInDisplayDate}
                 displayTime={checkInDisplayTime}

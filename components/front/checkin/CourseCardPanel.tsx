@@ -3,6 +3,8 @@ import { cn } from "@/lib/utils"
 import { formatTerminalClassDateTime } from "@/lib/checkin/class-date-format"
 import type { TerminalPastClass } from "@/components/front/checkin/checkin.types"
 import { KioskClassQrCode } from "@/components/front/checkin/KioskClassQrCode"
+import { formatEnrollmentOptionPrice } from "@/components/front/courses/utils/package-pricing"
+import type { CourseDisplayPrices } from "@/lib/promotions/course-display-prices"
 
 /**
  * Design tokens for kiosk terminal layout
@@ -45,6 +47,8 @@ interface CourseCardPanelProps {
   onNewClick?: (contextOverride?: { courseSlug: string; date: string; time: string }) => void
   compact?: boolean
   actionSlot?: React.ReactNode
+  /** Real prices of the displayed class (same source checkout charges). */
+  prices?: CourseDisplayPrices
 }
 
 export function CourseCardPanel({
@@ -66,6 +70,7 @@ export function CourseCardPanel({
   onNewClick,
   compact = false,
   actionSlot,
+  prices,
 }: CourseCardPanelProps) {
   const hasQr = Boolean(qrImage)
   const showPastCourses = compact && Boolean(terminalPastClasses?.length)
@@ -95,6 +100,7 @@ export function CourseCardPanel({
                       displayTime={displayTime}
                       variant="split"
                       compact={compact}
+                      prices={prices}
                     />
                   </div>
                   <ActionSection>{actionSlot}</ActionSection>
@@ -130,6 +136,7 @@ export function CourseCardPanel({
                 displayTime={displayTime}
                 variant="split"
                 compact={compact}
+                prices={prices}
               />
             </div>
             <ActionSection>{actionSlot}</ActionSection>
@@ -168,6 +175,7 @@ export function CourseCardPanel({
               displayTime={displayTime}
               variant="split"
               compact={compact}
+              prices={prices}
             />
           </div>
           
@@ -197,6 +205,7 @@ export function CourseCardPanel({
         displayTime={displayTime}
         variant="compact"
         compact={compact}
+        prices={prices}
       />
     </div>
   )
@@ -436,6 +445,7 @@ function CourseCardContent({
   displayTime,
   variant,
   compact = false,
+  prices,
 }: {
   cardImage: string
   courseTitle: string
@@ -449,6 +459,7 @@ function CourseCardContent({
   displayTime: string
   variant: "split" | "compact"
   compact?: boolean
+  prices?: CourseDisplayPrices
 }) {
   const isSplit = variant === "split"
   const classDateTimeLabel = formatTerminalClassDateTime(displayDate, displayTime)
@@ -492,19 +503,38 @@ function CourseCardContent({
               <h3 className={`font-semibold leading-tight text-white ${isSplit ? (compact ? "text-base" : "text-2xl") : "text-xl sm:text-2xl"}`}>
                 {courseTitle}
               </h3>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <span className="rounded-full border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/85">
-                  $20 drop-in
-                </span>
-                <span className="rounded-full border border-emerald-300/25 bg-emerald-400/[0.10] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-100/90">
-                  $15 first time
-                </span>
-              </div>
+              <CoursePriceBadges prices={prices} />
               <p className={`mt-2 text-white/75 ${isSplit ? "text-sm" : "text-xs sm:text-sm"}`}>{classDateTimeLabel}</p>
             </div>
           </div>
         </div>
       </div>
     </article>
+  )
+}
+
+function CoursePriceBadges({ prices }: { prices?: CourseDisplayPrices }) {
+  const dropIn = formatEnrollmentOptionPrice(prices?.dropIn)
+  const firstClass = formatEnrollmentOptionPrice(prices?.firstClass)
+  if (!dropIn && !firstClass) return null
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {prices?.promotionLabel && (
+        <span className="rounded-full border border-[#ff7a82]/40 bg-[#ff7a82]/[0.12] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#ffb3b8]">
+          {prices.promotionLabel}
+        </span>
+      )}
+      {dropIn && (
+        <span className="rounded-full border border-white/15 bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/85">
+          {dropIn} drop-in
+        </span>
+      )}
+      {firstClass && (
+        <span className="rounded-full border border-emerald-300/25 bg-emerald-400/[0.10] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-100/90">
+          {firstClass} first time
+        </span>
+      )}
+    </div>
   )
 }

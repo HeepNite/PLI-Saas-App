@@ -74,4 +74,51 @@ describe("CourseCardPanel", () => {
     expect(container.textContent).toContain("8:10 PM")
     expect(container.querySelector('[aria-label="Salsa Fundamentals QR code"]')).not.toBeNull()
   })
+  const renderPriced = async (prices?: React.ComponentProps<typeof CourseCardPanel>["prices"]) => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <CourseCardPanel
+          cardImage="/salsa.jpg"
+          courseTitle="Salsa Timba"
+          category="Salsa"
+          badge="Beginner"
+          duration="55 min"
+          students="All levels"
+          description="Current class"
+          teacher="Mariana"
+          displayDate="2026-10-23"
+          displayTime="19:00"
+          qrImage="/qr/salsa.png"
+          compact
+          actionSlot={<button type="button">Start</button>}
+          prices={prices}
+        />
+      )
+    })
+    return container.textContent || ""
+  }
+
+  it("renders the real drop-in and first-time prices of the displayed class", async () => {
+    const text = await renderPriced({ dropIn: 1, firstClass: 1.5, promotionLabel: null })
+    expect(text).toContain("$1 drop-in")
+    expect(text).toContain("$1.50 first time")
+    expect(text).not.toContain("$20")
+    expect(text).not.toContain("$15")
+  })
+
+  it("renders the promotional price with its label when a promotion applies", async () => {
+    const text = await renderPriced({ dropIn: 12, firstClass: 10, promotionLabel: "October special" })
+    expect(text).toContain("$12 drop-in")
+    expect(text).toContain("$10 first time")
+    expect(text).toContain("October special")
+  })
+
+  it("renders no price badge rather than a fake price when prices are missing", async () => {
+    const text = await renderPriced(undefined)
+    expect(text).not.toContain("drop-in")
+    expect(text).not.toContain("first time")
+  })
 })

@@ -6,12 +6,13 @@ import type { PreparedAccountState } from "@/components/front/courses/enroll/typ
 import type { SignInPurpose } from "@/components/front/courses/enroll/model/enroll-flow.types"
 import { createEmptyKioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { KioskInfoPhase } from "@/components/front/courses/enroll/model/kiosk-info-phase"
+import { formatRegularPricePhrase } from "@/components/front/courses/utils/package-pricing"
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>
 
 export type UseEnrollSubmitActionsInput = {
   isKioskTerminalFlow: boolean
-  regularServicePrice: number
+  regularServicePrice: number | null
   signInPurpose: SignInPurpose
   onCloseAction: () => void
   kioskPaymentTransitionTimeoutRef: React.MutableRefObject<number | null>
@@ -144,7 +145,7 @@ export function useEnrollSubmitActions(input: UseEnrollSubmitActionsInput) {
     setSignInPurpose("existing")
     if (signInPurpose === "sms_verification") {
       showRegularFallbackPopup(
-        `Phone verification was not completed. We switched this booking to the regular $${regularServicePrice.toFixed(0)} price.`
+        `Phone verification was not completed. We switched this booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
       )
     }
   }, [

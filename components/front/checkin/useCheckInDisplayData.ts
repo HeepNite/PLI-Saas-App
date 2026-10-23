@@ -16,6 +16,8 @@ import { shouldShowKioskResolvingOverlay, shouldShowPackageCheckInFailureOverlay
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import type { BootstrapResponse, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
+import { resolveCourseDisplayPrices } from "@/lib/promotions/course-display-prices"
+import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
 
 type UseCheckInDisplayDataArgs = {
   sourceCourses: CourseData[]
@@ -213,6 +215,20 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     currentHomeCourse?.description ||
     checkInDisplayCourse?.description ||
     "Class activa en el establecimiento."
+  const checkInDisplayScheduleRules = checkInDisplayCourse?.scheduleRules
+  const checkInCardPrices = React.useMemo(
+    () => resolveCourseDisplayPrices({
+      services: checkInDisplayCourse?.enrollment?.services,
+      promotions: checkInDisplayScheduleRules && typeof checkInDisplayScheduleRules === "object"
+        ? (checkInDisplayScheduleRules as Record<string, unknown>).promotions
+        : [],
+      // Checkout only applies course promotions on the trusted kiosk terminal channel here.
+      channel: isKioskTerminalFlow ? "trusted_kiosk" : null,
+      classDate: activeDate,
+      purchaseDate: getNewYorkDateKey(nowTick),
+    }),
+    [activeDate, checkInDisplayCourse?.enrollment?.services, checkInDisplayScheduleRules, isKioskTerminalFlow, nowTick]
+  )
 
   // ─── QR links ───────────────────────────────────────────────
   const checkInQrLink = React.useMemo(() => {
@@ -470,6 +486,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     checkInCardBadge,
     checkInCardCategory,
     checkInCardDescription,
+    checkInCardPrices,
     checkInQrLink,
     checkInQrImage,
 

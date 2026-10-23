@@ -298,7 +298,7 @@ describe("useEnrollSubmitActions", () => {
       expect(showRegularFallbackPopup).not.toHaveBeenCalled()
     })
 
-    it("shows the regular-price fallback popup with the rounded regular service price when signInPurpose is 'sms_verification'", async () => {
+    it("shows the regular-price fallback popup with the exact regular service price when signInPurpose is 'sms_verification'", async () => {
       const showRegularFallbackPopup = vi.fn()
       const { getResult } = await renderHook(
         defaultInput({ signInPurpose: "sms_verification", regularServicePrice: 49.99, showRegularFallbackPopup })
@@ -307,7 +307,20 @@ describe("useEnrollSubmitActions", () => {
       act(() => getResult().handleSignInDismiss())
 
       expect(showRegularFallbackPopup).toHaveBeenCalledWith(
-        "Phone verification was not completed. We switched this booking to the regular $50 price."
+        "Phone verification was not completed. We switched this booking to the regular $49.99 price."
+      )
+    })
+
+    it("names no amount in the fallback popup when the regular price is unknown", async () => {
+      const showRegularFallbackPopup = vi.fn()
+      const { getResult } = await renderHook(
+        defaultInput({ signInPurpose: "sms_verification", regularServicePrice: null, showRegularFallbackPopup })
+      )
+
+      act(() => getResult().handleSignInDismiss())
+
+      expect(showRegularFallbackPopup).toHaveBeenCalledWith(
+        "Phone verification was not completed. We switched this booking to the regular price."
       )
     })
 
