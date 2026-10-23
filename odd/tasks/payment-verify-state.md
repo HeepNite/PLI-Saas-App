@@ -26,8 +26,8 @@ Only pending cash is outstanding balance. Verify items are resolved manually onl
 Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 
 ## Tasks
-- [ ] S1 Capture native M2 card failures (webhook + prepared purchase reuse)
-- [ ] S2 Verify predicate, no-hide dedup, balance exclusion, row verify flag/reason
+- [x] S1 Capture native M2 card failures (webhook + prepared purchase reuse) — commit f96fa8ac (route: delegated writer)
+- [x] S2 Verify predicate, no-hide dedup, balance exclusion, row verify flag/reason — commit 1e848273 (route: delegated writer)
 - [ ] S3 UI: Verify pill, Status filter option, yellow daily amount
 - [ ] S4 Manual resolve actions (Collected / Dismiss) with audit
 - [ ] S5 Payment history timeline
@@ -44,6 +44,21 @@ Mode: strict (explicit user instruction). Runner: `npx vitest run`.
 
 ## Progress
 - Baseline: 263 files / 2633 tests passed on origin/main.
+- S1 RED: 12 failing (webhook record/idempotency/succeeded-after-decline, normalizer, annotation strip, reuse/reopen, backend retry). GREEN: all pass.
+- S2 RED: 27 failing (predicate, balances, latest-open, reason keys, row flags, route verify/dedup/summary). GREEN: all pass.
+
+## Verification evidence (after S2)
+- `npx vitest run tests/api tests/checkin components/front/staff` + S1 lib tests: 266 files / 2728 tests passed.
+- `npx tsc --noEmit -p .`: exit 0.
+- `npx eslint <changed files>`: 0 errors (2 pre-existing warnings in untouched lines).
+- `npx next build`: exit 0.
+- `git diff --check`: clean.
+
+## Accepted design notes
+- Attempt annotations (`stripeFailure`, `attemptOutcome`, `verifyResolution`) are excluded from the prepared fulfillment selection everywhere it is compared or digested (webhook, terminal backend, idempotent reuse).
+- A failed prepared Purchase is reopened to pending on re-prepare; a later success on the same PaymentIntent fulfills from `failed`. Canceled stays terminal (re-prepare returns 409).
+- All non-completed native M2 preparations are verify (including pending with a bound PaymentIntent), per D1.
+- Summary keeps `pendingStripe` unchanged; `verifyItems`/`verifyAmount` added for S3.
 
 ## Next step
-S1.
+S3 (UI pill/filter/yellow daily amount), then S4-S6.
