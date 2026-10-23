@@ -8,6 +8,7 @@ const mockGetClientIp = vi.fn()
 const mockPrisma = {
   courseCatalog: {
     findMany: vi.fn(),
+    findUnique: vi.fn(),
     upsert: vi.fn(),
   },
 }
@@ -34,6 +35,8 @@ describe("staff school courses route security", () => {
     mockGetClientIp.mockReset()
     mockPrisma.courseCatalog.findMany.mockReset()
     mockPrisma.courseCatalog.upsert.mockReset()
+    mockPrisma.courseCatalog.findUnique.mockReset()
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(null)
 
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
     mockBuildRateLimitKey.mockReturnValue("rl-key")

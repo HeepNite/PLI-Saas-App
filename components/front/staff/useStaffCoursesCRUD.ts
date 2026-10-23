@@ -502,7 +502,8 @@ export const useStaffCoursesCRUD = (input: StaffCoursesCRUDInput) => {
       const res = await fetch("/api/staff/school/courses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug: item.slug, title: item.title, kind: item.kind, active: next }),
+        // Only slug + active: the route updates just the keys present for existing courses.
+        body: JSON.stringify({ slug: item.slug, active: next }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {

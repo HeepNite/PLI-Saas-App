@@ -4,6 +4,7 @@ const mockAuthorizePortal = vi.fn()
 const mockPrisma = {
   courseCatalog: {
     findMany: vi.fn(),
+    findUnique: vi.fn(),
     upsert: vi.fn(),
   },
   packagePlan: {
@@ -17,6 +18,9 @@ const mockPrisma = {
   },
   room: {
     findUnique: vi.fn(),
+  },
+  roomReservation: {
+    findMany: vi.fn(),
   },
   user: {
     findFirst: vi.fn(),
@@ -36,6 +40,44 @@ vi.mock("@/lib/prisma", () => ({
   prisma: mockPrisma,
 }))
 
+vi.mock("@/lib/room-availability", () => ({
+  findAvailableRoomsForSlot: vi.fn().mockResolvedValue([]),
+}))
+
+const ROOM_ID = "123e4567-e89b-42d3-a456-426614174000"
+
+const existingCourseRow = () => ({
+  id: "course_existing",
+  slug: "salsa-timba-in-new-york-2",
+  title: "Salsa Timba in New York",
+  kind: "course",
+  category: "Salsa",
+  description: "Timba fundamentals",
+  coverImageUrl: "/api/staff/school/courses/media/cover_1",
+  previewVideoUrl: "/api/staff/school/courses/media/video_1",
+  dropInPriceCents: 2500,
+  firstClassPriceCents: 1500,
+  level: "intermediate",
+  durationMinutes: 60,
+  location: "Studio A",
+  defaultRoomId: ROOM_ID,
+  availableWeekdays: [2],
+  availableTimes: ["19:00"],
+  scheduleRules: { mode: "regular", weeklyDaysTarget: 1, rules: [{ weekday: 2, times: ["19:00"] }], specialEvents: [] },
+  active: false,
+})
+
+const postCourse = async (body: Record<string, unknown>) => {
+  const { POST } = await import("@/app/api/staff/school/courses/route")
+  return POST(
+    new Request("http://localhost/api/staff/school/courses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    })
+  )
+}
+
 describe("staff school routes", () => {
   beforeEach(() => {
     mockAuthorizePortal.mockReset()
@@ -43,12 +85,16 @@ describe("staff school routes", () => {
 
     mockPrisma.courseCatalog.findMany.mockReset()
     mockPrisma.courseCatalog.upsert.mockReset()
+    mockPrisma.courseCatalog.findUnique.mockReset()
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(null)
     mockPrisma.packagePlan.findMany.mockReset()
     mockPrisma.packagePlan.upsert.mockReset()
     mockPrisma.packagePlan.update.mockReset()
     mockPrisma.pointsRule.findMany.mockReset()
     mockPrisma.pointsRule.upsert.mockReset()
     mockPrisma.room.findUnique.mockReset()
+    mockPrisma.roomReservation.findMany.mockReset()
+    mockPrisma.roomReservation.findMany.mockResolvedValue([])
     mockPrisma.user.findFirst.mockReset()
     mockPrisma.pointsLedger.findFirst.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
@@ -148,6 +194,132 @@ describe("staff school routes", () => {
     expect(res.status).toBe(404)
     expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
     await expect(res.json()).resolves.toEqual({ error: "Default room not found or inactive." })
+  })
+
+  it("POST courses toggling active on an existing course updates only the active flag", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(existingCourseRow())
+    mockPrisma.courseCatalog.upsert.mockResolvedValue({ ...existingCourseRow(), active: true })
+
+    const res = await postCourse({ slug: "salsa-timba-in-new-york-2", active: true })
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.courseCatalog.upsert).toHaveBeenCalledTimes(1)
+    expect(mockPrisma.courseCatalog.upsert.mock.calls[0][0].update).toEqual({ active: true })
+  })
+
+  it("POST courses legacy toggle shape (slug, title, kind, active) never wipes other fields", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(existingCourseRow())
+    mockPrisma.courseCatalog.upsert.mockResolvedValue({ ...existingCourseRow(), active: true })
+
+    const res = await postCourse({
+      slug: "salsa-timba-in-new-york-2",
+      title: "Salsa Timba in New York",
+      kind: "course",
+      active: true,
+    })
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.courseCatalog.upsert.mock.calls[0][0].update).toEqual({
+      title: "Salsa Timba in New York",
+      kind: "course",
+      active: true,
+    })
+  })
+
+  it("POST courses full form save on an existing course still updates every field", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(existingCourseRow())
+    mockPrisma.courseCatalog.upsert.mockResolvedValue(existingCourseRow())
+
+    const res = await postCourse({
+      slug: "salsa-timba-in-new-york-2",
+      title: "Salsa Timba NY",
+      kind: "course",
+      category: "",
+      description: "",
+      coverImageUrl: "",
+      previewVideoUrl: "",
+      dropInPriceCents: 3000,
+      firstClassPriceCents: null,
+      level: "advanced",
+      durationMinutes: 90,
+      location: "",
+      defaultRoomId: null,
+      availableWeekdays: [],
+      availableTimes: [],
+      scheduleRules: null,
+      active: false,
+    })
+
+    expect(res.status).toBe(200)
+    const update = mockPrisma.courseCatalog.upsert.mock.calls[0][0].update
+    expect(update).toMatchObject({
+      title: "Salsa Timba NY",
+      kind: "course",
+      category: null,
+      description: null,
+      coverImageUrl: null,
+      previewVideoUrl: null,
+      dropInPriceCents: 3000,
+      firstClassPriceCents: null,
+      level: "advanced",
+      durationMinutes: 90,
+      location: null,
+      defaultRoomId: null,
+      availableWeekdays: [],
+      availableTimes: [],
+      active: false,
+    })
+    expect(Object.keys(update)).toContain("scheduleRules")
+  })
+
+  it("POST courses rejects an empty title on an existing course without saving", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(existingCourseRow())
+
+    const res = await postCourse({ slug: "salsa-timba-in-new-york-2", title: "  ", active: true })
+
+    expect(res.status).toBe(400)
+    expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
+  })
+
+  it("POST courses still requires a title to create a new course", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(null)
+
+    const res = await postCourse({ slug: "brand-new-course", active: true })
+
+    expect(res.status).toBe(400)
+    expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
+  })
+
+  it("POST courses activation checks room conflicts against the stored schedule and room", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(existingCourseRow())
+    mockPrisma.courseCatalog.findMany.mockResolvedValue([
+      {
+        slug: "other-course",
+        title: "Other Course",
+        scheduleRules: null,
+        availableWeekdays: [2],
+        availableTimes: ["19:00"],
+        durationMinutes: 60,
+        defaultRoomId: ROOM_ID,
+      },
+    ])
+
+    const res = await postCourse({ slug: "salsa-timba-in-new-york-2", active: true })
+
+    expect(res.status).toBe(409)
+    expect(mockPrisma.room.findUnique).not.toHaveBeenCalled()
+    expect(mockPrisma.courseCatalog.upsert).not.toHaveBeenCalled()
+  })
+
+  it("POST courses deactivation skips room conflict checks", async () => {
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue({ ...existingCourseRow(), active: true })
+    mockPrisma.courseCatalog.upsert.mockResolvedValue({ ...existingCourseRow(), active: false })
+
+    const res = await postCourse({ slug: "salsa-timba-in-new-york-2", active: false })
+
+    expect(res.status).toBe(200)
+    expect(mockPrisma.courseCatalog.findMany).not.toHaveBeenCalled()
+    expect(mockPrisma.courseCatalog.upsert.mock.calls[0][0].update).toEqual({ active: false })
   })
 
   it("POST packages upserts package plan with optional price and credits", async () => {

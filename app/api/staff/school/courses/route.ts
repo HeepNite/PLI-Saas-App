@@ -249,6 +249,9 @@ export async function POST(req: Request) {
   }
 
   const body = payload as Record<string, unknown>
+  // Existing courses are updated partially: only keys present in the body are written.
+  // Absent keys must never be coerced to null/[] (a toggle once wiped whole course rows).
+  const has = (key: string) => Object.hasOwn(body, key)
   const slug = toSlug(body.slug, 80)
   const title = toSafeText(body.title, 120)
   const kindRaw = toSafeText(body.kind, 30).toLowerCase()
@@ -262,7 +265,7 @@ export async function POST(req: Request) {
   const level = toSafeText(body.level, 30) || null
   const durationMinutes = toOptionalInt(body.durationMinutes, 0, 600)
   const location = toSafeText(body.location, 160) || null
-  const hasDefaultRoomId = Object.prototype.hasOwnProperty.call(body, "defaultRoomId")
+  const hasDefaultRoomId = has("defaultRoomId")
   const defaultRoomIdResult = hasDefaultRoomId
     ? toOptionalRoomId(body.defaultRoomId)
     : ({ ok: true as const, value: undefined })
@@ -272,12 +275,21 @@ export async function POST(req: Request) {
   const scheduleRulesInput: Prisma.InputJsonValue | Prisma.NullTypes.JsonNull = scheduleRules
     ? (scheduleRules as Prisma.InputJsonValue)
     : Prisma.JsonNull
-  const active = typeof body.active === "boolean" ? body.active : true
+  const hasActive = typeof body.active === "boolean"
+  const active = hasActive ? (body.active as boolean) : true
 
   if (!slug || slug.length < 3) {
     return NextResponse.json({ error: "Slug is required (min 3 chars)." }, { status: 400 })
   }
-  if (!title) {
+
+  let existing: Awaited<ReturnType<typeof prisma.courseCatalog.findUnique>>
+  try {
+    existing = await prisma.courseCatalog.findUnique({ where: { slug } })
+  } catch (error) {
+    return prismaRouteError(error, "Unable to save course.")
+  }
+
+  if (!title && (!existing || has("title"))) {
     return NextResponse.json({ error: "Title is required." }, { status: 400 })
   }
   if (coverImageUrl?.startsWith("blob:")) {
@@ -296,6 +308,18 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid defaultRoomId." }, { status: 400 })
   }
 
+  // Effective row after this save: request values for present keys, stored values otherwise.
+  const fromBody = (key: string) => !existing || has(key)
+  const effectiveSchedule = {
+    scheduleRules: fromBody("scheduleRules") ? scheduleRules : existing!.scheduleRules,
+    availableWeekdays: fromBody("availableWeekdays") ? availableWeekdays : existing!.availableWeekdays,
+    availableTimes: fromBody("availableTimes") ? availableTimes : existing!.availableTimes,
+    durationMinutes: fromBody("durationMinutes") ? durationMinutes : existing!.durationMinutes,
+  }
+  const effectiveActive = hasActive || !existing ? active : existing.active
+  const scheduleChanged = ["scheduleRules", "availableWeekdays", "availableTimes", "durationMinutes"].some(has)
+
+  let conflictRoomId: string | null = null
   if (typeof defaultRoomIdResult.value === "string") {
     const room = await roomDelegate.findUnique({
       where: { id: defaultRoomIdResult.value },
@@ -308,7 +332,19 @@ export async function POST(req: Request) {
     if (!room || !room.active) {
       return NextResponse.json({ error: "Default room not found or inactive." }, { status: 404 })
     }
+    conflictRoomId = defaultRoomIdResult.value
+  } else if (
+    existing &&
+    !hasDefaultRoomId &&
+    existing.defaultRoomId &&
+    effectiveActive &&
+    (!existing.active || scheduleChanged)
+  ) {
+    // Activating (or rescheduling) a course that keeps its stored room must still respect room conflicts.
+    conflictRoomId = existing.defaultRoomId
+  }
 
+  if (conflictRoomId) {
     // --- Schedule conflict check for room assignment ---
     const BUFFER_MINUTES = 15
     const windowStart = new Date()
@@ -317,11 +353,11 @@ export async function POST(req: Request) {
     // Expand this course's schedule into virtual slots
     const thisCourseSlots = expandCourseScheduleSlots(
       {
-        scheduleRules: scheduleRules ?? null,
-        availableWeekdays: availableWeekdays ?? [],
-        availableTimes: availableTimes ?? [],
-        defaultRoomId: defaultRoomIdResult.value,
-        durationMinutes: durationMinutes ?? null,
+        scheduleRules: effectiveSchedule.scheduleRules ?? null,
+        availableWeekdays: effectiveSchedule.availableWeekdays ?? [],
+        availableTimes: effectiveSchedule.availableTimes ?? [],
+        defaultRoomId: conflictRoomId,
+        durationMinutes: effectiveSchedule.durationMinutes ?? null,
       },
       windowStart,
       windowEnd,
@@ -331,7 +367,7 @@ export async function POST(req: Request) {
       // Load other active courses assigned to the same room
       const otherCourses = await prisma.courseCatalog.findMany({
         where: {
-          defaultRoomId: defaultRoomIdResult.value,
+          defaultRoomId: conflictRoomId,
           active: true,
           slug: { not: slug },
         },
@@ -346,7 +382,7 @@ export async function POST(req: Request) {
               const alternatives = await findAvailableRoomsForSlot({
                 targetStartsAt: a.startsAt,
                 targetEndsAt: a.endsAt,
-                excludeRoomId: defaultRoomIdResult.value,
+                excludeRoomId: conflictRoomId,
                 bufferMinutes: BUFFER_MINUTES,
                 prisma,
               })
@@ -363,7 +399,7 @@ export async function POST(req: Request) {
       // Also check against active reservations in this room
       const reservations = await prisma.roomReservation.findMany({
         where: {
-          roomId: defaultRoomIdResult.value,
+          roomId: conflictRoomId,
           status: "active",
           endsAt: { gt: windowStart },
           startsAt: { lt: windowEnd },
@@ -377,7 +413,7 @@ export async function POST(req: Request) {
             const alternatives = await findAvailableRoomsForSlot({
               targetStartsAt: slot.startsAt,
               targetEndsAt: slot.endsAt,
-              excludeRoomId: defaultRoomIdResult.value,
+              excludeRoomId: conflictRoomId,
               bufferMinutes: BUFFER_MINUTES,
               prisma,
             })
@@ -414,22 +450,22 @@ export async function POST(req: Request) {
   } as Prisma.CourseCatalogUncheckedCreateInput
 
   const updateData = {
-    title,
-    kind,
-    category,
-    description,
-    coverImageUrl,
-    previewVideoUrl,
-    dropInPriceCents,
-    firstClassPriceCents,
-    level,
-    durationMinutes,
-    location,
+    ...(has("title") ? { title } : {}),
+    ...(has("kind") ? { kind } : {}),
+    ...(has("category") ? { category } : {}),
+    ...(has("description") ? { description } : {}),
+    ...(has("coverImageUrl") ? { coverImageUrl } : {}),
+    ...(has("previewVideoUrl") ? { previewVideoUrl } : {}),
+    ...(has("dropInPriceCents") ? { dropInPriceCents } : {}),
+    ...(has("firstClassPriceCents") ? { firstClassPriceCents } : {}),
+    ...(has("level") ? { level } : {}),
+    ...(has("durationMinutes") ? { durationMinutes } : {}),
+    ...(has("location") ? { location } : {}),
     ...(hasDefaultRoomId ? { defaultRoomId: defaultRoomIdResult.value ?? null } : {}),
-    availableWeekdays,
-    availableTimes,
-    scheduleRules: scheduleRulesInput,
-    active,
+    ...(has("availableWeekdays") ? { availableWeekdays } : {}),
+    ...(has("availableTimes") ? { availableTimes } : {}),
+    ...(has("scheduleRules") ? { scheduleRules: scheduleRulesInput } : {}),
+    ...(hasActive ? { active } : {}),
   } as Prisma.CourseCatalogUncheckedUpdateInput
 
   try {

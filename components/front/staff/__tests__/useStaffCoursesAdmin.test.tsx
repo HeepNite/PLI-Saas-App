@@ -292,4 +292,30 @@ describe("useStaffCoursesAdmin", () => {
     expect(captured!.embedPreviewVideoUrl).toBe("https://evil.example/vimeo.com/12345")
     expect(captured!.previewVideoSource).toBe("https://evil.example/vimeo.com/12345")
   })
+  it("toggles course active state by sending only slug and active (never a partial full-save body)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ ok: true }),
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true))
+    const input = await renderHook()
+
+    await act(async () => {
+      await captured!.toggleCourseActive({
+        slug: "salsa-timba-in-new-york-2",
+        title: "Salsa Timba in New York",
+        kind: "course",
+        active: false,
+      } as unknown as Parameters<NonNullable<typeof captured>["toggleCourseActive"]>[0])
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/staff/school/courses")
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({
+      slug: "salsa-timba-in-new-york-2",
+      active: true,
+    })
+    expect(input.setSchoolSuccess).toHaveBeenCalledWith("Course activated.")
+  })
 })
