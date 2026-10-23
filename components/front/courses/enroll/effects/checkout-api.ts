@@ -59,6 +59,25 @@ export const requestNewStudentOutcomeApi = async ({
   return { res, data }
 }
 
+/** Mints a terminal-bound kiosk session for a new student after SMS verification. */
+export const requestNewStudentKioskSessionApi = async ({
+  phone,
+  fetchImpl,
+}: {
+  phone: string
+  fetchImpl?: FetchImpl
+}) => {
+  const res = await resolveFetch(fetchImpl)("/api/checkin/qr/new-student/kiosk-session", {
+    method: "POST",
+    headers: createJsonHeaders(),
+    credentials: "include",
+    body: JSON.stringify({ phone }),
+  })
+  const contentType = res.headers.get("content-type") || ""
+  const data = contentType.includes("application/json") ? await res.json().catch(() => null) : null
+  return { res, data }
+}
+
 export const requestCheckoutQuoteApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
   const res = await resolveFetch(fetchImpl)("/api/public/checkout/quote", {
     method: "POST",
