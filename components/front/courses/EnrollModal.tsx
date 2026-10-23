@@ -62,6 +62,7 @@ import { useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/use
 import { useEnrollInit } from "@/components/front/courses/enroll/hooks/useEnrollInit"
 import { useKioskInactivity } from "@/components/front/courses/enroll/hooks/useKioskInactivity"
 import { useKioskQrPoller } from "@/components/front/courses/enroll/hooks/useKioskQrPoller"
+import { useNewStudentKioskSession } from "@/components/front/courses/enroll/hooks/useNewStudentKioskSession"
 import { useEnrollFlowSetters } from "@/components/front/courses/enroll/hooks/useEnrollFlowSetters"
 import { useEnrollDerivedState } from "@/components/front/courses/enroll/hooks/useEnrollDerivedState"
 import { useEnrollSubmitActions } from "@/components/front/courses/enroll/hooks/useEnrollSubmitActions"
@@ -241,6 +242,12 @@ export default function EnrollModal({
   )
   // Paso 2: datos de contacto (modular, sin teléfono)
   const contact = flowState.contact
+  // "I am new" on the kiosk has no identify token; mint one after SMS so native M2 card works.
+  const newStudentKioskSession = useNewStudentKioskSession({
+    enabled: isKioskTerminalFlow && isCheckInNewFlow && !kioskSessionToken,
+    phone: contact.phone,
+  })
+  const effectiveKioskSessionToken = kioskSessionToken || newStudentKioskSession.token || undefined
   const requestRecovery = React.useCallback(async () => {
     setRecoveryError(null)
     try {
@@ -813,7 +820,7 @@ export default function EnrollModal({
     total,
     displayTotal,
     photoFlowContext,
-    kioskSessionToken,
+    kioskSessionToken: effectiveKioskSessionToken,
     checkInContextDate,
     checkInContextTime,
     checkInContextDuration,
@@ -1757,6 +1764,8 @@ export default function EnrollModal({
                 handleEmbeddedSignInSessionCreated({ onKioskSessionCreated, sessionId })
               }}
               onSuccessAction={async () => {
+                // Non-blocking: a slow or failed mint must never hold up SMS completion or cash.
+                void newStudentKioskSession.mint()
                 markSmsVerified()
               }}
             />

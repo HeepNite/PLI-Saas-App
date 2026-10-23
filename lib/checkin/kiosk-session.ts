@@ -6,6 +6,8 @@ import {
 } from "@/lib/security/staff-terminal"
 
 export const KIOSK_IDENTIFICATION_SESSION_TTL_MS = 15 * 60 * 1000
+/** A new-student SMS session may only be minted for a Clerk account created during this visit. */
+export const NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS = 30 * 60 * 1000
 
 type KioskSessionDbClient = Prisma.TransactionClient | typeof prisma
 
