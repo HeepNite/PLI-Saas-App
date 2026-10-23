@@ -44,6 +44,28 @@ export function normalizeFailureFromPaymentIntent(
   }
 }
 
+const NATIVE_FAILURE_MESSAGE_MAX_LENGTH = 200
+
+/**
+ * Normalize a native M2 (card-present) payment_intent.payment_failed / payment_intent.canceled
+ * event. Same allowlisted contract as normalizeFailureFromPaymentIntent, but never records card
+ * data and caps the provider message so only coarse, staff-readable reasons are persisted.
+ */
+export function normalizeNativeFailureFromPaymentIntent(
+  intent: Stripe.PaymentIntent,
+  event: Stripe.Event
+): StripeFailureInfo {
+  const error = extractErrorFields(intent.last_payment_error as Record<string, unknown> | null | undefined)
+  if (error?.message) error.message = error.message.slice(0, NATIVE_FAILURE_MESSAGE_MAX_LENGTH)
+
+  return {
+    eventType: event.type,
+    occurredAt: new Date(event.created * 1000).toISOString(),
+    paymentIntentId: intent.id,
+    ...(error ? { error } : {}),
+  }
+}
+
 /**
  * Normalize a checkout.session.expired or checkout.session.async_payment_failed event.
  */
@@ -70,10 +92,50 @@ export function normalizeFailureFromCheckoutSession(
  */
 export function mergeFailureIntoMetadata(
   existing: JsonValue | null | undefined,
-  failure: StripeFailureInfo
+  failure: StripeFailureInfo,
+  attempt?: { channel: PaymentAttemptChannel; status: string }
 ): Record<string, unknown> {
   const base = asObject(existing)
-  return { ...base, stripeFailure: failure }
+  if (!attempt) return { ...base, stripeFailure: failure }
+  return { ...base, stripeFailure: failure, paymentAttempts: appendPaymentAttempt(base.paymentAttempts, failure, attempt) }
+}
+
+export type PaymentAttemptChannel = "native_m2" | "card" | "checkout"
+
+/**
+ * One entry of Purchase.metadata.paymentAttempts — the bounded per-purchase attempt log
+ * shown in payment History. Strings only; never a provider message, card data, or PII.
+ */
+export type PaymentAttemptEntry = {
+  at: string
+  channel: PaymentAttemptChannel
+  status: string
+  code?: string
+  declineCode?: string
+  paymentIntentId?: string
+  checkoutSessionId?: string
+}
+
+export const PAYMENT_ATTEMPT_LOG_LIMIT = 10
+
+function appendPaymentAttempt(
+  existing: unknown,
+  failure: StripeFailureInfo,
+  attempt: { channel: PaymentAttemptChannel; status: string }
+): PaymentAttemptEntry[] {
+  const previous = Array.isArray(existing)
+    ? existing.filter((entry): entry is PaymentAttemptEntry => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
+    : []
+  const entry: PaymentAttemptEntry = {
+    at: failure.occurredAt,
+    channel: attempt.channel,
+    status: attempt.status,
+    ...(failure.error?.code ? { code: failure.error.code } : {}),
+    ...(failure.error?.declineCode ? { declineCode: failure.error.declineCode } : {}),
+    ...(failure.paymentIntentId ? { paymentIntentId: failure.paymentIntentId } : {}),
+    ...(failure.checkoutSessionId ? { checkoutSessionId: failure.checkoutSessionId } : {}),
+  }
+  return [...previous, entry].slice(-PAYMENT_ATTEMPT_LOG_LIMIT)
 }
 
 /** Prisma-compatible JSON object type */
@@ -178,3 +240,13 @@ function extractCardFromError(error: Record<string, unknown> | null | undefined)
 
   return Object.keys(result).length > 0 ? result : undefined
 }
+
+/**
+ * True when staff already resolved this purchase's verify item as "collected" at the desk (D4).
+ * A later card success for it must not fulfill again; it goes to manual resolution instead.
+ */
+export const isVerifyCollectedAtDesk = (metadata: unknown): boolean =>
+  asObject(asObject(metadata).verifyResolution).action === "collected"
+
+/** StripeWebhookEvent.resolutionReason for a card success that arrives after a desk collection. */
+export const VERIFY_COLLECTED_THEN_CARD_SUCCEEDED = "verify_collected_then_card_succeeded"

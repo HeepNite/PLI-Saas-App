@@ -13,6 +13,7 @@ import type {
   PaymentCategoryFilter,
   PaymentRow,
   PaymentsApiSummary,
+  PaymentsStatusFilter,
 } from "./staffAdminTypes"
 
 export type PaymentsApiSummaryFactory = () => PaymentsApiSummary
@@ -47,7 +48,7 @@ type BoardState = {
 }
 
 type FilterState = {
-  paymentsFilter: "all" | "pending" | "paid"
+  paymentsFilter: PaymentsStatusFilter
   paymentCategoryFilter: PaymentCategoryFilter
   historyFrom: string
   historyTo: string
@@ -88,7 +89,7 @@ type BoardAction =
   | { type: "BOARD/SET_LOADING"; loading: boolean }
 
 type FilterAction =
-  | { type: "FILTER/SET_PAYMENTS_FILTER"; value: "all" | "pending" | "paid" }
+  | { type: "FILTER/SET_PAYMENTS_FILTER"; value: PaymentsStatusFilter }
   | { type: "FILTER/SET_CATEGORY"; category: PaymentCategoryFilter }
   | { type: "FILTER/CLEAR_HISTORY" }
   | { type: "FILTER/SET_HISTORY_FROM"; value: string }
@@ -584,7 +585,7 @@ export const useStaffPaymentsAdmin = (input: StaffPaymentsAdminInput) => {
   // Public setters that mirror the original useState setters
   // ---------------------------------------------------------------------------
 
-  const setPaymentsFilter = React.useCallback((value: "all" | "pending" | "paid") => {
+  const setPaymentsFilter = React.useCallback((value: PaymentsStatusFilter) => {
     dispatchFilter({ type: "FILTER/SET_PAYMENTS_FILTER", value })
   }, [])
 

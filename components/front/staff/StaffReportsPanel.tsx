@@ -241,7 +241,7 @@ export default function StaffReportsPanel({
               </div>
             ))}
             <div className="rounded-lg border border-black/10 bg-white/70 p-2 dark:border-white/10 dark:bg-white/[0.05]">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/60">stripe pending</p>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-black/55 dark:text-white/60">card to verify</p>
               <p className="mt-1 text-sm font-semibold text-black dark:text-white">{reportsData.pendingStripeSales}</p>
             </div>
           </div>

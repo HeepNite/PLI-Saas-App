@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  buildLatestOpenPurchaseByUser,
   buildOutstandingBalanceByUser,
+  buildVerifyBalanceByUser,
+  isVerifyCardAttempt,
+  isUnchargedCardAttempt,
+  readVerifyResolution,
+  resolveVerifyReason,
   isCompletedPaymentStatus,
   isOpenPurchase,
   isRefundedCardPurchase,
@@ -135,7 +141,8 @@ describe("staff payments shared helpers", () => {
       },
     ])
 
-    expect(balances.get("user_1")).toBe(4900)
+    // The failed card row (1800) is a verify attempt, not debt (owner decision D2).
+    expect(balances.get("user_1")).toBe(3100)
   })
 
   it("excludes settled cash purchases from outstanding balance", () => {
@@ -319,65 +326,133 @@ describe("staff payments shared helpers", () => {
     expect(balances.get("user_refunded")).toBeUndefined()
   })
 
-  it("counts a never-completed card attempt as outstanding balance", () => {
-    const balances = buildOutstandingBalanceByUser([
-      {
-        userId: "user_never_completed",
-        amount: 2500,
-        metadata: { paymentChannel: "card", settlementStatus: "pending" },
-        status: "expired",
-        stripePaymentIntentId: null,
-        stripeCheckoutSessionId: "cs_never_completed_balance",
-      },
-    ])
-
-    expect(balances.get("user_never_completed")).toBe(2500)
+  const cardAttempt = (userId: string, status: string, extra: Record<string, unknown> = {}) => ({
+    userId, amount: 2500, courseSlug: "salsa-beginners",
+    metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending", ...extra },
+    status, stripePaymentIntentId: null, stripeCheckoutSessionId: `cs_${userId}`,
+  })
+  const nativeAttempt = (userId: string, status: string, stripePaymentIntentId: string | null, extra: Record<string, unknown> = {}) => ({
+    userId, amount: 100, metadata: { paymentSurface: "native_m2_prepare", ...extra }, status, stripePaymentIntentId, stripeCheckoutSessionId: null,
+  })
+  const pendingCash = (userId: string) => ({
+    userId, amount: 3100, metadata: { paymentChannel: "cash", settlementStatus: "pending" }, status: "pending",
+    stripePaymentIntentId: null, stripeCheckoutSessionId: null,
   })
 
-  it("excludes native M2 preparations that never obtained a PaymentIntent from outstanding balance", () => {
-    const balances = buildOutstandingBalanceByUser([
-      {
-        userId: "user_native_prepared",
-        amount: 100,
-        metadata: { paymentSurface: "native_m2_prepare" },
-        status: "pending",
-        stripePaymentIntentId: null,
-        stripeCheckoutSessionId: null,
-      },
-      {
-        userId: "user_native_started",
-        amount: 100,
-        metadata: { paymentSurface: "native_m2_prepare" },
-        status: "pending",
-        stripePaymentIntentId: "pi_started",
-        stripeCheckoutSessionId: null,
-      },
-    ])
-
-    expect(balances.get("user_native_prepared")).toBeUndefined()
-    expect(balances.get("user_native_started")).toBe(100)
+  // Owner decisions D1/D2 (2026-10-23): a card process that did not charge is a visible
+  // "Verify" item, never outstanding debt. Only pending cash is debt.
+  it.each(["expired", "failed", "cancelled", "canceled"])("treats a %s card attempt as verify, not outstanding balance", (status) => {
+    const attempt = cardAttempt("user_card", status)
+    expect(isVerifyCardAttempt(attempt)).toBe(true)
+    expect(buildOutstandingBalanceByUser([attempt]).get("user_card")).toBeUndefined()
+    expect(buildVerifyBalanceByUser([attempt]).get("user_card")).toBe(2500)
   })
 
-  it("suppresses a never-completed card attempt only once its own course+date is already paid", () => {
-    const expiredAttempt = (userId: string) => ({
-      userId, amount: 2500, courseSlug: "salsa-beginners",
-      metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "pending" },
-      status: "expired", stripePaymentIntentId: null, stripeCheckoutSessionId: `cs_${userId}`,
-    })
-    const paidSibling = {
-      userId: "user_with_sibling", amount: 2500, courseSlug: "salsa-beginners",
-      metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" },
-      status: "paid", stripePaymentIntentId: "pi_sibling", stripeCheckoutSessionId: null,
+  it("treats every uncharged native M2 preparation as verify, with or without a PaymentIntent", () => {
+    const attempts = [
+      nativeAttempt("user_native_prepared", "pending", null),
+      nativeAttempt("user_native_started", "pending", "pi_started"),
+      nativeAttempt("user_native_declined", "failed", "pi_declined", { stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-03-20T15:00:00.000Z" } }),
+      nativeAttempt("user_native_canceled", "canceled", "pi_canceled"),
+    ]
+
+    const balances = buildOutstandingBalanceByUser(attempts)
+    const verify = buildVerifyBalanceByUser(attempts)
+    for (const attempt of attempts) {
+      expect(isVerifyCardAttempt(attempt)).toBe(true)
+      expect(balances.get(attempt.userId)).toBeUndefined()
+      expect(verify.get(attempt.userId)).toBe(100)
     }
+  })
 
-    const balances = buildOutstandingBalanceByUser([
-      expiredAttempt("user_no_sibling"),
-      paidSibling,
-      expiredAttempt("user_with_sibling"),
+  it("never treats pending cash, paid, settled, or refunded purchases as verify", () => {
+    const notVerify = [
+      pendingCash("user_cash"),
+      { ...cardAttempt("user_paid", "paid"), metadata: { paymentChannel: "card", settlementStatus: "paid" } },
+      cardAttempt("user_settled", "expired", { settlementStatus: "paid" }),
+      cardAttempt("user_refunded", "refunded"),
+      nativeAttempt("user_native_paid", "paid", "pi_paid"),
+    ]
+    for (const purchase of notVerify) expect(isVerifyCardAttempt(purchase)).toBe(false)
+    expect(buildVerifyBalanceByUser(notVerify).size).toBe(0)
+    expect(buildOutstandingBalanceByUser(notVerify).get("user_cash")).toBe(3100)
+  })
+
+  it("keeps pending cash as debt next to a verify attempt for the same student", () => {
+    const purchases = [{ ...pendingCash("user_mixed") }, cardAttempt("user_mixed", "failed")]
+    expect(buildOutstandingBalanceByUser(purchases).get("user_mixed")).toBe(3100)
+    expect(buildVerifyBalanceByUser(purchases).get("user_mixed")).toBe(2500)
+  })
+
+  it("never selects a verify attempt as the latest open purchase", () => {
+    const latest = buildLatestOpenPurchaseByUser([
+      { ...pendingCash("user_latest"), id: "cash_older", createdAt: "2026-03-20T10:00:00.000Z" },
+      { ...cardAttempt("user_latest", "failed"), id: "card_newer", createdAt: "2026-03-20T12:00:00.000Z" },
+      { ...cardAttempt("user_only_verify", "expired"), id: "card_only", createdAt: "2026-03-20T12:00:00.000Z" },
     ])
+    expect(latest.get("user_latest")?.id).toBe("cash_older")
+    expect(latest.has("user_only_verify")).toBe(false)
+  })
 
-    expect(balances.get("user_no_sibling")).toBe(2500)
-    expect(balances.get("user_with_sibling")).toBeUndefined()
+  it.each([
+    ["card_declined", cardAttempt("u", "failed", { stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "x", error: { code: "card_declined", declineCode: "insufficient_funds" } } })],
+    ["payment_failed", cardAttempt("u", "failed", { stripeFailure: { eventType: "checkout.session.async_payment_failed", occurredAt: "x" } })],
+    ["payment_failed", cardAttempt("u", "failed")],
+    ["checkout_expired", cardAttempt("u", "expired")],
+    ["cancelled", cardAttempt("u", "cancelled")],
+    ["cancelled", nativeAttempt("u", "canceled", "pi_1", { stripeFailure: { eventType: "payment_intent.canceled", occurredAt: "x" } })],
+    ["in_progress", nativeAttempt("u", "pending", null)],
+    ["in_progress", nativeAttempt("u", "pending", "pi_1")],
+    ["in_progress", cardAttempt("u", "pending")],
+    ["card_declined", nativeAttempt("u", "pending", "pi_1", { stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "x", error: { code: "card_declined" } } })],
+    ["attempt_no_charge", nativeAttempt("u", "pending", "pi_1", { attemptOutcome: { code: "reader_timeout" } })],
+    ["cancelled", nativeAttempt("u", "pending", "pi_1", { attemptOutcome: { code: "cancelled_by_customer" } })],
+  ])("labels the verify reason as %s", (reason, purchase) => {
+    expect(resolveVerifyReason(purchase)).toBe(reason)
+  })
+
+  // D5 extension (owner, 2026-10-23): a card process still in progress is Verify, never Pending or debt.
+  it("treats an open card checkout still in progress as verify, and a later success leaves verify", () => {
+    const inProgress = cardAttempt("user_open_checkout", "pending")
+    expect(isVerifyCardAttempt(inProgress)).toBe(true)
+    expect(resolveVerifyReason(inProgress)).toBe("in_progress")
+    expect(buildOutstandingBalanceByUser([inProgress]).size).toBe(0)
+    expect(buildVerifyBalanceByUser([inProgress]).get("user_open_checkout")).toBe(2500)
+
+    const succeeded = { ...inProgress, status: "paid" }
+    expect(isVerifyCardAttempt(succeeded)).toBe(false)
+    expect(buildVerifyBalanceByUser([succeeded]).size).toBe(0)
+  })
+
+  // D4 (owner, 2026-10-23): verify items leave the state only by a manual staff resolution.
+  it("takes a dismissed attempt out of verify without turning it into debt", () => {
+    const dismissed = cardAttempt("user_dismissed", "failed", {
+      verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-10-23T12:00:00.000Z", reason: "Class not taken" },
+    })
+    expect(isUnchargedCardAttempt(dismissed)).toBe(true)
+    expect(isVerifyCardAttempt(dismissed)).toBe(false)
+    expect(resolveVerifyReason(dismissed)).toBeNull()
+    expect(buildVerifyBalanceByUser([dismissed]).size).toBe(0)
+    expect(buildOutstandingBalanceByUser([dismissed]).size).toBe(0)
+    expect(buildLatestOpenPurchaseByUser([{ ...dismissed, id: "d", createdAt: "2026-10-23T12:00:00.000Z" }]).size).toBe(0)
+  })
+
+  it("never auto-resolves: an unresolved attempt stays verify regardless of other paid purchases", () => {
+    const attempt = cardAttempt("user_retry", "failed")
+    const paidLater = { ...cardAttempt("user_retry", "paid"), metadata: { paymentChannel: "card", settlementStatus: "paid" } }
+    expect(buildVerifyBalanceByUser([attempt, paidLater]).get("user_retry")).toBe(2500)
+  })
+
+  it("reads only well-formed verify resolutions", () => {
+    expect(readVerifyResolution({ verifyResolution: { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T12:00:00.000Z", reason: "", extra: "x" } }))
+      .toEqual({ action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T12:00:00.000Z", reason: null })
+    expect(readVerifyResolution({ verifyResolution: { action: "other", by: "s", at: "x" } })).toBeNull()
+    expect(readVerifyResolution({ verifyResolution: { action: "dismissed", at: "x" } })).toBeNull()
+    expect(readVerifyResolution(null)).toBeNull()
+  })
+
+  it("has no verify reason for purchases outside the verify state", () => {
+    expect(resolveVerifyReason(pendingCash("u"))).toBeNull()
   })
 
   it("classifies inconsistent stripe+cash metadata rows as card", () => {
