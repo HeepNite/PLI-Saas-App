@@ -240,3 +240,13 @@ function extractCardFromError(error: Record<string, unknown> | null | undefined)
 
   return Object.keys(result).length > 0 ? result : undefined
 }
+
+/**
+ * True when staff already resolved this purchase's verify item as "collected" at the desk (D4).
+ * A later card success for it must not fulfill again; it goes to manual resolution instead.
+ */
+export const isVerifyCollectedAtDesk = (metadata: unknown): boolean =>
+  asObject(asObject(metadata).verifyResolution).action === "collected"
+
+/** StripeWebhookEvent.resolutionReason for a card success that arrives after a desk collection. */
+export const VERIFY_COLLECTED_THEN_CARD_SUCCEEDED = "verify_collected_then_card_succeeded"

@@ -124,6 +124,28 @@ describe("staff payments PATCH — manual verify resolution", () => {
     expect(mockWriteAudit).not.toHaveBeenCalled()
   })
 
+  // The card process has not ended yet: resolving it now could collect twice once Stripe finishes.
+  it.each([
+    ["an open checkout session", { ...declinedCard(), status: "pending", stripePaymentIntentId: null, stripeCheckoutSessionId: "cs_open", metadata: { paymentChannel: "card", settlementStatus: "pending" } }],
+    ["a native prepared payment without a terminal outcome", { ...declinedCard(), status: "pending", stripePaymentIntentId: "pi_open", metadata: { paymentSurface: "native_m2_prepare" } }],
+  ])("rejects resolving %s that is still in progress", async (_label, purchase) => {
+    mockPrisma.purchase.findUnique.mockResolvedValue(purchase)
+    for (const body of [{ action: "verify_collected" }, { action: "verify_dismissed", reason: "Class not taken" }]) {
+      const res = await patch(body)
+      expect(res.status).toBe(409)
+      expect((await res.json()).error).toMatch(/in progress/i)
+    }
+    expect(mockPrisma.purchase.updateMany).not.toHaveBeenCalled()
+    expect(mockWriteAudit).not.toHaveBeenCalled()
+  })
+
+  it("resolves a native attempt that ended without a charge (kiosk outcome recorded)", async () => {
+    const ended = { ...declinedCard(), status: "pending", stripePaymentIntentId: "pi_ended", metadata: { paymentSurface: "native_m2_prepare", attemptOutcome: { code: "reader_timeout" } } }
+    mockPrisma.purchase.findUnique.mockResolvedValue(ended)
+    const res = await patch({ action: "verify_dismissed", reason: "Reader timed out, class not taken" })
+    expect(res.status).toBe(200)
+  })
+
   it("collects a verify attempt at the desk through the cash-settlement path, with resolution and audit", async () => {
     mockPrisma.purchase.findUnique
       .mockResolvedValueOnce(declinedCard())

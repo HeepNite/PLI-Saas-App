@@ -13,6 +13,7 @@ import {
   isVerifyCardAttempt,
   normalizePaymentChannel,
   readVerifyResolution,
+  resolveVerifyReason,
   type VerifyResolutionAction,
 } from "@/app/api/staff/payments/shared"
 
@@ -254,6 +255,11 @@ const resolveVerifyAttempt = async ({
   }
   if (!isVerifyCardAttempt(purchase)) {
     return NextResponse.json({ error: "Purchase is not in Verify" }, { status: 409 })
+  }
+  // The card process has not ended (open QR/Checkout, native PaymentIntent without an outcome):
+  // resolving now could collect twice once Stripe finishes. Only terminal outcomes resolve.
+  if (resolveVerifyReason(purchase) === "in_progress") {
+    return NextResponse.json({ error: "Payment in progress — wait for the result" }, { status: 409 })
   }
 
   const metadata = asObject(purchase.metadata)

@@ -16,6 +16,8 @@ import {
   mergeFailureIntoMetadata,
   clearFailureFromMetadata,
   mergeMetadataPreservingFailure,
+  isVerifyCollectedAtDesk,
+  VERIFY_COLLECTED_THEN_CARD_SUCCEEDED,
 } from "@/lib/stripe-failure"
 import { syncScheduledAttendanceFromPurchase } from "@/lib/bookings"
 import { awardPointsFromRule } from "@/lib/points/service"
@@ -504,7 +506,24 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
   }
 }
 
-async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: string, settledAt: Date) {
+type PaidEventOutcome = "manual_resolution" | void
+
+/**
+ * Defensive guard: staff marked this purchase "Collected" at the desk, so a card success now
+ * would charge the student twice. Do not fulfill; record the event for manual resolution so
+ * staff can refund one of the two payments.
+ */
+async function recordCollectedAtDeskManualResolution(eventId: string, purchaseId: string): Promise<"manual_resolution"> {
+  console.warn("[stripe-webhook:verify-collected-then-card-succeeded]", { eventId, purchaseId })
+  await markStripeWebhookEventManualResolutionTx(prisma, {
+    eventId,
+    resolutionReason: VERIFY_COLLECTED_THEN_CARD_SUCCEEDED,
+    purchaseId,
+  })
+  return "manual_resolution"
+}
+
+async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: string, settledAt: Date): Promise<PaidEventOutcome> {
   const amount = session.amount_total ?? 0
   const currency = session.currency || "usd"
   const rawMeta = pickStripeMetadata(session.metadata)
@@ -566,8 +585,11 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   // Fetch existing metadata to avoid clobbering stripeFailure on success
   const existingPurchase = specialPurchase || await prisma.purchase.findUnique({
     where: { stripeCheckoutSessionId: session.id },
-    select: { metadata: true },
+    select: { id: true, metadata: true },
   })
+  if (existingPurchase && "id" in existingPurchase && isVerifyCollectedAtDesk(existingPurchase.metadata)) {
+    return recordCollectedAtDeskManualResolution(eventId, existingPurchase.id)
+  }
 
   await processPaidStripeEvent({
     eventId,
@@ -591,13 +613,16 @@ async function handleCheckoutSession(session: Stripe.Checkout.Session, eventId: 
   })
 }
 
-async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string, settledAt: Date) {
+async function handlePaymentIntent(intent: Stripe.PaymentIntent, eventId: string, settledAt: Date): Promise<PaidEventOutcome> {
   // Skip if this payment intent already has a Purchase record — either created by
   // this handler's upsert or by handleCheckoutSession which sets stripePaymentIntentId.
   const existingByIntent = await prisma.purchase.findUnique({
     where: { stripePaymentIntentId: intent.id },
-    select: { id: true },
+    select: { id: true, metadata: true },
   })
+  if (existingByIntent && isVerifyCollectedAtDesk(existingByIntent.metadata)) {
+    return recordCollectedAtDeskManualResolution(eventId, existingByIntent.id)
+  }
   if (existingByIntent) return
 
   const amount = intent.amount ?? 0
@@ -892,6 +917,12 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
   // fulfillment selection values are read from the durable Purchase instead.
   const initial = await prisma.purchase.findUnique({ where: { id: intent.metadata.purchaseId } })
   if (!initial) throw new Error("Prepared native purchase is missing")
+  // Checked before the proof: a desk collection rewrites settlement metadata, and this path
+  // only records the event for manual resolution, it never fulfills.
+  if (isVerifyCollectedAtDesk(initial.metadata)) {
+    await recordCollectedAtDeskManualResolution(eventId, initial.id)
+    return
+  }
   validatePreparedNativePaymentIntent(intent, undefined, preparedNativePurchaseProof(initial))
 
   const fulfillment = await prisma.$transaction(async (tx) => {
@@ -1267,13 +1298,14 @@ export async function POST(req: Request) {
     return new NextResponse("Event is currently being processed", { status: 409 })
   }
 
+  let outcome: PaidEventOutcome = undefined
   try {
     switch (event.type) {
       case "checkout.session.completed":
-        await handleCheckoutSession(event.data.object as Stripe.Checkout.Session, event.id, new Date(event.created * 1000))
+        outcome = await handleCheckoutSession(event.data.object as Stripe.Checkout.Session, event.id, new Date(event.created * 1000))
         break
       case "payment_intent.succeeded":
-        await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id, new Date(event.created * 1000))
+        outcome = await handlePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id, new Date(event.created * 1000))
         break
       case "payment_intent.payment_failed":
         await handlePaymentIntentFailure(event)
@@ -1298,6 +1330,9 @@ export async function POST(req: Request) {
   // processing try/catch above, so a bookkeeping-write failure after real
   // success is never confused with (or triggers the same remediation as) an
   // actual processing failure (design §4 step 6, ADR-4).
+  // A manual_resolution row is already terminal; marking it completed would hide it from staff.
+  if (outcome === "manual_resolution") return NextResponse.json({ received: true })
+
   await markEventCompletedWithRetry(event.id, event.type)
 
   return NextResponse.json({ received: true })

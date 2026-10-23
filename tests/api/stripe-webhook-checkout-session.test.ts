@@ -834,6 +834,72 @@ describe("stripe webhook checkout session persistence", () => {
     },
   )
 
+  // Verify "Collected" (D4) means staff already took the money at the desk. A later card success
+  // for the same purchase must not fulfill again; it is recorded for manual resolution (refund one).
+  const collectedResolution = { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: null, previousPaymentChannel: "card" }
+  const expectCollectedManualResolution = (purchaseId: string) => {
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: "manual_resolution", resolutionReason: "verify_collected_then_card_succeeded", purchaseId }),
+    }))
+    expect(mockStripeWebhookEventUpdate).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }))
+    expect(mockPurchaseUpsert).not.toHaveBeenCalled()
+    expect(mockSyncPackagePurchaseFromPaidPurchase).not.toHaveBeenCalled()
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalled()
+  }
+
+  it("records a prepared native success on a purchase already collected at the desk for manual resolution", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    mockPurchaseFindUnique.mockResolvedValue({
+      ...purchase, status: "paid",
+      metadata: { ...purchase.metadata, paymentChannel: "cash", settlementStatus: "paid", verifyResolution: collectedResolution },
+    })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expectCollectedManualResolution("purchase_dynamic_1")
+  })
+
+  it("records a hosted checkout success on a purchase already collected at the desk for manual resolution", async () => {
+    mockPurchaseFindUnique.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      where.stripeCheckoutSessionId === "cs_collected"
+        ? { id: "purchase_collected", metadata: { paymentChannel: "cash", settlementStatus: "paid", verifyResolution: collectedResolution } }
+        : null)
+    mockConstructEvent.mockReturnValue({
+      id: "evt_collected_checkout",
+      type: "checkout.session.completed",
+      data: { object: {
+        id: "cs_collected", payment_status: "paid", amount_total: 2000, currency: "usd", customer: "cus_123", payment_intent: "pi_collected",
+        customer_details: { email: "test@example.com", name: "Test User", phone: null },
+        metadata: { courseSlug: "salsa", courseTitle: "Salsa", date: "2026-10-23", time: "18:00", userId: "guest", email: "test@example.com" },
+      } },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+
+    expect(res.status).toBe(200)
+    expectCollectedManualResolution("purchase_collected")
+  })
+
+  it("records a payment_intent success bound to a purchase already collected at the desk for manual resolution", async () => {
+    mockPurchaseFindUnique.mockImplementation(async ({ where }: { where: Record<string, unknown> }) =>
+      where.stripePaymentIntentId === "pi_collected_card"
+        ? { id: "purchase_collected_card", metadata: { paymentChannel: "cash", settlementStatus: "paid", verifyResolution: collectedResolution } }
+        : null)
+    mockConstructEvent.mockReturnValue({
+      id: "evt_collected_pi",
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_collected_card", object: "payment_intent", status: "succeeded", amount: 2000, currency: "usd", customer: null, receipt_email: null, metadata: {} } },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const res = await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+
+    expect(res.status).toBe(200)
+    expectCollectedManualResolution("purchase_collected_card")
+  })
+
   it("persists hosted checkout success through Purchase upsert", async () => {
     mockConstructEvent.mockReturnValue({
       id: "evt_123",

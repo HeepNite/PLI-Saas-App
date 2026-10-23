@@ -76,9 +76,12 @@ describe("VerifyResolutionControl", () => {
     expect(buttonByText(node, "Dismiss")).toBeDefined()
   })
 
-  it("labels a card payment still in progress", async () => {
+  it("labels a card payment still in progress and offers no resolution until it ends", async () => {
     const node = await render(verifyRow({ verifyReason: "in_progress" }))
     expect(node.textContent).toContain("Payment in progress")
+    expect(node.textContent).toContain("Payment in progress — wait for the result")
+    expect(buttonByText(node, "Collected")).toBeUndefined()
+    expect(buttonByText(node, "Dismiss")).toBeUndefined()
   })
 
   it("asks for confirmation before marking a verify item collected", async () => {

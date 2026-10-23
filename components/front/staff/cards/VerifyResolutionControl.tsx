@@ -88,7 +88,10 @@ export function VerifyResolutionControl({ payment, formatMoney, onResolved }: Ve
         <span className="truncate">{payment.courseTitle || "Payment"} · {reasonLabel}</span>
         <span className="font-semibold">{amountLabel}</span>
       </p>
-      {pendingAction ? (
+      {payment.verifyReason === "in_progress" ? (
+        // The card process has not ended; resolving now could collect twice once Stripe finishes.
+        <p className="text-right text-white/60">Payment in progress — wait for the result</p>
+      ) : pendingAction ? (
         <div role="dialog" aria-label="Resolve verify item" className="space-y-2 rounded-lg border border-yellow-400/30 bg-black/40 p-2">
           <p className="text-white/85">
             {pendingAction === "collected"
