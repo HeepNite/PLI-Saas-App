@@ -21,6 +21,27 @@ describe("kiosk QR cash grant", () => {
     })
   })
 
+  it("keeps the default grant valid through booking and expires it after thirty minutes", () => {
+    const grant = createKioskQrCashGrant(context, { secret, now })
+
+    expect(verifyKioskQrCashGrant(grant, context, {
+      secret,
+      now: new Date("2026-10-23T22:40:00.000Z"),
+    })).toMatchObject({ ok: true, terminalId: "terminal_1" })
+    expect(verifyKioskQrCashGrant(grant, context, {
+      secret,
+      now: new Date("2026-10-23T22:59:59.000Z"),
+    })).toMatchObject({ ok: true, terminalId: "terminal_1" })
+    expect(verifyKioskQrCashGrant(grant, context, {
+      secret,
+      now: new Date("2026-10-23T23:00:00.000Z"),
+    })).toEqual({ ok: false })
+    expect(verifyKioskQrCashGrant(grant, context, {
+      secret: "wrong-secret",
+      now,
+    })).toEqual({ ok: false })
+  })
+
   it("rejects tampered, expired, and context-mismatched grants", () => {
     const grant = createKioskQrCashGrant(context, { secret, now, ttlSeconds: 60 })
 

@@ -4,6 +4,8 @@ import {
   buildQrSignInUrl,
   buildQrWelcomeUrl,
   isQrBookingAuthReady,
+  resolveQrFlowVariant,
+  shouldResolveQrExistingCustomer,
   shouldSkipQrBookingContactStep,
 } from "@/lib/checkin/qr-booking-links"
 
@@ -85,6 +87,25 @@ describe("QR booking links", () => {
         isSignedIn: true,
       })
     ).toBe(false)
+  })
+
+  it("classifies a signed-in established customer as existing after a new-student restart", () => {
+    expect(shouldResolveQrExistingCustomer({
+      hasQrBookingContext: true,
+      isLoaded: true,
+      isSignedIn: true,
+    })).toBe(true)
+    expect(resolveQrFlowVariant({
+      isSignedIn: true,
+      isExistingCustomer: true,
+    })).toBe("checkin-existing")
+  })
+
+  it("keeps a signed-in customer without purchase history in the new-student flow", () => {
+    expect(resolveQrFlowVariant({
+      isSignedIn: true,
+      isExistingCustomer: false,
+    })).toBe("checkin-new")
   })
 
   it("keeps the mounted QR booking ready after its flow variant was captured", () => {

@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "crypto"
 
-export const KIOSK_QR_CASH_GRANT_TTL_SECONDS = 5 * 60
+export const KIOSK_QR_CASH_GRANT_TTL_SECONDS = 30 * 60
 
 const PURPOSE = "kiosk_qr_cash"
 

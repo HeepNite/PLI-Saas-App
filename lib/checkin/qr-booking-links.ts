@@ -20,6 +20,17 @@ type QrBookingContactStepInput = {
   bookingSource?: "public_booking"
 }
 
+type QrExistingCustomerCheckInput = {
+  hasQrBookingContext: boolean
+  isLoaded: boolean
+  isSignedIn: boolean
+}
+
+type QrFlowVariantInput = {
+  isSignedIn: boolean
+  isExistingCustomer: boolean | null
+}
+
 const FALLBACK_COURSE_CATALOG_URL = "/courses-library"
 
 export function isQrBookingAuthReady({
@@ -29,6 +40,21 @@ export function isQrBookingAuthReady({
   hasCapturedFlowVariant,
 }: QrBookingAuthReadyInput) {
   return !hasQrBookingContext || (isLoaded && (existingCustomerResolved || hasCapturedFlowVariant))
+}
+
+export function shouldResolveQrExistingCustomer({
+  hasQrBookingContext,
+  isLoaded,
+  isSignedIn,
+}: QrExistingCustomerCheckInput) {
+  return hasQrBookingContext && isLoaded && isSignedIn
+}
+
+export function resolveQrFlowVariant({
+  isSignedIn,
+  isExistingCustomer,
+}: QrFlowVariantInput): "checkin-new" | "checkin-existing" {
+  return isSignedIn && isExistingCustomer === true ? "checkin-existing" : "checkin-new"
 }
 
 export function shouldSkipQrBookingContactStep({
