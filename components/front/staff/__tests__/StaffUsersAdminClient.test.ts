@@ -795,6 +795,8 @@ describe("buildCurrentMonthStudentsSummary", () => {
       checkedInStudents: 9,
       totalRevenueCents: 24500,
       pendingByContext: 7,
+      verifyCount: 0,
+      verifyAmountCents: 0,
     })
   })
 })

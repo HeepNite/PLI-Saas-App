@@ -114,6 +114,8 @@ const createControls = (): StaffStudentsBoardPanelProps["controls"] => ({
     pendingByContext: 0,
     paidStudents: 0,
     checkedInStudents: 0,
+    verifyCount: 0,
+    verifyAmountCents: 0,
   },
   paymentCategoryFilter: "all",
   onPaymentCategoryChange: vi.fn(),
@@ -936,5 +938,100 @@ describe("StaffStudentsBoardPanel", () => {
     expect(setHistoryPaymentMethodFilter).toHaveBeenNthCalledWith(1, "package")
     expect(setHistoryPaymentMethodFilter).toHaveBeenNthCalledWith(2, "dropin")
     expect(onPaymentCategoryChange).not.toHaveBeenCalled()
+  })
+
+  it("shows a yellow Verify pill with count and amount next to Pending", async () => {
+    const controls = createControls()
+    const node = await renderPanel(createProps({
+      controls: { ...controls, studentsSummary: { ...controls.studentsSummary, pendingByContext: 3, verifyCount: 2, verifyAmountCents: 4500 } },
+    }))
+
+    const pills = Array.from(node.querySelectorAll("[data-summary-pill]"))
+    const keys = pills.map((pill) => pill.getAttribute("data-summary-pill"))
+    expect(keys.indexOf("verify")).toBe(keys.indexOf("pending") + 1)
+    const verifyPill = pills.find((pill) => pill.getAttribute("data-summary-pill") === "verify")!
+    expect(verifyPill.textContent).toContain("2")
+    expect(verifyPill.textContent).toContain("$45.00")
+    expect(verifyPill.textContent).toContain("Verify")
+    expect(verifyPill.className).toContain("yellow")
+  })
+
+  it("offers a Verify option in the Status filter", async () => {
+    const setPaymentsFilter = vi.fn()
+    const controls = createControls()
+    const node = await renderPanel(createProps({ controls: { ...controls, setPaymentsFilter } }))
+    const select = Array.from(node.querySelectorAll("select")).find((element) =>
+      Array.from(element.options).some((option) => option.value === "verify"))
+    expect(select).toBeDefined()
+    await act(async () => {
+      select!.value = "verify"
+      select!.dispatchEvent(new Event("change", { bubbles: true }))
+    })
+    expect(setPaymentsFilter).toHaveBeenCalledWith("verify")
+  })
+
+  const paymentCard = (payment: PaymentRow) => ({
+    source: "payment" as const,
+    key: "user-1",
+    allPayments: [payment],
+    latestPayment: payment,
+    latestAttendedPayment: null,
+    totalPayments: 1,
+    totalCollectedCents: 0,
+    paidPayments: 0,
+    checkedInPayments: 0,
+    coursesPurchasedCount: 1,
+    totalPackageClassesConsumed: 0,
+    completedClassesTotal: 0,
+    packageClassesUsedTotal: 0,
+  })
+  const renderDailyCard = (payment: PaymentRow) =>
+    renderPanel(createProps({ cards: { ...createProps().cards, displayedStudentCards: [paymentCard(payment)], filteredStudentCardsCount: 1 } }))
+
+  it("shows Verify in yellow with the amount on the daily student card within 24 h of the failed attempt, and not after", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-26T12:00:00.000Z"))
+    const declined = createPaymentRow({
+      paymentChannel: "card", paymentStatus: "failed", amount: 2500, verify: true, verifyReason: "card_declined",
+      verifySince: "2026-05-26T02:00:00.000Z",
+    })
+
+    const recent = await renderDailyCard(declined)
+    const verifyLine = recent.querySelector("[data-verify-balance]")
+    expect(verifyLine?.textContent).toContain("Verify")
+    expect(verifyLine?.textContent).toContain("$25.00")
+    expect(verifyLine?.className).toContain("yellow")
+    await act(async () => root?.unmount())
+    container?.remove()
+    root = null
+
+    const stale = await renderDailyCard({ ...declined, verifySince: "2026-05-25T11:00:00.000Z" })
+    expect(stale.querySelector("[data-verify-balance]")).toBeNull()
+  })
+
+  it("keeps the outstanding balance in red and excludes the verify amount from it", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-26T12:00:00.000Z"))
+    const cashPending = createPaymentRow({
+      id: "cash-1", paymentChannel: "cash", paymentStatus: "pending", settlementStatus: "pending", classPaid: false,
+      amount: 3100, outstandingBalance: 3100,
+    })
+    const declined = createPaymentRow({
+      id: "card-1", paymentChannel: "card", paymentStatus: "failed", amount: 2500, outstandingBalance: 3100,
+      verify: true, verifyReason: "card_declined", verifySince: "2026-05-26T10:00:00.000Z",
+    })
+    const node = await renderPanel(createProps({
+      cards: {
+        ...createProps().cards,
+        displayedStudentCards: [{ ...paymentCard(cashPending), allPayments: [cashPending, declined], totalPayments: 2 }],
+        filteredStudentCardsCount: 1,
+      },
+    }))
+    const debtLine = Array.from(node.querySelectorAll("p")).find((element) => element.textContent?.includes("Outstanding balance"))
+    expect(debtLine?.className).toContain("brand")
+    expect(debtLine?.textContent).toContain("$31.00")
+    expect(debtLine?.textContent).not.toContain("$56.00")
+    const verifyLine = node.querySelector("[data-verify-balance]")
+    expect(verifyLine?.textContent).toContain("$25.00")
+    expect(verifyLine?.className).toContain("yellow")
+    expect(verifyLine?.className).not.toContain("brand")
   })
 })

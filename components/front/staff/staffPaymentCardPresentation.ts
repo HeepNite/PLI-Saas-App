@@ -21,6 +21,26 @@ export const getInitials = (firstName: string, lastName: string, email: string) 
   return (email?.trim()?.[0] || "S").toUpperCase()
 }
 
+const VERIFY_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Amount of the student's card processes that did not charge within the last 24 h (D3):
+ * shown in yellow on the daily card, separate from the red outstanding (cash) debt.
+ */
+export const resolveRecentVerifyAmountCents = (
+  payments: Array<Pick<PaymentRow, "id" | "amount" | "verify" | "verifySince">>,
+  nowMs: number,
+) => {
+  const recent = new Map<string, number>()
+  for (const payment of payments) {
+    if (payment.verify !== true || !payment.verifySince) continue
+    const since = Date.parse(payment.verifySince)
+    if (!Number.isFinite(since) || nowMs - since >= VERIFY_DAILY_WINDOW_MS) continue
+    recent.set(payment.id, payment.amount)
+  }
+  return [...recent.values()].reduce((sum, amount) => sum + amount, 0)
+}
+
 /**
  * A never-completed card attempt (expired/failed/cancelled/canceled while unpaid) must
  * read differently from a cash-pending row: staff need to chase the student in person,

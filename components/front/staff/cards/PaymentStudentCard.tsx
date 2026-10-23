@@ -20,6 +20,7 @@ import {
   getOpenPaymentIds,
   paymentStateTone,
   resolvePackageBadge,
+  resolveRecentVerifyAmountCents,
   splitCustomerName,
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
@@ -89,6 +90,10 @@ export function PaymentStudentCard({
     payment.outstandingBalance > 0
       ? formatMoney(payment.outstandingBalance, payment.currency)
       : null
+  // Card attempts that did not charge: yellow, never debt, for 24 h after the attempt (D3).
+  const recentVerifyAmountCents =
+    cardVariant.context === "daily" ? resolveRecentVerifyAmountCents(student.allPayments, Date.now()) : 0
+  const verifyBalanceLabel = recentVerifyAmountCents > 0 ? formatMoney(recentVerifyAmountCents, payment.currency) : null
   const paidEntries =
     cardVariant.context === "daily"
       ? buildHistoryStudentPaidEntries(student.allPayments)
@@ -383,6 +388,15 @@ export function PaymentStudentCard({
                 </span>
               </span>
             </span>
+          </p>
+        ) : null}
+        {verifyBalanceLabel ? (
+          <p
+            data-verify-balance
+            className="inline-flex w-full items-center justify-between gap-2 border-b border-yellow-400/40 pb-2 text-yellow-300"
+          >
+            <span>Verify</span>
+            <span className="font-semibold text-yellow-200">{verifyBalanceLabel}</span>
           </p>
         ) : null}
         {historyOpenRows.length > 0 ? (

@@ -174,6 +174,19 @@ describe("useStaffStudentsBoardAdmin", () => {
     expect(checkUserHasAuditEntries).toHaveBeenCalledWith("student-1")
   })
 
+  it("counts each verify row once in the board Verify pill and keeps it out of revenue", async () => {
+    const state = await renderHook(createOptions({
+      paymentCategoryFilter: "all",
+      payments: [
+        payment({ id: "card-paid", userId: "student-1", paymentChannel: "card", settlementStatus: "paid", amount: 3200 }),
+        payment({ id: "card-declined", userId: "student-1", paymentChannel: "card", paymentStatus: "failed", classPaid: false, settlementStatus: "pending", amount: 2500, verify: true, verifyReason: "card_declined" }),
+        payment({ id: "card-expired", userId: "student-2", paymentChannel: "card", paymentStatus: "expired", classPaid: false, settlementStatus: "pending", amount: 2000, verify: true, verifyReason: "checkout_expired" }),
+      ],
+    }))
+
+    expect(state.studentsSummary).toMatchObject({ verifyCount: 2, verifyAmountCents: 4500, totalRevenueCents: 3200 })
+  })
+
   it("resets pagination when filters change", async () => {
     const payments = Array.from({ length: 12 }, (_, index) =>
       payment({

@@ -92,6 +92,8 @@ const createEmptyPaymentsSummary = (): PaymentsApiSummary => ({
   paidSettlement: 0,
   pendingStripe: 0,
   paidStripe: 0,
+  verifyItems: 0,
+  verifyAmount: 0,
 })
 
 const normalizePaymentsSummary = (summary: unknown): PaymentsApiSummary => {
@@ -105,6 +107,8 @@ const normalizePaymentsSummary = (summary: unknown): PaymentsApiSummary => {
     paidSettlement: typeof value.paidSettlement === "number" ? value.paidSettlement : 0,
     pendingStripe: typeof value.pendingStripe === "number" ? value.pendingStripe : 0,
     paidStripe: typeof value.paidStripe === "number" ? value.paidStripe : 0,
+    verifyItems: typeof value.verifyItems === "number" ? value.verifyItems : 0,
+    verifyAmount: typeof value.verifyAmount === "number" ? value.verifyAmount : 0,
   }
 }
 

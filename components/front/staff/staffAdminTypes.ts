@@ -153,6 +153,12 @@ export type PaymentRow = {
   packageClassesUsedTotal: number
   outstandingBalance: number | null
   stripeFailure?: StripeFailureInfo | null
+  /** Card process that did not charge: visible, never debt, resolved manually (D3). */
+  verify?: boolean
+  verifyReason?: string | null
+  /** When the attempt last changed; the daily card shows Verify for 24 h after this. */
+  verifySince?: string | null
+  verifyBalance?: number | null
 }
 
 export type HistoryClassOption = {
@@ -167,7 +173,11 @@ export type PaymentsApiSummary = {
   paidSettlement: number
   pendingStripe: number
   paidStripe: number
+  verifyItems?: number
+  verifyAmount?: number
 }
+
+export type PaymentsStatusFilter = "all" | "pending" | "paid" | "verify"
 
 export type PaymentCategoryFilter = "all" | "cash" | "card" | "packages" | "dropin" | "history"
 export type HistoryPaymentMethodFilter = "all" | "cash" | "card" | "package" | "dropin"
