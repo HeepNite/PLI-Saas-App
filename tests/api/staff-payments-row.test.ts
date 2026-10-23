@@ -243,6 +243,21 @@ describe("buildStaffPaymentResponseRow", () => {
     expect(row).toMatchObject({ verify: true, verifyReason: "card_declined", verifyBalance: 2500, outstandingBalance: null })
   })
 
+  it("exposes the manual verify resolution and leaves the verify state once resolved", () => {
+    const metadata = {
+      paymentChannel: "card",
+      verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-02-10T15:00:00.000Z", reason: "Class not taken" },
+    }
+    const row = buildStaffPaymentResponseRow({
+      ...baseItem,
+      metadata,
+      settlementStatus: "pending",
+      purchase: { ...baseItem.purchase, status: "failed", stripePaymentIntentId: "pi_dismissed", metadata },
+    }, emptyContext)
+
+    expect(row).toMatchObject({ verify: false, verifyReason: null, verifySince: null, verifyResolution: metadata.verifyResolution })
+  })
+
   it("does not flag pending cash or paid rows as verify", () => {
     const pendingCash = buildStaffPaymentResponseRow({
       ...baseItem,

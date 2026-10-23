@@ -5,6 +5,8 @@ import {
   buildOutstandingBalanceByUser,
   buildVerifyBalanceByUser,
   isVerifyCardAttempt,
+  isUnchargedCardAttempt,
+  readVerifyResolution,
   resolveVerifyReason,
   isCompletedPaymentStatus,
   isOpenPurchase,
@@ -405,6 +407,33 @@ describe("staff payments shared helpers", () => {
     ["cancelled", nativeAttempt("u", "pending", "pi_1", { attemptOutcome: { code: "cancelled_by_customer" } })],
   ])("labels the verify reason as %s", (reason, purchase) => {
     expect(resolveVerifyReason(purchase)).toBe(reason)
+  })
+
+  // D4 (owner, 2026-10-23): verify items leave the state only by a manual staff resolution.
+  it("takes a dismissed attempt out of verify without turning it into debt", () => {
+    const dismissed = cardAttempt("user_dismissed", "failed", {
+      verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-10-23T12:00:00.000Z", reason: "Class not taken" },
+    })
+    expect(isUnchargedCardAttempt(dismissed)).toBe(true)
+    expect(isVerifyCardAttempt(dismissed)).toBe(false)
+    expect(resolveVerifyReason(dismissed)).toBeNull()
+    expect(buildVerifyBalanceByUser([dismissed]).size).toBe(0)
+    expect(buildOutstandingBalanceByUser([dismissed]).size).toBe(0)
+    expect(buildLatestOpenPurchaseByUser([{ ...dismissed, id: "d", createdAt: "2026-10-23T12:00:00.000Z" }]).size).toBe(0)
+  })
+
+  it("never auto-resolves: an unresolved attempt stays verify regardless of other paid purchases", () => {
+    const attempt = cardAttempt("user_retry", "failed")
+    const paidLater = { ...cardAttempt("user_retry", "paid"), metadata: { paymentChannel: "card", settlementStatus: "paid" } }
+    expect(buildVerifyBalanceByUser([attempt, paidLater]).get("user_retry")).toBe(2500)
+  })
+
+  it("reads only well-formed verify resolutions", () => {
+    expect(readVerifyResolution({ verifyResolution: { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T12:00:00.000Z", reason: "", extra: "x" } }))
+      .toEqual({ action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T12:00:00.000Z", reason: null })
+    expect(readVerifyResolution({ verifyResolution: { action: "other", by: "s", at: "x" } })).toBeNull()
+    expect(readVerifyResolution({ verifyResolution: { action: "dismissed", at: "x" } })).toBeNull()
+    expect(readVerifyResolution(null)).toBeNull()
   })
 
   it("has no verify reason for purchases outside the verify state", () => {

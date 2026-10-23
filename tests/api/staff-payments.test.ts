@@ -585,6 +585,45 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({ totalItems: 2, totalCollected: 2500, verifyItems: 1, verifyAmount: 2500 })
   })
 
+  it("keeps a dismissed attempt visible with its resolution next to the paid slot row, outside verify totals", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "card_paid_slot",
+        userId: "user_slot",
+        amount: 2500,
+        status: "paid",
+        createdAt: "2026-03-20T16:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "card", settlementStatus: "paid" },
+      }),
+      {
+        ...buildPurchase({
+          id: "card_dismissed_slot",
+          userId: "user_slot",
+          amount: 2500,
+          status: "failed",
+          createdAt: "2026-03-20T15:00:00.000Z",
+          metadata: {
+            date: "2026-03-20", time: "18:00", paymentChannel: "card", settlementStatus: "pending",
+            verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-03-20T17:00:00.000Z", reason: "Duplicate attempt" },
+          },
+        }),
+        stripePaymentIntentId: "pi_dismissed_slot",
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const data = await (await GET(new Request("http://localhost/api/staff/payments"))).json()
+
+    expect(data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "card_dismissed_slot", verify: false, outstandingBalance: null,
+        verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-03-20T17:00:00.000Z", reason: "Duplicate attempt" },
+      }),
+    ]))
+    expect(data.summary).toMatchObject({ verifyItems: 0, verifyAmount: 0 })
+  })
+
   it("does not flag consumed provisional PINs as active on the staff board", async () => {
     mockPrisma.studentPinCredential.findMany.mockResolvedValue([
       {

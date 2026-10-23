@@ -9,6 +9,7 @@ import {
   asObject,
   asText,
   isCompletedPaymentStatus,
+  isUnchargedCardAttempt,
   isVerifyCardAttempt,
   normalizeSettlementStatus,
   attendanceSlotKey,
@@ -247,8 +248,9 @@ export const dedupEnrichedPurchasesBySlot = <TItem extends {
       bySlot.set(key, item)
       continue
     }
-    const existingIsVerify = isVerifyCardAttempt(existing.purchase)
-    const incomingIsVerify = isVerifyCardAttempt(item.purchase)
+    // Resolved (dismissed) attempts stay visible too, so match uncharged attempts, not only open verify.
+    const existingIsVerify = isUnchargedCardAttempt(existing.purchase)
+    const incomingIsVerify = isUnchargedCardAttempt(item.purchase)
     if (incomingIsVerify) {
       verifyExtras.push(item)
       continue

@@ -5,6 +5,7 @@ import {
   normalizePaymentChannel,
   normalizePurchaseCategory,
   normalizePurchaseSource,
+  readVerifyResolution,
   resolveCanonicalName,
   resolveVerifyReason,
 } from "@/app/api/staff/payments/shared"
@@ -280,6 +281,8 @@ export const buildStaffPaymentResponseRow = (item: PaymentRowSource, context: St
     verifyReason,
     // When the attempt last changed; the daily board shows it as Verify for 24 h after this.
     verifySince: verifyReason !== null ? purchase.updatedAt.toISOString() : null,
+    // Manual staff resolution (D4): kept on the row so resolved attempts stay visible with it.
+    verifyResolution: readVerifyResolution(purchase.metadata),
     verifyBalance: (() => {
       const value = context.verifyBalanceByUser.get(item.userId)
       return typeof value === "number" && value > 0 ? value : null

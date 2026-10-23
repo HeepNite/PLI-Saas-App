@@ -256,13 +256,49 @@ type VerifyCandidate = Pick<OutstandingBalancePurchase, "metadata" | "status" | 
  * It stays visible for staff to verify manually and is NEVER outstanding debt.
  * Pending cash is never a verify attempt.
  */
-export const isVerifyCardAttempt = (purchase: VerifyCandidate) => {
+export const isUnchargedCardAttempt = (purchase: VerifyCandidate) => {
   if (isSettledOrCompleted(purchase)) return false
   if (isTerminalUnpaidCardAttempt(purchase)) return true
   if (!isNativeM2Preparation(purchase)) return false
   const status = asText(purchase.status).toLowerCase()
   return status === PURCHASE_STATUS.PENDING || isNeverCompletedCardAttemptStatus(status)
 }
+
+export type VerifyResolutionAction = "collected" | "dismissed"
+
+/** Manual staff resolution of a verify item (D4), stored in Purchase.metadata.verifyResolution. */
+export type VerifyResolution = {
+  action: VerifyResolutionAction
+  by: string
+  byName: string | null
+  at: string
+  reason: string | null
+}
+
+const VERIFY_RESOLUTION_ACTIONS = new Set<string>(["collected", "dismissed"])
+
+/** Allowlisted read of metadata.verifyResolution; null when absent or malformed. */
+export const readVerifyResolution = (metadata: unknown): VerifyResolution | null => {
+  const value = asObject(asObject(metadata).verifyResolution)
+  const action = asText(value.action)
+  const by = asText(value.by)
+  const at = asText(value.at)
+  if (!VERIFY_RESOLUTION_ACTIONS.has(action) || !by || !at) return null
+  return {
+    action: action as VerifyResolutionAction,
+    by,
+    byName: asText(value.byName) || null,
+    at,
+    reason: asText(value.reason) || null,
+  }
+}
+
+/**
+ * Verify = an uncharged card attempt that staff have not resolved yet. Only a manual staff
+ * resolution (D4) takes it out; a later payment by the student never auto-resolves it.
+ */
+export const isVerifyCardAttempt = (purchase: VerifyCandidate) =>
+  isUnchargedCardAttempt(purchase) && readVerifyResolution(purchase.metadata) === null
 
 export type VerifyReason = "card_declined" | "payment_failed" | "checkout_expired" | "cancelled" | "attempt_no_charge"
 
@@ -291,7 +327,8 @@ export const buildOutstandingBalanceByUser = <TPurchase extends OutstandingBalan
   const totals = new Map<string, number>()
 
   for (const purchase of purchases) {
-    if (isVerifyCardAttempt(purchase)) continue
+    // Uncharged card attempts are never debt, before or after a manual resolution.
+    if (isUnchargedCardAttempt(purchase)) continue
 
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
@@ -320,7 +357,7 @@ export const buildLatestOpenPurchaseByUser = <TPurchase extends OpenPurchase>(pu
   const latestByUser = new Map<string, TPurchase>()
 
   for (const purchase of purchases) {
-    if (isVerifyCardAttempt(purchase)) continue
+    if (isUnchargedCardAttempt(purchase)) continue
     const { isOpen } = isOpenPurchase(purchase)
     if (!isOpen) continue
 
