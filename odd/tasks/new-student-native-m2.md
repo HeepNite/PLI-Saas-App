@@ -33,6 +33,10 @@ A new student ("I am new" on /staff/terminal in the Android PLI app) can pay by 
 
   - Evidence: vitest tests/api tests/checkin tests/lib/checkout-prepare.test.ts components: 273 files / 2765 tests passed. `tsc --noEmit` clean. eslint changed files: 0 errors (6 pre-existing warnings in EnrollModal.tsx, untouched lines). `next build` exit 0. `git diff --check` clean.
 
+- [x] R1. Security review fixes: mint requires Clerk createdAt within 30 min (`NEW_STUDENT_SESSION_MAX_ACCOUNT_AGE_MS` in lib/checkin/kiosk-session.ts; route files cannot export constants); prior purchaser and every refusal return the same 403 and record a terminal miss; N2 snapshot counts only a verified primary phone equal to the session user's phone.
+  - Evidence: RED 3 failing; GREEN 30/30 focused. Full set: 273 files / 2767 tests, tsc clean, eslint 0, next build 0, diff --check clean.
+  - Bootstrap (app/api/checkin/qr/bootstrap/route.ts ~321-326) left unchanged: dropping its any-verified-phone fallback would change the existing-customer prepared-context snapshot.
+
 ## Checks
 
 - `npx vitest run <relevant tests>`
