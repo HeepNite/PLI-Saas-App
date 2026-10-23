@@ -92,10 +92,50 @@ export function normalizeFailureFromCheckoutSession(
  */
 export function mergeFailureIntoMetadata(
   existing: JsonValue | null | undefined,
-  failure: StripeFailureInfo
+  failure: StripeFailureInfo,
+  attempt?: { channel: PaymentAttemptChannel; status: string }
 ): Record<string, unknown> {
   const base = asObject(existing)
-  return { ...base, stripeFailure: failure }
+  if (!attempt) return { ...base, stripeFailure: failure }
+  return { ...base, stripeFailure: failure, paymentAttempts: appendPaymentAttempt(base.paymentAttempts, failure, attempt) }
+}
+
+export type PaymentAttemptChannel = "native_m2" | "card" | "checkout"
+
+/**
+ * One entry of Purchase.metadata.paymentAttempts — the bounded per-purchase attempt log
+ * shown in payment History. Strings only; never a provider message, card data, or PII.
+ */
+export type PaymentAttemptEntry = {
+  at: string
+  channel: PaymentAttemptChannel
+  status: string
+  code?: string
+  declineCode?: string
+  paymentIntentId?: string
+  checkoutSessionId?: string
+}
+
+export const PAYMENT_ATTEMPT_LOG_LIMIT = 10
+
+function appendPaymentAttempt(
+  existing: unknown,
+  failure: StripeFailureInfo,
+  attempt: { channel: PaymentAttemptChannel; status: string }
+): PaymentAttemptEntry[] {
+  const previous = Array.isArray(existing)
+    ? existing.filter((entry): entry is PaymentAttemptEntry => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
+    : []
+  const entry: PaymentAttemptEntry = {
+    at: failure.occurredAt,
+    channel: attempt.channel,
+    status: attempt.status,
+    ...(failure.error?.code ? { code: failure.error.code } : {}),
+    ...(failure.error?.declineCode ? { declineCode: failure.error.declineCode } : {}),
+    ...(failure.paymentIntentId ? { paymentIntentId: failure.paymentIntentId } : {}),
+    ...(failure.checkoutSessionId ? { checkoutSessionId: failure.checkoutSessionId } : {}),
+  }
+  return [...previous, entry].slice(-PAYMENT_ATTEMPT_LOG_LIMIT)
 }
 
 /** Prisma-compatible JSON object type */

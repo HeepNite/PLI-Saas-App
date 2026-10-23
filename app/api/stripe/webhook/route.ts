@@ -672,7 +672,7 @@ async function handlePaymentIntentFailure(event: Stripe.Event) {
     where: { id: purchase.id },
     data: {
       status: "failed",
-      metadata: mergeFailureIntoMetadata(purchase.metadata, failure) as Prisma.InputJsonValue,
+      metadata: mergeFailureIntoMetadata(purchase.metadata, failure, { channel: "card", status: "failed" }) as Prisma.InputJsonValue,
     },
   })
 }
@@ -974,13 +974,15 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
   })
 }
 
+const PREPARED_NATIVE_RECORDABLE_STATUSES = ["pending", "failed", "canceled"]
+
 const PREPARED_NATIVE_FAILURE_STATUS_BY_EVENT: Partial<Record<Stripe.Event.Type, "failed" | "canceled">> = {
   "payment_intent.payment_failed": "failed",
   "payment_intent.canceled": "canceled",
 }
 
-// Records a declined/canceled prepared native attempt on its still-pending Purchase so staff
-// can verify it. Never fulfills, never binds a PaymentIntent, never downgrades a non-pending row.
+// Records a declined/canceled prepared native attempt on its unpaid Purchase so staff can
+// verify it. Never fulfills, never binds a PaymentIntent, never downgrades a paid row.
 async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, event: Stripe.Event, status: "failed" | "canceled") {
   const purchaseId = intent.metadata?.purchaseId
   const purchase = typeof purchaseId === "string" ? await prisma.purchase.findUnique({ where: { id: purchaseId } }) : null
@@ -1000,12 +1002,14 @@ async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, 
     return
   }
   await prisma.$transaction(async (tx) => {
-    if (purchase.status === "pending") {
+    // Every attempt is logged (History), including a repeat decline on an already failed row.
+    // Paid, reversed, or any other non-attempt status is never overwritten.
+    if (PREPARED_NATIVE_RECORDABLE_STATUSES.includes(purchase.status)) {
       await tx.purchase.updateMany({
-        where: { id: purchase.id, status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
+        where: { id: purchase.id, status: { in: PREPARED_NATIVE_RECORDABLE_STATUSES }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
         data: {
           status,
-          metadata: mergeFailureIntoMetadata(purchase.metadata, normalizeNativeFailureFromPaymentIntent(intent, event)) as Prisma.InputJsonValue,
+          metadata: mergeFailureIntoMetadata(purchase.metadata, normalizeNativeFailureFromPaymentIntent(intent, event), { channel: "native_m2", status }) as Prisma.InputJsonValue,
         },
       })
     }
@@ -1188,7 +1192,7 @@ async function handleCheckoutSessionTerminal(event: Stripe.Event, status: "expir
     where: { id: purchase.id },
     data: {
       status,
-      metadata: mergeFailureIntoMetadata(purchase.metadata, failure) as Prisma.InputJsonValue,
+      metadata: mergeFailureIntoMetadata(purchase.metadata, failure, { channel: "checkout", status }) as Prisma.InputJsonValue,
     },
   })
 }

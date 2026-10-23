@@ -54,6 +54,7 @@ describe("prepared native payment proof", () => {
     const annotated = {
       ...purchase.fulfillmentMetadata,
       stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-10-04T17:00:00.000Z" },
+      paymentAttempts: [{ at: "2026-10-04T17:00:00.000Z", channel: "native_m2", status: "failed" }],
       attemptOutcome: { code: "reader_timeout" },
       verifyResolution: { action: "dismissed" },
     }

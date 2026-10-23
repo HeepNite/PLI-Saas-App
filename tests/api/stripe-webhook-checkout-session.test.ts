@@ -332,21 +332,72 @@ describe("stripe webhook checkout session persistence", () => {
 
     expect((await sendInternalEvent()).status).toBe(200)
     expect(mockPurchaseUpdateMany).toHaveBeenCalledOnce()
+    const at = new Date(1_790_000_000 * 1000).toISOString()
     expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({
-      where: { id: "purchase_dynamic_1", status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed", "canceled"] }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
       data: {
         status,
         metadata: {
           ...purchase.metadata,
           stripeFailure: {
-            eventType: type, occurredAt: new Date(1_790_000_000 * 1000).toISOString(), paymentIntentId: "pi_dynamic_1",
+            eventType: type, occurredAt: at, paymentIntentId: "pi_dynamic_1",
             ...(error ? { error } : {}),
           },
+          paymentAttempts: [{
+            at, channel: "native_m2", status, paymentIntentId: "pi_dynamic_1",
+            ...(error ? { code: error.code, declineCode: error.declineCode } : {}),
+          }],
         },
       },
     })
     expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", purchaseId: "purchase_dynamic_1" }) }))
     expectNoDynamicFallback()
+  })
+  it("records a second decline on an already failed prepared native Purchase without losing the first attempt", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    const first = { at: "2026-10-04T16:59:00.000Z", channel: "native_m2", status: "failed", code: "card_declined", declineCode: "do_not_honor", paymentIntentId: "pi_dynamic_1" }
+    mockPurchaseFindUnique.mockResolvedValue({
+      ...purchase, status: "failed", stripePaymentIntentId: "pi_dynamic_1",
+      metadata: { ...purchase.metadata, stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: first.at, error: { code: "card_declined", declineCode: "do_not_honor" } }, paymentAttempts: [first] },
+    })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    const data = mockPurchaseUpdateMany.mock.calls[0][0].data as { status: string; metadata: { stripeFailure: { error: { declineCode: string } }; paymentAttempts: Array<{ declineCode?: string }> } }
+    expect(data.status).toBe("failed")
+    expect(data.metadata.stripeFailure.error.declineCode).toBe("insufficient_funds")
+    expect(data.metadata.paymentAttempts.map((attempt) => attempt.declineCode)).toEqual(["do_not_honor", "insufficient_funds"])
+  })
+  it("appends embedded card and checkout attempts to the attempt log", async () => {
+    mockPurchaseFindUnique.mockResolvedValueOnce({
+      id: "purchase_embedded", status: "failed", metadata: { paymentAttempts: [{ at: "2026-10-04T16:00:00.000Z", channel: "card", status: "failed", code: "card_declined" }] },
+    })
+    mockConstructEvent.mockReturnValueOnce({
+      id: "evt_embedded_failed", type: "payment_intent.payment_failed", created: 1_790_000_000,
+      data: { object: { id: "pi_embedded", metadata: {}, last_payment_error: { code: "expired_card", type: "card_error" } } },
+    })
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    expect((await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))).status).toBe(200)
+    expect(mockPurchaseUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      status: "failed",
+      metadata: expect.objectContaining({ paymentAttempts: [
+        { at: "2026-10-04T16:00:00.000Z", channel: "card", status: "failed", code: "card_declined" },
+        { at: new Date(1_790_000_000 * 1000).toISOString(), channel: "card", status: "failed", code: "expired_card", paymentIntentId: "pi_embedded" },
+      ] }),
+    }) }))
+
+    mockPurchaseFindUnique.mockResolvedValueOnce({ id: "purchase_qr", status: "pending", metadata: {} })
+    mockConstructEvent.mockReturnValueOnce({
+      id: "evt_qr_expired", type: "checkout.session.expired", created: 1_790_000_000,
+      data: { object: { id: "cs_qr", metadata: {} } },
+    })
+    expect((await POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "{}" }))).status).toBe(200)
+    expect(mockPurchaseUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      status: "expired",
+      metadata: expect.objectContaining({ paymentAttempts: [
+        { at: new Date(1_790_000_000 * 1000).toISOString(), channel: "checkout", status: "expired", checkoutSessionId: "cs_qr" },
+      ] }),
+    }) }))
   })
   it("never downgrades a prepared native Purchase that is no longer pending", async () => {
     const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")

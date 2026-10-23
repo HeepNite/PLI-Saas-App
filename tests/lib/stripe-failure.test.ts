@@ -390,3 +390,38 @@ describe("normalizeNativeFailureFromPaymentIntent", () => {
     expect(result).toEqual({ eventType: "payment_intent.canceled", occurredAt: new Date(1_790_000_000 * 1000).toISOString(), paymentIntentId: "pi_native_2" })
   })
 })
+
+describe("mergeFailureIntoMetadata attempt log", () => {
+  const failure = {
+    eventType: "payment_intent.payment_failed",
+    occurredAt: "2026-04-25T12:00:00.000Z",
+    paymentIntentId: "pi_123",
+    error: { message: "Declined", code: "card_declined", declineCode: "insufficient_funds", type: "card_error" },
+    card: { brand: "visa", last4: "4242" },
+  } as const
+
+  it("appends a coarse attempt entry without message or card data while keeping the latest reason", () => {
+    const result = mergeFailureIntoMetadata({ courseSlug: "bachata" }, failure, { channel: "native_m2", status: "failed" })
+
+    expect(result.stripeFailure).toEqual(failure)
+    expect(result.paymentAttempts).toEqual([
+      { at: "2026-04-25T12:00:00.000Z", channel: "native_m2", status: "failed", code: "card_declined", declineCode: "insufficient_funds", paymentIntentId: "pi_123" },
+    ])
+  })
+
+  it("keeps every attempt, bounded to the last 10, and ignores a malformed log", () => {
+    const existing = { paymentAttempts: Array.from({ length: 10 }, (_, index) => ({ at: `t${index}`, channel: "card", status: "failed" })) }
+    const result = mergeFailureIntoMetadata(existing, failure, { channel: "card", status: "failed" })
+    const attempts = result.paymentAttempts as Array<{ at: string }>
+
+    expect(attempts).toHaveLength(10)
+    expect(attempts[0].at).toBe("t1")
+    expect(attempts[9].at).toBe("2026-04-25T12:00:00.000Z")
+    expect(mergeFailureIntoMetadata({ paymentAttempts: "bad" }, failure, { channel: "card", status: "failed" }).paymentAttempts).toHaveLength(1)
+  })
+
+  it("records a checkout session attempt with its session id", () => {
+    const result = mergeFailureIntoMetadata({}, { eventType: "checkout.session.expired", occurredAt: "2026-04-25T12:00:00.000Z", checkoutSessionId: "cs_1" }, { channel: "checkout", status: "expired" })
+    expect(result.paymentAttempts).toEqual([{ at: "2026-04-25T12:00:00.000Z", channel: "checkout", status: "expired", checkoutSessionId: "cs_1" }])
+  })
+})
