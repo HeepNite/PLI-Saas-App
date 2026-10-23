@@ -159,6 +159,16 @@ export type PaymentRow = {
   /** When the attempt last changed; the daily card shows Verify for 24 h after this. */
   verifySince?: string | null
   verifyBalance?: number | null
+  /** Manual staff resolution of a verify item (D4); resolved rows stay visible with it. */
+  verifyResolution?: VerifyResolutionInfo | null
+}
+
+export type VerifyResolutionInfo = {
+  action: "collected" | "dismissed"
+  by: string
+  byName: string | null
+  at: string
+  reason: string | null
 }
 
 export type HistoryClassOption = {

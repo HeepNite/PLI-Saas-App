@@ -1008,6 +1008,24 @@ describe("StaffStudentsBoardPanel", () => {
     expect(stale.querySelector("[data-verify-balance]")).toBeNull()
   })
 
+  it("shows Collected/Dismiss actions on the student card only for verify rows", async () => {
+    const paid = createPaymentRow({ id: "paid-1", paymentChannel: "card", paymentStatus: "paid", classPaid: true })
+    const cashPending = createPaymentRow({ id: "cash-1", paymentChannel: "cash", paymentStatus: "pending", settlementStatus: "pending", classPaid: false })
+    const declined = createPaymentRow({
+      id: "card-1", paymentChannel: "card", paymentStatus: "failed", classPaid: false, amount: 2500,
+      verify: true, verifyReason: "card_declined", verifySince: "2026-05-26T10:00:00.000Z",
+    })
+    const node = await renderPanel(createProps({
+      cards: {
+        ...createProps().cards,
+        displayedStudentCards: [{ ...paymentCard(paid), allPayments: [paid, cashPending, declined], totalPayments: 3 }],
+        filteredStudentCardsCount: 1,
+      },
+    }))
+    const actionRows = Array.from(node.querySelectorAll("[data-verify-item]")).map((element) => element.getAttribute("data-verify-item"))
+    expect(actionRows).toEqual(["card-1"])
+  })
+
   it("keeps the outstanding balance in red and excludes the verify amount from it", async () => {
     vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-05-26T12:00:00.000Z"))
     const cashPending = createPaymentRow({
