@@ -34,6 +34,7 @@ import {
   requestNewStudentOutcomeApi,
   requestPublicPackageReservationApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
+import { formatRegularPricePhrase } from "@/components/front/courses/utils/package-pricing"
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>
 
@@ -49,6 +50,8 @@ export type UseEnrollPaymentActionsInput = {
   appliedCoupon: Coupon
   paymentMethod: PaymentMethod
   total: number
+  /** Amount actually charged (checkout promotion applied); defaults to `total`. */
+  displayTotal?: number
   photoFlowContext: string
   kioskSessionToken?: string | null
   checkInContextDate: string
@@ -69,7 +72,7 @@ export type UseEnrollPaymentActionsInput = {
   paymentsStepIndex: number
   infoStepIndex: number
   regularServiceId: string
-  regularServicePrice: number
+  regularServicePrice: number | null
   pendingAutoPay: boolean
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>
   setService: SetState<string>
@@ -101,7 +104,7 @@ export type UseEnrollPaymentActionsInput = {
 export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   const {
     course, service, pkg, addons, participants, date, time, contact,
-    appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
+    appliedCoupon, paymentMethod, total, displayTotal = total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     bookingSource, heritagePinCountryCode, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
     isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
@@ -122,7 +125,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
 
   const completeNativePayment = React.useCallback(() => {
     nativeResetTimeoutRef.current = completeNativePaymentLifecycle({
-      total,
+      total: displayTotal,
       setProcessing,
       setSuccess,
       setSuccessMessage,
@@ -132,7 +135,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         onNativePaymentApproved?.()
       },
     })
-  }, [onNativePaymentApproved, setProcessing, setSuccess, setSuccessMessage, total])
+  }, [displayTotal, onNativePaymentApproved, setProcessing, setSuccess, setSuccessMessage])
 
   const isPublicQuoteEligible =
     bookingSource === "public_booking" &&
@@ -429,7 +432,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         title: "Regular price applied",
         message:
           message ||
-          `We switched this booking to the regular $${regularServicePrice.toFixed(0)} price. Continue without restarting the flow.`,
+          `We switched this booking to the ${formatRegularPricePhrase(regularServicePrice)}. Continue without restarting the flow.`,
       })
     },
     [contact.phone, regularServiceId, regularServicePrice, service, setService, setNewStudentFallbackPhoneKey, setFlowPopup]
@@ -667,7 +670,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             setPendingAutoPay(false)
             setProcessing(false)
             showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
             )
             return
           }
@@ -678,7 +681,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             setPendingAutoPay(false)
             setProcessing(false)
             showRegularFallbackPopup(
-              `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
             )
             return
           }
@@ -755,7 +758,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             setPendingAutoPay(false)
             setProcessing(false)
             showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
             )
             return
           }
@@ -870,7 +873,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             setPendingAutoPay(false)
             setProcessing(false)
             showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
             )
             return
           }
@@ -881,7 +884,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             setPendingAutoPay(false)
             setProcessing(false)
             showRegularFallbackPopup(
-              `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
             )
             return
           }
@@ -948,8 +951,8 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
           setProcessing(false)
           showRegularFallbackPopup(
             isNewStudentBlocked
-              ? `This customer is not eligible for the new-student price. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
-              : `Phone verification was not completed. We switched the booking to the regular $${regularServicePrice.toFixed(0)} price.`
+              ? `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
+              : `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
           )
           return
         }

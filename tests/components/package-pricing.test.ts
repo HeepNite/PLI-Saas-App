@@ -7,6 +7,12 @@ describe("formatEnrollmentOptionPrice", () => {
     expect(formatEnrollmentOptionPrice(95)).toBe("$95")
   })
 
+  it("keeps cents for fractional prices so the display matches the charge", () => {
+    expect(formatEnrollmentOptionPrice(1)).toBe("$1")
+    expect(formatEnrollmentOptionPrice(1.5)).toBe("$1.50")
+    expect(formatEnrollmentOptionPrice(19.99)).toBe("$19.99")
+  })
+
   it("returns null for missing or invalid prices", () => {
     expect(formatEnrollmentOptionPrice(null)).toBeNull()
     expect(formatEnrollmentOptionPrice(undefined)).toBeNull()

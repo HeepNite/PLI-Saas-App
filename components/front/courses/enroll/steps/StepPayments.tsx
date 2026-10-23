@@ -43,6 +43,8 @@ type StepPaymentsProps = {
   publicQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   publicQuoteLoading?: boolean
   publicQuoteError?: string | null
+  /** Promotion resolved locally with the checkout's own function (kiosk channel); never a public quote. */
+  localPromotionQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   t: (key: I18nKey) => string
 }
 
@@ -78,14 +80,16 @@ export default function StepPayments({
   publicQuote = null,
   publicQuoteLoading = false,
   publicQuoteError = null,
+  localPromotionQuote = null,
   t,
 }: StepPaymentsProps) {
   const mobileQrCheckin = isCheckInFlow && !isKioskTerminalFlow
   const nativeReaderStatus = useNativeReaderStatus()
   const readerStatus = isKioskTerminalFlow ? nativeReaderStatus : "unknown"
   const nativeCard = nativeCardAvailability(readerStatus)
+  const summaryQuote = isPublicQuoteBooking ? publicQuote : localPromotionQuote
   const publicQuoteDisplay = !isPublicQuoteBooking
-    ? "local"
+    ? localPromotionQuote ? "ready" : "local"
     : publicQuoteLoading
       ? "loading"
       : publicQuoteError || !publicQuote
@@ -101,9 +105,9 @@ export default function StepPayments({
       return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`
     }
   }
-  const quoteAmount = publicQuote ? formatQuoteAmount(publicQuote.amountCents, publicQuote.currency) : null
-  const promotionSavingsCents = publicQuote
-    ? Math.max(0, Math.round(total * 100) - publicQuote.amountCents)
+  const quoteAmount = summaryQuote ? formatQuoteAmount(summaryQuote.amountCents, summaryQuote.currency) : null
+  const promotionSavingsCents = summaryQuote
+    ? Math.max(0, Math.round(total * 100) - summaryQuote.amountCents)
     : 0
 
   React.useEffect(() => {
@@ -172,15 +176,15 @@ export default function StepPayments({
                 {publicQuoteDisplay === "ready" ? quoteAmount : publicQuoteDisplay === "local" ? `$${subtotal.toFixed(2)}` : publicQuoteDisplay === "loading" ? "Updating price" : "Price unavailable"}
               </span>
             </div>
-            {publicQuoteDisplay === "ready" && publicQuote?.promotionLabel && (
+            {publicQuoteDisplay === "ready" && summaryQuote?.promotionLabel && (
               <div className="mt-2 text-xs text-emerald-300" aria-live="polite">
-                Applied promotion: {publicQuote.promotionLabel}
+                Applied promotion: {summaryQuote.promotionLabel}
               </div>
             )}
-            {publicQuoteDisplay === "ready" && promotionSavingsCents > 0 && publicQuote && (
-              <div className="mt-2 flex items-center justify-between gap-3 text-xs text-emerald-300" aria-label={`Promotion adjustment. You save ${formatQuoteAmount(promotionSavingsCents, publicQuote.currency)}.`}>
+            {publicQuoteDisplay === "ready" && promotionSavingsCents > 0 && summaryQuote && (
+              <div className="mt-2 flex items-center justify-between gap-3 text-xs text-emerald-300" aria-label={`Promotion adjustment. You save ${formatQuoteAmount(promotionSavingsCents, summaryQuote.currency)}.`}>
                 <span>Promotion adjustment</span>
-                <span>You save {formatQuoteAmount(promotionSavingsCents, publicQuote.currency)}</span>
+                <span>You save {formatQuoteAmount(promotionSavingsCents, summaryQuote.currency)}</span>
               </div>
             )}
             {consecutiveAccepted && effectiveConsecutiveOffer && (

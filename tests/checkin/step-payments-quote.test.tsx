@@ -22,6 +22,7 @@ const renderPayments = (quote: {
   publicQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   publicQuoteLoading?: boolean
   publicQuoteError?: string | null
+  localPromotionQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
 } = {}) => renderToStaticMarkup(
   <StepPayments
     isCheckInFlow={false}
@@ -108,5 +109,14 @@ describe("StepPayments public quote summary", () => {
     expect(html).toContain("$20.00")
     expect(html).not.toContain("Final total")
     expect(html).not.toContain("Heritage promotion")
+  })
+  it("shows a locally resolved kiosk promotion as the final total outside public booking", () => {
+    const html = renderPayments({
+      isPublicQuoteBooking: false,
+      localPromotionQuote: { amountCents: 1000, currency: "usd", promotionLabel: "October special" },
+    })
+    expect(html).toContain("Applied promotion: October special")
+    expect(html).toContain("$10.00")
+    expect(html).toContain("Final total")
   })
 })

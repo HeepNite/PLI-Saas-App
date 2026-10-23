@@ -3,6 +3,7 @@ import type { CheckInQrShellProps } from "@/components/front/checkin/CheckInQrSh
 import type { EntryMode, BootstrapResponse, ConsecutiveOffer, TerminalPastClass } from "@/components/front/checkin/checkin.types"
 import type { PackageCheckInFailure } from "@/lib/checkin/existing-customer-flow"
 import type { CourseData } from "@/constants/courses"
+import type { CourseDisplayPrices } from "@/lib/promotions/course-display-prices"
 import type { KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 import type { ComponentProps } from "react"
 import type { CheckInQrOverlays } from "@/components/front/checkin/CheckInQrOverlays"
@@ -55,6 +56,7 @@ export type UseCheckInQrShellPropsInput = {
   checkInCardDuration: string
   checkInCardStudents: string
   checkInCardDescription: string
+  checkInCardPrices?: CourseDisplayPrices
   checkInCardTeacher: string
   checkInCardPriceLabel?: string
   checkInDisplayDate: string
