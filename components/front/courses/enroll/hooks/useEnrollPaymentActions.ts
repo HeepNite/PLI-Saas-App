@@ -49,6 +49,8 @@ export type UseEnrollPaymentActionsInput = {
   appliedCoupon: Coupon
   paymentMethod: PaymentMethod
   total: number
+  /** Amount actually charged (checkout promotion applied); defaults to `total`. */
+  displayTotal?: number
   photoFlowContext: string
   kioskSessionToken?: string | null
   checkInContextDate: string
@@ -102,7 +104,7 @@ export type UseEnrollPaymentActionsInput = {
 export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   const {
     course, service, pkg, addons, participants, date, time, contact,
-    appliedCoupon, paymentMethod, total, photoFlowContext, kioskSessionToken,
+    appliedCoupon, paymentMethod, total, displayTotal = total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
     bookingSource, heritagePinCountryCode, kioskQrCashGrant, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
     isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
@@ -123,7 +125,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
 
   const completeNativePayment = React.useCallback(() => {
     nativeResetTimeoutRef.current = completeNativePaymentLifecycle({
-      total,
+      total: displayTotal,
       setProcessing,
       setSuccess,
       setSuccessMessage,
@@ -133,7 +135,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         onNativePaymentApproved?.()
       },
     })
-  }, [onNativePaymentApproved, setProcessing, setSuccess, setSuccessMessage, total])
+  }, [displayTotal, onNativePaymentApproved, setProcessing, setSuccess, setSuccessMessage])
 
   const isPublicQuoteEligible =
     bookingSource === "public_booking" &&

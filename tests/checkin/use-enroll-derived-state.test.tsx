@@ -265,6 +265,36 @@ describe("useEnrollDerivedState", () => {
       expect(missing.getResult().regularServicePrice).toBeNull()
     })
 
+    it("shows the kiosk promotional total the intent route would charge, keeping the list total for the payload", async () => {
+      const course = baseCourse()
+      const promotion = {
+        id: "kiosk-june",
+        label: "June special",
+        active: true,
+        pricing: { kind: "fixed", amountCents: 1000 },
+        window: { basis: "purchase_date", startDate: "2000-01-01", endDate: "2999-12-31" },
+        audience: "everyone",
+        channels: ["trusted_kiosk"],
+      }
+      const promoCourse = {
+        ...course,
+        scheduleRules: { promotions: [promotion] },
+        enrollment: { ...course.enrollment, services: [{ id: "dropin", label: "Single class", price: 20 }] },
+      }
+      const kiosk = await renderHook(defaultInput({
+        course: promoCourse, isKioskTerminalFlow: true, service: "dropin", date: "2026-06-26", time: "18:00",
+      }))
+      expect(kiosk.getResult().pricing.total).toBe(20)
+      expect(kiosk.getResult().displayTotal).toBe(10)
+      expect(kiosk.getResult().displayPromotionLabel).toBe("June special")
+
+      const notKiosk = await renderHook(defaultInput({
+        course: promoCourse, isKioskTerminalFlow: false, service: "dropin", date: "2026-06-26", time: "18:00",
+      }))
+      expect(notKiosk.getResult().displayTotal).toBe(20)
+      expect(notKiosk.getResult().displayPromotionLabel).toBeNull()
+    })
+
     it("wires currentUserContact from the Clerk user object", async () => {
       const { getResult } = await renderHook(
         defaultInput({

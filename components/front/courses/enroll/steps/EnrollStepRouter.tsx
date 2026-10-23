@@ -15,6 +15,7 @@ import StepPhoto from "./StepPhoto"
 import StepPackages from "./StepPackages"
 import { resolveServiceDisplayPrice } from "@/lib/promotions/course-display-prices"
 import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
+import { getCoursePromotions } from "@/lib/promotions/course-promotion-checkout"
 import StepPromo from "./StepPromo"
 import StepConsecutive from "./StepConsecutive"
 import StepPayments from "./StepPayments"
@@ -97,6 +98,7 @@ type EnrollStepRouterProps = {
   publicQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   publicQuoteLoading?: boolean
   publicQuoteError?: string | null
+  localPromotionQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   paymentMethodLabel: string
   formatPackageMeta: (option?: EnrollmentOption | null) => string | undefined
   activeNumericField: ActiveNumericField
@@ -295,6 +297,7 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           publicQuote={props.publicQuote}
           publicQuoteLoading={props.publicQuoteLoading}
           publicQuoteError={props.publicQuoteError}
+          localPromotionQuote={props.localPromotionQuote}
           t={props.t}
         />
       )}
@@ -319,6 +322,3 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
     </>
   )
 }
-
-const getCoursePromotions = (scheduleRules: unknown) =>
-  scheduleRules && typeof scheduleRules === "object" ? (scheduleRules as Record<string, unknown>).promotions : []

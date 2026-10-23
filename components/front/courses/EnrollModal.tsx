@@ -355,6 +355,8 @@ export default function EnrollModal({
     kioskPaymentTransitionMessage,
     currentUserContact,
     pricing,
+    displayTotal,
+    displayPromotionLabel,
     calendarLinks,
     getCurrentCourseTimesForDate,
     visibleTimeSlots,
@@ -684,6 +686,10 @@ export default function EnrollModal({
   const subtotal = pricing.subtotal
   const discount = pricing.discount
   const total = pricing.total
+  // Displayed amounts follow the checkout's promotion resolution; `total` stays the submitted list amount.
+  const localPromotionQuote = displayPromotionLabel
+    ? { amountCents: Math.round(displayTotal * 100), currency: "usd", promotionLabel: displayPromotionLabel }
+    : null
   // Hide sidebar: on success for check-in flows, or during payments step for kiosk terminal
   const hideCalendarSidebar = Boolean(
     (success && isCheckInFlow) ||
@@ -799,6 +805,7 @@ export default function EnrollModal({
     appliedCoupon,
     paymentMethod,
     total,
+    displayTotal,
     photoFlowContext,
     kioskSessionToken,
     checkInContextDate,
@@ -1384,7 +1391,7 @@ export default function EnrollModal({
               contact={contact}
               summaryDateTimeValue={summaryDateTimeValue}
               summaryGridClass={summaryGridClass}
-              total={total}
+              total={displayTotal}
               googleCalHref={googleCalHref}
               icsDataUri={icsDataUri}
               eventDates={Boolean(eventDates)}
@@ -1443,7 +1450,7 @@ export default function EnrollModal({
                 service={service}
                 contact={contact}
                 successMessage={successMessage}
-                total={total}
+                total={displayTotal}
                 paymentMethodLabel={paymentMethodLabel}
                 allowPanelAccess={allowPanelAccess}
                 isPersonalCompletion={isPersonalCompletion}
@@ -1538,6 +1545,7 @@ export default function EnrollModal({
                   publicQuote={publicQuote}
                   publicQuoteLoading={publicQuoteLoading}
                   publicQuoteError={publicQuoteError}
+                  localPromotionQuote={localPromotionQuote}
                   paymentMethodLabel={paymentMethodLabel}
                   formatPackageMeta={formatPackageMeta}
                   activeNumericField={activeNumericField}
