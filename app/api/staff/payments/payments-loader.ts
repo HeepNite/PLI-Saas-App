@@ -1,5 +1,5 @@
 import { type StaffPaymentsRequest } from "@/app/api/staff/payments/payments-request"
-import { asObject, asText, attendanceSlotKey, buildOutstandingBalanceByUser, selectActivePackagesByUser } from "@/app/api/staff/payments/shared"
+import { asObject, asText, attendanceSlotKey, buildOutstandingBalanceByUser, buildVerifyBalanceByUser, selectActivePackagesByUser } from "@/app/api/staff/payments/shared"
 import {
   type EnrichedPurchase,
   type StaffPaymentsTodayWindow,
@@ -64,6 +64,7 @@ export type StaffPaymentsLoadResult = {
     completedOverrideByUser: Map<string, number | null>
     packageUsedOverrideByUser: Map<string, number | null>
     outstandingBalanceByUser: Map<string, number>
+    verifyBalanceByUser: Map<string, number>
     packagePurchaseIdByPurchaseId: Map<string, string>
     packageClassNumberByUsageKey: Map<string, number>
     fundingPurchaseByPackagePurchaseId: Map<string, {
@@ -197,6 +198,7 @@ export const loadStaffPaymentsData = async (
     activePackageClassesUsedById.set(row.packagePurchaseId, row._count._all)
   }
   const outstandingBalanceByUser = buildOutstandingBalanceByUser(globalPurchases)
+  const verifyBalanceByUser = buildVerifyBalanceByUser(globalPurchases)
 
   const activePackageByUser = new Map(
     [...selectedActivePackages.entries()].map(([userId, pkg]) => [
@@ -346,6 +348,7 @@ export const loadStaffPaymentsData = async (
       completedOverrideByUser,
       packageUsedOverrideByUser,
       outstandingBalanceByUser,
+      verifyBalanceByUser,
       packagePurchaseIdByPurchaseId,
       packageClassNumberByUsageKey,
       fundingPurchaseByPackagePurchaseId,

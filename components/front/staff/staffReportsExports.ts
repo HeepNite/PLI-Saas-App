@@ -24,7 +24,7 @@ export const buildReportsCsv = (reportsData: ReportsData, rangeLabel: string): s
   lines.push(`${quoteCsv("Avg ticket")},${quoteCsv(formatMoney(reportsData.avgTicketCents))}`)
   lines.push(`${quoteCsv("Unique students")},${quoteCsv(reportsData.uniqueStudents)}`)
   lines.push(`${quoteCsv("Check-in rate")},${quoteCsv(`${reportsData.checkInRate}%`)}`)
-  lines.push(`${quoteCsv("Stripe pending")},${quoteCsv(reportsData.pendingStripeSales)}`)
+  lines.push(`${quoteCsv("Card to verify")},${quoteCsv(reportsData.pendingStripeSales)}`)
   lines.push("")
 
   lines.push("Top courses")
@@ -165,7 +165,7 @@ export const buildReportsPdfHtml = (
       <div class="card"><strong>Avg ticket</strong><p>${escapeHtml(formatMoney(reportsData.avgTicketCents))}</p></div>
       <div class="card"><strong>Unique students</strong><p>${escapeHtml(reportsData.uniqueStudents)}</p></div>
       <div class="card"><strong>Check-in rate</strong><p>${escapeHtml(reportsData.checkInRate)}%</p></div>
-      <div class="card"><strong>Stripe pending</strong><p>${escapeHtml(reportsData.pendingStripeSales)}</p></div>
+      <div class="card"><strong>Card to verify</strong><p>${escapeHtml(reportsData.pendingStripeSales)}</p></div>
     </div>
 
     <h2>Top courses</h2>

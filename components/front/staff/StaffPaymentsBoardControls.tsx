@@ -9,6 +9,7 @@ import {
   Loader2,
   MapPin,
   Search,
+  TriangleAlert,
   Users,
 } from "lucide-react"
 
@@ -19,6 +20,7 @@ import type {
   HistoryAttendanceFilter,
   HistoryPaymentMethodFilter,
   PaymentCategoryFilter,
+  PaymentsStatusFilter,
 } from "./staffAdminTypes"
 import type { PaymentsBulkBusyAction } from "./useStaffPaymentsAdmin"
 
@@ -28,6 +30,8 @@ type StudentsSummary = {
   pendingByContext: number
   paidStudents: number
   checkedInStudents: number
+  verifyCount: number
+  verifyAmountCents: number
 }
 
 type HistoryDerivedStats = {
@@ -54,8 +58,8 @@ type Props = {
   isGlobalSearchLoading: boolean
   isHistorySearchLoading: boolean
   globalSearchError: string | null
-  paymentsFilter: "all" | "pending" | "paid"
-  setPaymentsFilter: (value: "all" | "pending" | "paid") => void
+  paymentsFilter: PaymentsStatusFilter
+  setPaymentsFilter: (value: PaymentsStatusFilter) => void
   isHistoryMode: boolean
   historyFrom: string
   historyTo: string
@@ -166,6 +170,16 @@ export default function StaffPaymentsBoardControls({
             cardClass: "bg-gradient-to-br from-[#f59e0b]/18 via-[#221631]/40 to-[#0a0f23]/60",
           },
           {
+            // Card processes that did not charge: never debt, verified manually (D3).
+            key: "verify",
+            label: "Verify",
+            icon: TriangleAlert,
+            value: studentsSummary.verifyCount,
+            detail: formatMoney(studentsSummary.verifyAmountCents),
+            cardClass: "border-yellow-400/30 bg-gradient-to-br from-yellow-400/20 via-[#2a2410]/40 to-[#0a0f23]/60",
+            valueClass: "text-yellow-300",
+          },
+          {
             key: "paid",
             label: "Paid classes",
             icon: CheckCircle2,
@@ -179,16 +193,20 @@ export default function StaffPaymentsBoardControls({
             value: studentsSummary.checkedInStudents,
             cardClass: "bg-gradient-to-br from-cyan-400/18 via-[#0e2430]/40 to-[#0a0f23]/60",
           },
-        ].map((item) => {
+        ].map((item: { key: string; label: string; icon: typeof Users; value: React.ReactNode; cardClass: string; detail?: string; valueClass?: string }) => {
           const Icon = item.icon
           return (
             <div
               key={item.key}
+              data-summary-pill={item.key}
               title={item.label}
               className={`min-w-[104px] flex-1 rounded-xl border border-white/[0.08] p-3 shadow-[0_12px_24px_-18px_rgba(0,0,0,0.7)] ${item.cardClass}`}
             >
               <Icon className="mb-1 h-3.5 w-3.5 shrink-0 opacity-60" />
-              <p className="text-2xl font-semibold text-white">{item.value}</p>
+              <p className={`text-2xl font-semibold ${item.valueClass ?? "text-white"}`}>
+                {item.value}
+                {item.detail ? <span className="ml-1.5 text-xs font-medium">{item.detail}</span> : null}
+              </p>
               <p className="mt-0.5 text-[10px] uppercase tracking-[0.18em] text-white/50">{item.label}</p>
             </div>
           )
@@ -244,13 +262,14 @@ export default function StaffPaymentsBoardControls({
                   setHistoryPaymentMethodFilter("all")
                   setHistoryAttendanceFilter("all")
                 }
-                setPaymentsFilter(event.target.value as "all" | "pending" | "paid")
+                setPaymentsFilter(event.target.value as PaymentsStatusFilter)
               }}
               className="h-9 cursor-pointer appearance-none rounded-full border border-black/20 bg-[linear-gradient(145deg,rgba(255,255,255,0.9),rgba(241,241,252,0.76))] px-3.5 pr-8 text-xs font-medium text-black shadow-[0_10px_22px_-18px_rgba(0,0,0,0.85)] focus:outline-none focus:ring-2 focus:ring-[var(--brand,#b61616)]/35 dark:border-white/20 dark:bg-[linear-gradient(145deg,rgba(255,255,255,0.12),rgba(255,255,255,0.05))] dark:text-white"
             >
               <option value="all">All</option>
               <option value="pending">Pending</option>
               <option value="paid">Paid</option>
+              <option value="verify">Verify</option>
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-black/55 dark:text-white/55" />
           </div>

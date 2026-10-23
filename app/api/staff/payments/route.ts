@@ -16,6 +16,8 @@ const buildPaymentsSummary = <TItem extends {
   paymentChannel: string
   settlementStatus: string
   classPaid: boolean
+  verify: boolean
+  verifyResolution: unknown
 }>(items: TItem[]) => ({
   totalItems: items.length,
   totalCollected: items
@@ -23,8 +25,14 @@ const buildPaymentsSummary = <TItem extends {
     .reduce((sum, item) => sum + item.amount, 0),
   pendingSettlement: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CASH && item.settlementStatus === SETTLEMENT_STATUS.PENDING).length,
   paidSettlement: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CASH && item.settlementStatus === SETTLEMENT_STATUS.PAID).length,
-  pendingStripe: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CARD && !item.classPaid).length,
+  // D5: Pending is cash-only — an uncharged card is Verify (or resolved), never pending.
+  pendingStripe: items.filter((item) =>
+    item.paymentChannel === PAYMENT_CHANNEL.CARD && !item.classPaid && !item.verify && !item.verifyResolution
+  ).length,
   paidStripe: items.filter((item) => item.paymentChannel === PAYMENT_CHANNEL.CARD && item.classPaid).length,
+  // Verify items never count as revenue (never completed) nor as debt.
+  verifyItems: items.filter((item) => item.verify).length,
+  verifyAmount: items.filter((item) => item.verify).reduce((sum, item) => sum + item.amount, 0),
 })
 
 export async function GET(req: Request) {

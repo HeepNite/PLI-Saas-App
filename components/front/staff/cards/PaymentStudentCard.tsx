@@ -20,6 +20,7 @@ import {
   getOpenPaymentIds,
   paymentStateTone,
   resolvePackageBadge,
+  resolveRecentVerifyAmountCents,
   splitCustomerName,
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
@@ -27,6 +28,7 @@ import { isOpenSettlementRow } from "@/components/front/staff/staffPaymentFilter
 import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
+import { VerifyResolutionControl } from "./VerifyResolutionControl"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
 import type { StudentCardsGridProps } from "@/components/front/staff/StudentCardsGrid"
 import type { PaymentBackedStudentCard } from "@/components/front/staff/studentsBoardTypes"
@@ -89,6 +91,12 @@ export function PaymentStudentCard({
     payment.outstandingBalance > 0
       ? formatMoney(payment.outstandingBalance, payment.currency)
       : null
+  // Card attempts that did not charge: yellow, never debt, for 24 h after the attempt (D3).
+  const recentVerifyAmountCents =
+    cardVariant.context === "daily" ? resolveRecentVerifyAmountCents(student.allPayments, Date.now()) : 0
+  const verifyBalanceLabel = recentVerifyAmountCents > 0 ? formatMoney(recentVerifyAmountCents, payment.currency) : null
+  // Verify rows (open, with Collected/Dismiss) and manually resolved ones (D4).
+  const verifyResolutionRows = student.allPayments.filter((entry) => entry.verify === true || Boolean(entry.verifyResolution))
   const paidEntries =
     cardVariant.context === "daily"
       ? buildHistoryStudentPaidEntries(student.allPayments)
@@ -384,6 +392,22 @@ export function PaymentStudentCard({
               </span>
             </span>
           </p>
+        ) : null}
+        {verifyBalanceLabel ? (
+          <p
+            data-verify-balance
+            className="inline-flex w-full items-center justify-between gap-2 border-b border-yellow-400/40 pb-2 text-yellow-300"
+          >
+            <span>Verify</span>
+            <span className="font-semibold text-yellow-200">{verifyBalanceLabel}</span>
+          </p>
+        ) : null}
+        {verifyResolutionRows.length > 0 ? (
+          <div className="w-full space-y-2 border-b border-yellow-400/25 pb-2">
+            {verifyResolutionRows.map((row) => (
+              <VerifyResolutionControl key={`verify-${row.id}`} payment={row} formatMoney={formatMoney} onResolved={onRefreshPaymentsBoard} />
+            ))}
+          </div>
         ) : null}
         {historyOpenRows.length > 0 ? (
           <div className="w-full border-b border-amber-500/35 pb-2 text-amber-200/90">

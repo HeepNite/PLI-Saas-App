@@ -49,6 +49,31 @@ describe("prepared native payment proof", () => {
       .toBe(attempt.selectionDigest)
   })
 
+  it("derives fulfillment metadata without attempt annotations so a recorded decline keeps the selection digest", async () => {
+    const proof = await import("@/lib/stripe/prepared-native-payment")
+    const annotated = {
+      ...purchase.fulfillmentMetadata,
+      stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-10-04T17:00:00.000Z" },
+      paymentAttempts: [{ at: "2026-10-04T17:00:00.000Z", channel: "native_m2", status: "failed" }],
+      attemptOutcome: { code: "reader_timeout" },
+      verifyResolution: { action: "dismissed" },
+    }
+
+    expect(proof.preparedNativeFulfillmentMetadata(annotated)).toEqual(purchase.fulfillmentMetadata)
+    expect(proof.nativeFulfillmentMetadataDigest(proof.preparedNativeFulfillmentMetadata(annotated)))
+      .toBe(proof.nativeFulfillmentMetadataDigest(purchase.fulfillmentMetadata))
+  })
+
+  it("derives a distinct PaymentIntent idempotency key for each reopened attempt generation", async () => {
+    const proof = await import("@/lib/stripe/prepared-native-payment")
+    expect(proof.preparedNativePaymentIdempotencyKey({ ...purchase, attemptGeneration: 0 })).toBe("prepared-native-m2:v1:native-m2-prepared:purchase_1")
+    expect(proof.preparedNativePaymentIdempotencyKey({ ...purchase, attemptGeneration: 2 })).toBe("prepared-native-m2:v1:native-m2-prepared:purchase_1:r2")
+    expect(proof.preparedNativeAttemptGeneration({ paymentAttemptGeneration: "2" })).toBe(2)
+    expect(proof.preparedNativeAttemptGeneration({ paymentAttemptGeneration: "x" })).toBe(0)
+    expect(proof.preparedNativeAttemptGeneration({})).toBe(0)
+    expect(proof.preparedNativeFulfillmentMetadata({ courseSlug: "salsa", paymentAttemptGeneration: "2" })).toEqual({ courseSlug: "salsa" })
+  })
+
   it("uses code-unit metadata key ordering for mixed-case keys", async () => {
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const first = { aZ: "upper", aa: "lower" }

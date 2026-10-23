@@ -5,11 +5,13 @@ import {
   TODAY_MODE_TAKE_LIMIT,
   type StaffPaymentsRequest,
 } from "@/app/api/staff/payments/payments-request"
+import { buildVerifyWindowPurchaseWhere } from "@/app/api/staff/payments/payments-time"
 
 type TodayWindow = {
   todayNY: string
   startOfTodayNY: Date
   endOfTodayNY: Date
+  verifyWindowStart?: Date
 }
 
 const buildStaffPaymentsSearchWhere = (query: string): Prisma.PurchaseWhereInput | undefined => {
@@ -74,6 +76,7 @@ const buildStaffPaymentsWhere = (
         OR: [
           { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
           { metadata: { path: ["date"], equals: todayWindow.todayNY } },
+          ...(todayWindow.verifyWindowStart ? [buildVerifyWindowPurchaseWhere(todayWindow.verifyWindowStart)] : []),
         ],
       },
     ],

@@ -120,6 +120,22 @@ describe("buildStaffPaymentsFindManyArgs", () => {
     })
   })
 
+  it("also fetches card attempts touched within the rolling 24 h verify window in today mode", () => {
+    const verifyWindowStart = new Date("2026-02-09T15:00:00.000Z")
+    const args = buildStaffPaymentsFindManyArgs(todayRequest(), { ...todayWindow, verifyWindowStart })
+    expect(args.where).toEqual({
+      AND: [
+        {
+          OR: [
+            { createdAt: { gte: todayWindow.startOfTodayNY, lte: todayWindow.endOfTodayNY } },
+            { metadata: { path: ["date"], equals: todayWindow.todayNY } },
+            { updatedAt: { gte: verifyWindowStart }, status: { in: ["pending", "failed", "expired", "canceled", "cancelled"] } },
+          ],
+        },
+      ],
+    })
+  })
+
   it("scopes history mode to metadata date range and fetches one extra row for truncation", () => {
     expect(buildStaffPaymentsFindManyArgs(historyRequest({ query: "bachata" }), todayWindow)).toMatchObject({
       where: {

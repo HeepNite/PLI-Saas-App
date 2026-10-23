@@ -284,8 +284,14 @@ describe("staff payments route", () => {
     const data = await res.json()
 
     expect(res.status).toBe(200)
-    expect(data.items).toHaveLength(1)
-    expect(data.items[0]).toMatchObject({
+    // D5: the pending card process stays visible as Verify (in progress) next to the paid owner row.
+    expect(data.items).toHaveLength(2)
+    expect(data.items.find((item: { id: string }) => item.id === "card_pending_latest")).toMatchObject({
+      verify: true,
+      verifyReason: "in_progress",
+      outstandingBalance: null,
+    })
+    expect(data.items.find((item: { id: string }) => item.id === "card_paid_older")).toMatchObject({
       id: "card_paid_older",
       paymentChannel: "card",
       paymentStatus: "paid",
@@ -295,11 +301,13 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({
       pendingStripe: 0,
       paidStripe: 1,
+      verifyItems: 1,
+      verifyAmount: 2000,
     })
   })
 
   it.each(["expired", "failed", "cancelled", "canceled"])(
-    "surfaces a %s-only card attempt on the board as outstanding debt",
+    "surfaces a %s-only card attempt on the board as a verify item, not outstanding debt",
     async (status) => {
       mockPrisma.purchase.findMany.mockResolvedValue([
         {
@@ -324,14 +332,19 @@ describe("staff payments route", () => {
         expect.objectContaining({
           id: `card_${status}_only`,
           paymentStatus: status,
-          outstandingBalance: 2500,
+          outstandingBalance: null,
+          verify: true,
+          verifyBalance: 2500,
         }),
       ])
       expect(data.summary).toMatchObject({
         totalItems: 1,
         totalCollected: 0,
-        pendingStripe: 1,
+        // D5: an uncharged card is Verify only, never Pending.
+        pendingStripe: 0,
         paidStripe: 0,
+        verifyItems: 1,
+        verifyAmount: 2500,
       })
     }
   )
@@ -416,7 +429,7 @@ describe("staff payments route", () => {
     expect(data.summary).toMatchObject({
       totalItems: 2,
       totalCollected: 2500,
-      pendingStripe: 1,
+      pendingStripe: 0,
       paidStripe: 1,
     })
   })
@@ -483,7 +496,7 @@ describe("staff payments route", () => {
     })
   })
 
-  it("keeps terminal attempts visible in a student's payment history and surfaces them as debt", async () => {
+  it("keeps terminal attempts visible in a student's payment history as verify items, not debt", async () => {
     mockPrisma.purchase.findMany.mockResolvedValue([
       {
         ...buildPurchase({
@@ -507,9 +520,117 @@ describe("staff payments route", () => {
       expect.objectContaining({
         id: "card_expired_history_detail",
         paymentStatus: "expired",
-        outstandingBalance: 2500,
+        outstandingBalance: null,
+        verify: true,
+        verifyReason: "checkout_expired",
       }),
     ])
+  })
+
+  it("keeps a card attempt that failed yesterday evening on today's board for 24 h", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-03-21T14:00:00.000Z"))
+    mockGetTodayNewYork.mockReturnValue("2026-03-21")
+    const failedCard = (id: string, updatedAt: string) => ({
+      ...buildPurchase({
+        id, userId: `user_${id}`, amount: 2500, status: "failed", createdAt: "2026-03-20T13:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "19:00", paymentChannel: "card", settlementStatus: "pending" },
+      }),
+      updatedAt: new Date(updatedAt),
+      stripePaymentIntentId: `pi_${id}`,
+      stripeCheckoutSessionId: null,
+    })
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      failedCard("recent", "2026-03-20T23:30:00.000Z"),
+      failedCard("stale", "2026-03-20T13:30:00.000Z"),
+      buildPurchase({ id: "paid_yesterday", userId: "user_paid", amount: 2500, status: "paid", createdAt: "2026-03-20T22:00:00.000Z", metadata: { date: "2026-03-20", paymentChannel: "card", settlementStatus: "paid" } }),
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const data = await (await GET(new Request("http://localhost/api/staff/payments"))).json()
+    vi.useRealTimers()
+
+    expect(data.items.map((item: { id: string }) => item.id)).toEqual(["recent"])
+    expect(data.items[0]).toMatchObject({ verify: true, verifySince: "2026-03-20T23:30:00.000Z" })
+  })
+
+  it("keeps a declined attempt visible next to the paid row for the same class slot and out of revenue", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "card_paid_slot",
+        userId: "user_slot",
+        amount: 2500,
+        status: "paid",
+        createdAt: "2026-03-20T16:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "card", settlementStatus: "paid" },
+      }),
+      {
+        ...buildPurchase({
+          id: "card_declined_slot",
+          userId: "user_slot",
+          amount: 2500,
+          status: "failed",
+          createdAt: "2026-03-20T15:00:00.000Z",
+          metadata: {
+            date: "2026-03-20", time: "18:00", paymentChannel: "card", settlementStatus: "pending",
+            stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-03-20T15:00:00.000Z", error: { code: "card_declined" } },
+          },
+        }),
+        stripePaymentIntentId: "pi_declined_slot",
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const res = await GET(new Request("http://localhost/api/staff/payments"))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.items).toHaveLength(2)
+    expect(data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "card_paid_slot", classPaid: true, verify: false, verifyReason: null }),
+      expect.objectContaining({ id: "card_declined_slot", classPaid: false, verify: true, verifyReason: "card_declined", outstandingBalance: null }),
+    ]))
+    expect(data.summary).toMatchObject({ totalItems: 2, totalCollected: 2500, verifyItems: 1, verifyAmount: 2500 })
+  })
+
+  it("keeps a dismissed attempt visible with its resolution next to the paid slot row, outside verify totals", async () => {
+    mockPrisma.purchase.findMany.mockResolvedValue([
+      buildPurchase({
+        id: "card_paid_slot",
+        userId: "user_slot",
+        amount: 2500,
+        status: "paid",
+        createdAt: "2026-03-20T16:00:00.000Z",
+        metadata: { date: "2026-03-20", time: "18:00", paymentChannel: "card", settlementStatus: "paid" },
+      }),
+      {
+        ...buildPurchase({
+          id: "card_dismissed_slot",
+          userId: "user_slot",
+          amount: 2500,
+          status: "failed",
+          createdAt: "2026-03-20T15:00:00.000Z",
+          metadata: {
+            date: "2026-03-20", time: "18:00", paymentChannel: "card", settlementStatus: "pending",
+            verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-03-20T17:00:00.000Z", reason: "Duplicate attempt" },
+          },
+        }),
+        stripePaymentIntentId: "pi_dismissed_slot",
+        stripeCheckoutSessionId: null,
+      },
+    ])
+
+    const { GET } = await import("@/app/api/staff/payments/route")
+    const data = await (await GET(new Request("http://localhost/api/staff/payments"))).json()
+
+    expect(data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "card_dismissed_slot", verify: false, outstandingBalance: null,
+        verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-03-20T17:00:00.000Z", reason: "Duplicate attempt" },
+      }),
+    ]))
+    expect(data.summary).toMatchObject({ verifyItems: 0, verifyAmount: 0, pendingStripe: 0 })
   })
 
   it("does not flag consumed provisional PINs as active on the staff board", async () => {
@@ -942,6 +1063,8 @@ describe("staff payments route", () => {
       paidSettlement: 1,
       pendingStripe: 0,
       paidStripe: 1,
+      verifyItems: 0,
+      verifyAmount: 0,
     })
   })
 
@@ -1384,6 +1507,8 @@ describe("staff payments route", () => {
       paidSettlement: 1,
       pendingStripe: 0,
       paidStripe: 1,
+      verifyItems: 0,
+      verifyAmount: 0,
     })
     expect(data.classOptions).toEqual([
       { slug: "salsa-beginners", title: "Salsa Beginners" },
@@ -1481,6 +1606,8 @@ describe("staff payments route", () => {
       paidSettlement: 0,
       pendingStripe: 0,
       paidStripe: 1,
+      verifyItems: 0,
+      verifyAmount: 0,
     })
     expect(data.classOptions).toEqual([
       { slug: "salsa-beginners", title: "Salsa Beginners" },
@@ -1541,6 +1668,8 @@ describe("staff payments route", () => {
       paidSettlement: 0,
       pendingStripe: 0,
       paidStripe: 2,
+      verifyItems: 0,
+      verifyAmount: 0,
     })
   })
 
@@ -1662,6 +1791,8 @@ describe("staff payments route", () => {
       paidSettlement: 2,
       pendingStripe: 0,
       paidStripe: 1,
+      verifyItems: 0,
+      verifyAmount: 0,
     })
     expect(data.classOptions).toEqual([
       { slug: "salsa-beginners", title: "Salsa Beginners" },
@@ -1909,7 +2040,9 @@ describe("staff payments route", () => {
       id: "elvira_daily_package",
       completedClassesTotal: 2,
       packageClassesUsedTotal: 2,
-      outstandingBalance: 2000,
+      // D5: the older uncharged card row is Verify, not debt.
+      outstandingBalance: null,
+      verifyBalance: 2000,
       activePackage: {
         totalCredits: 8,
         remainingCredits: 2,

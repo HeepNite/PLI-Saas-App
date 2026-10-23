@@ -115,6 +115,19 @@ describe("staff service busy hardening", () => {
     expect(mockPrisma.attendance.findMany).not.toHaveBeenCalled()
   })
 
+  it("counts card attempts touched within the rolling 24 h verify window in the payments pulse", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-02-10T15:00:00.000Z"))
+    mockPrisma.purchase.aggregate.mockResolvedValueOnce({ _count: 1, _max: { createdAt: null } })
+    mockPrisma.attendance.count.mockResolvedValueOnce(0)
+
+    const { GET } = await import("@/app/api/staff/payments/pulse/route")
+    expect((await GET()).status).toBe(200)
+    const where = mockPrisma.purchase.aggregate.mock.calls.at(-1)?.[0].where as { OR: unknown[] }
+    expect(where.OR).toContainEqual({ updatedAt: { gte: new Date("2026-02-09T15:00:00.000Z") }, status: { in: ["pending", "failed", "expired", "canceled", "cancelled"] } })
+    vi.useRealTimers()
+  })
+
   it("still requires staff auth before returning optional payments pulse", async () => {
     mockAuthorizeStaffPortalSectionRequest.mockResolvedValueOnce({ ok: false, status: 403, error: "Forbidden" })
 

@@ -26,6 +26,7 @@ import {
 import {
   buildCurrentMonthStudentsSummary,
   isOpenSettlementRow,
+  isUnchargedCardAttemptRow,
   matchesStripeStatus,
   resolveDirectClassRevenueCents,
   resolveStudentCardPayments,
@@ -37,6 +38,7 @@ import type {
   PaymentCategoryFilter,
   PaymentRow,
   PaymentsApiSummary,
+  PaymentsStatusFilter,
 } from "./staffAdminTypes"
 import type { StaffAuthedFetch } from "./useStaffPortalShellAdmin"
 
@@ -76,7 +78,7 @@ type UseStaffStudentsBoardAdminOptions = {
   historyFrom: string
   historyTo: string
   paymentCategoryFilter: PaymentCategoryFilter
-  paymentsFilter: "all" | "pending" | "paid"
+  paymentsFilter: PaymentsStatusFilter
   studentSearchQuery: string
   selectedPaymentIds: string[]
   paymentsMonthlySummaryApi: PaymentsApiSummary
@@ -92,6 +94,15 @@ type UseStaffStudentsBoardAdminOptions = {
   refreshPaymentsBoard: () => Promise<void>
   handleStaffAuthFailure: (status: number) => boolean
   staffAuthedFetch: StaffAuthedFetch
+}
+
+// Verify rows on the board (card processes that did not charge), counted once per row.
+const summarizeVerifyPayments = (payments: PaymentRow[]) => {
+  const verifyById = new Map(payments.filter((payment) => payment.verify === true).map((payment) => [payment.id, payment.amount]))
+  return {
+    verifyCount: verifyById.size,
+    verifyAmountCents: [...verifyById.values()].reduce((sum, amount) => sum + amount, 0),
+  }
 }
 
 export function useStaffStudentsBoardAdmin({
@@ -367,10 +378,12 @@ export function useStaffStudentsBoardAdmin({
       totalRevenueCents: filteredStudentCards.reduce((sum, item) => sum + resolveDirectClassRevenueCents(item.allPayments), 0),
       pendingByContext: filteredStudentCards.filter((item) => {
         if (paymentCategoryFilter === "cash") return item.latestPayment.settlementStatus === "pending"
-        if (!isPaymentPaidForUi(item.latestPayment)) return true
+        // D5: an uncharged card (Verify or resolved) is never pending; cash debt still is.
+        if (!isPaymentPaidForUi(item.latestPayment) && !isUnchargedCardAttemptRow(item.latestPayment)) return true
         const balance = "outstandingBalance" in item && typeof item.outstandingBalance === "number" ? item.outstandingBalance : item.latestPayment.outstandingBalance
         return typeof balance === "number" && balance > 0
       }).length,
+      ...summarizeVerifyPayments(filteredStudentCards.flatMap((item) => item.allPayments)),
     }
   }, [currentMonthStudentsSummary, filteredStudentCards, paymentCategoryFilter])
 

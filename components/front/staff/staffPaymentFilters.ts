@@ -9,6 +9,7 @@ import type {
   PaymentCategoryFilter,
   PaymentRow,
   PaymentsApiSummary,
+  PaymentsStatusFilter,
   SchoolPackageRow,
 } from "./staffAdminTypes"
 
@@ -43,6 +44,13 @@ export const matchesPaymentCategory = (
   return true
 }
 
+/**
+ * An uncharged card attempt, open (Verify) or manually resolved. Per D5 it never counts
+ * as Pending: Pending is money the student has not handed over yet (cash).
+ */
+export const isUnchargedCardAttemptRow = (row: Pick<PaymentRow, "verify" | "verifyResolution">) =>
+  row.verify === true || Boolean(row.verifyResolution)
+
 export const matchesStripeStatus = (
   row: {
     classPaid: PaymentRow["classPaid"]
@@ -52,10 +60,14 @@ export const matchesStripeStatus = (
     fundingPayment?: PaymentRow["fundingPayment"]
     checkInStatus?: PaymentRow["checkInStatus"]
     packageId?: PaymentRow["packageId"]
+    verify?: PaymentRow["verify"]
+    verifyResolution?: PaymentRow["verifyResolution"]
   },
-  filter: "all" | "pending" | "paid"
+  filter: PaymentsStatusFilter
 ) => {
   if (filter === "all") return true
+  if (filter === "verify") return row.verify === true
+  if (filter === "pending" && isUnchargedCardAttemptRow(row)) return false
   if (row.paymentChannel === "cash") {
     return filter === "paid" ? row.settlementStatus === "paid" : row.settlementStatus !== "paid"
   }
@@ -133,7 +145,7 @@ export const matchesHistoryContentFilters = (
     classKey: string
     paymentMethodFilter: HistoryPaymentMethodFilter
     attendanceFilter: HistoryAttendanceFilter
-    paymentsFilter: "all" | "pending" | "paid"
+    paymentsFilter: PaymentsStatusFilter
   }
 ) => {
   return (
@@ -152,7 +164,7 @@ export const resolveStudentCardPayments = (
     historyPaymentMethodFilter: HistoryPaymentMethodFilter
     historyAttendanceFilter: HistoryAttendanceFilter
     paymentCategoryFilter: PaymentCategoryFilter
-    paymentsFilter: "all" | "pending" | "paid"
+    paymentsFilter: PaymentsStatusFilter
     studentSearchQuery: string
   }
 ) => {
@@ -223,6 +235,8 @@ export const buildCurrentMonthStudentsSummary = (input: {
   checkedInStudents: input.checkedInStudents,
   totalRevenueCents: input.summary.totalCollected,
   pendingByContext: input.summary.pendingStripe + input.summary.pendingSettlement,
+  verifyCount: input.summary.verifyItems ?? 0,
+  verifyAmountCents: input.summary.verifyAmount ?? 0,
 })
 
 export const createEmptyPackageForm = (): PackageFormState => ({

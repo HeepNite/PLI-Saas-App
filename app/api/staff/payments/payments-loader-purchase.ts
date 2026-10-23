@@ -9,6 +9,8 @@ import {
   asObject,
   asText,
   isCompletedPaymentStatus,
+  isUnchargedCardAttempt,
+  isVerifyCardAttempt,
   normalizeSettlementStatus,
   attendanceSlotKey,
 } from "@/app/api/staff/payments/shared"
@@ -18,6 +20,8 @@ export type StaffPaymentsTodayWindow = {
   todayNY: string
   startOfTodayNY: Date
   endOfTodayNY: Date
+  /** Start of the rolling 24 h window in which verify attempts stay on the daily board. */
+  verifyWindowStart?: Date
 }
 
 export type EnrichedPurchase = {
@@ -31,6 +35,8 @@ export type EnrichedPurchase = {
   classDate: string | null
   classTime: string | null
   classStartsAt: Date | null
+  /** A verify attempt kept visible next to the row that owns its class slot. */
+  verifyExtra?: boolean
 }
 
 export const buildPurchaseAttendanceDedupKey = (input: {
@@ -151,6 +157,12 @@ export const isTodayScopedPurchase = (input: {
   return input.createdAt >= input.startOfTodayNY && input.createdAt <= input.endOfTodayNY
 }
 
+/** A verify attempt stays on the daily board for 24 h after it last changed (D3). */
+export const isWithinVerifyWindow = (
+  purchase: Parameters<typeof isVerifyCardAttempt>[0] & { updatedAt: Date },
+  verifyWindowStart: Date | undefined,
+) => Boolean(verifyWindowStart) && purchase.updatedAt >= verifyWindowStart! && isVerifyCardAttempt(purchase)
+
 export const filterPurchasesByClassDateRange = <TItem extends { classDate: string | null }>(
   items: TItem[],
   from: string,
@@ -206,14 +218,24 @@ export const enrichPurchases = <TPurchase extends {
  * Dedup enrichedPurchases by slot key — when two purchases exist for the same
  * (userId, courseSlug, classStartsAt), keep the real payment (Stripe/cash) so
  * Payment History can surface it, and merge attendanceId from package_credit.
+ * A verify attempt (card process that did not charge) never owns a slot over another
+ * row and is never dropped: it is returned as an extra row flagged `verifyExtra`.
  */
 export const dedupEnrichedPurchasesBySlot = <TItem extends {
   metadata: Record<string, unknown>
   userId: string
   classStartsAt: Date | null
-  purchase: { id: string; courseSlug: string | null; status: string }
-}>(items: TItem[]): TItem[] => {
+  purchase: {
+    id: string
+    courseSlug: string | null
+    status: string
+    metadata: unknown
+    stripePaymentIntentId: string | null
+    stripeCheckoutSessionId: string | null
+  }
+}>(items: TItem[]): Array<TItem & { verifyExtra?: boolean }> => {
   const bySlot = new Map<string, TItem>()
+  const verifyExtras: TItem[] = []
   for (const item of items) {
     const key = buildPurchaseAttendanceDedupKey({
       purchaseId: item.purchase.id,
@@ -224,6 +246,18 @@ export const dedupEnrichedPurchasesBySlot = <TItem extends {
     const existing = bySlot.get(key)
     if (!existing) {
       bySlot.set(key, item)
+      continue
+    }
+    // Resolved (dismissed) attempts stay visible too, so match uncharged attempts, not only open verify.
+    const existingIsVerify = isUnchargedCardAttempt(existing.purchase)
+    const incomingIsVerify = isUnchargedCardAttempt(item.purchase)
+    if (incomingIsVerify) {
+      verifyExtras.push(item)
+      continue
+    }
+    if (existingIsVerify) {
+      bySlot.set(key, item)
+      verifyExtras.push(existing)
       continue
     }
     const existingIsCredit = asText(existing.metadata.paymentChannel) === PAYMENT_CHANNEL.PACKAGE_CREDIT
@@ -252,7 +286,7 @@ export const dedupEnrichedPurchasesBySlot = <TItem extends {
     }
     // Otherwise keep existing (first-seen wins for equivalent rows).
   }
-  return [...bySlot.values()]
+  return [...bySlot.values(), ...verifyExtras.map((item) => ({ ...item, verifyExtra: true }))]
 }
 
 export const scopePurchasesForResponse = (input: {
@@ -287,7 +321,7 @@ export const scopePurchasesForResponse = (input: {
                 todayNY: todayWindow.todayNY,
                 startOfTodayNY: todayWindow.startOfTodayNY,
                 endOfTodayNY: todayWindow.endOfTodayNY,
-              })
+              }) || isWithinVerifyWindow(item.purchase, todayWindow.verifyWindowStart)
             ),
             ...standaloneItems,
           ].sort((a, b) => {
