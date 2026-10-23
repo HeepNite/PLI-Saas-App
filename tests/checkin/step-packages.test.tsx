@@ -112,4 +112,54 @@ describe("StepPackages", () => {
     expect(container.textContent).toContain("Price unavailable")
     expect(container.textContent).not.toContain("$20")
   })
+
+  const renderStep = async (props: Partial<React.ComponentProps<typeof StepPackages>>) => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => {
+      root?.render(
+        <StepPackages
+          isCheckInNewFlow={false}
+          course={course}
+          pkg=""
+          setPkg={vi.fn()}
+          to12h={() => "8:00 PM"}
+          time="20:00"
+          formatPackageMeta={() => undefined}
+          {...props}
+        />
+      )
+    })
+    const dropInButton = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("Drop-in"))
+    return { text: container.textContent || "", dropIn: dropInButton?.textContent || "" }
+  }
+
+  it("shows the passed real price for a new student instead of a hardcoded $15", async () => {
+    const { dropIn } = await renderStep({ isCheckInNewFlow: true, dropInPrice: 1 })
+    expect(dropIn).toContain("$1")
+    expect(dropIn).not.toContain("$15")
+  })
+
+  it("shows a fractional real price with cents (QR compact flow no longer forces $15)", async () => {
+    const { dropIn } = await renderStep({ dropInPrice: 1.5 })
+    expect(dropIn).toContain("$1.50")
+    expect(dropIn).not.toContain("$15")
+  })
+
+  it("shows the real package price", async () => {
+    const { text } = await renderStep({ dropInPrice: 1 })
+    expect(text).toContain("$70")
+  })
+
+  it("shows the promotion label next to a promotional drop-in price", async () => {
+    const { dropIn } = await renderStep({ dropInPrice: 0.5, promotionLabel: "October special" })
+    expect(dropIn).toContain("$0.50")
+    expect(dropIn).toContain("October special")
+  })
+
+  it("shows no price rather than a fake $20 when the price is missing", async () => {
+    const { dropIn } = await renderStep({ dropInPrice: null })
+    expect(dropIn).not.toContain("$")
+  })
 })

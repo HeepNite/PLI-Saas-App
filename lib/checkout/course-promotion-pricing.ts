@@ -1,19 +1,15 @@
 import "server-only"
 import type { HeritagePinDb } from "@/lib/campaigns/heritage-pin-entitlement"
 import { findHeritagePinEntitlementForIdentity } from "@/lib/campaigns/heritage-pin-entitlement"
-import { getAvailableTimesForCourseDateFromCourse } from "@/lib/class-schedule"
-import { getNewYorkDateKey, resolveCoursePromotionPrice, type CoursePromotionChannel } from "@/lib/promotions/course-promotions"
+import { getNewYorkDateKey, type CoursePromotionChannel } from "@/lib/promotions/course-promotions"
+import {
+  isCoursePromotionCheckoutEligible,
+  resolveCoursePromotionCheckoutAmount,
+  type CoursePromotionCheckoutShape,
+} from "@/lib/promotions/course-promotion-checkout"
 import type { CourseData } from "@/constants/courses"
 
-export type CoursePromotionCheckoutShape = {
-  serviceId: string
-  safeParticipants: number
-  packageId: string
-  coupon: string
-  addons: readonly string[]
-  consecutivePriceCents: number | null
-  consecutiveAddOnOnly: boolean
-}
+export type { CoursePromotionCheckoutShape }
 
 export type ResolvedCoursePromotionIdentity = {
   clerkId?: string | null
@@ -33,35 +29,14 @@ export const resolveCoursePromotionCheckoutPricing = async (input: {
   checkoutShape: CoursePromotionCheckoutShape
   resolvedIdentity: ResolvedCoursePromotionIdentity
 }) => {
-  const { checkoutShape } = input
-  const promotionShapeEligible = Boolean(
-    input.trustedChannel &&
-    (checkoutShape.serviceId === "dropin" || checkoutShape.serviceId === "new-student") &&
-    checkoutShape.safeParticipants === 1 &&
-    !checkoutShape.packageId && !checkoutShape.coupon && checkoutShape.addons.length === 0 &&
-    checkoutShape.consecutivePriceCents === null && !checkoutShape.consecutiveAddOnOnly,
-  )
-  const hasConfiguredPromotion = Array.isArray(input.authoritativePromotions) && input.authoritativePromotions.length > 0
-  const promotionEligible = promotionShapeEligible && hasConfiguredPromotion
-  const heritageEntitlement = promotionEligible
+  const heritageEntitlement = isCoursePromotionCheckoutEligible(input)
     ? await findHeritagePinEntitlementForIdentity(input.db, input.resolvedIdentity)
     : null
-  const promotionPrice = promotionEligible && input.trustedChannel
-    ? resolveCoursePromotionPrice({
-        promotions: input.authoritativePromotions,
-        channel: input.trustedChannel,
-        classDate: input.classDate,
-        purchaseDate: getNewYorkDateKey(),
-        regularPriceCents: input.regularPriceCents,
-        hasDeliveredHeritagePin: heritageEntitlement?.status === "delivered",
-      })
-    : { applied: false as const, reason: "no_eligible_promotion" as const }
-  const hasScheduledOccurrence = !promotionPrice.applied ||
-    promotionPrice.promotion.window.basis !== "class_date" ||
-    getAvailableTimesForCourseDateFromCourse(input.authoritativeCourse, input.classDate).includes(input.classTime)
-  const appliedPromotion = promotionPrice.applied && hasScheduledOccurrence && promotionPrice.amountCents < input.amountCents
-    ? promotionPrice
-    : null
+  const { effectiveAmountCents, appliedPromotion } = resolveCoursePromotionCheckoutAmount({
+    ...input,
+    purchaseDate: getNewYorkDateKey(),
+    hasDeliveredHeritagePin: heritageEntitlement?.status === "delivered",
+  })
   const promotionMetadata: Record<string, string> = appliedPromotion ? {
     coursePromotionId: appliedPromotion.promotion.id,
     coursePromotionLabel: appliedPromotion.promotion.label,
@@ -72,7 +47,7 @@ export const resolveCoursePromotionCheckoutPricing = async (input: {
   } : {}
 
   return {
-    effectiveAmountCents: appliedPromotion?.amountCents ?? input.amountCents,
+    effectiveAmountCents,
     appliedPromotion,
     promotionMetadata,
   }

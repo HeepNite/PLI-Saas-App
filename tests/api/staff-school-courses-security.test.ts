@@ -62,6 +62,7 @@ describe("staff school courses route security", () => {
     mockPrisma.courseCatalog.updateMany.mockReset()
     mockPrisma.courseCatalog.upsert.mockReset()
     mockPrisma.specialClass.findFirst.mockReset()
+    mockPrisma.courseCatalog.findUnique.mockResolvedValue(null)
 
     mockAuthorizePortal.mockResolvedValue({ ok: true, userId: "staff_1", role: "admin" })
     mockAuthorizeDefinition.mockResolvedValue({ ok: true, userId: "owner_1", role: "owner" })

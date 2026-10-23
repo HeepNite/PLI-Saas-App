@@ -13,6 +13,9 @@ import StepParty from "./StepParty"
 import StepDateTime from "./StepDateTime"
 import StepPhoto from "./StepPhoto"
 import StepPackages from "./StepPackages"
+import { resolveServiceDisplayPrice } from "@/lib/promotions/course-display-prices"
+import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
+import { getCoursePromotions } from "@/lib/promotions/course-promotion-checkout"
 import StepPromo from "./StepPromo"
 import StepConsecutive from "./StepConsecutive"
 import StepPayments from "./StepPayments"
@@ -98,6 +101,7 @@ type EnrollStepRouterProps = {
   profileQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   profileQuoteLoading?: boolean
   profileQuoteError?: string | null
+  localPromotionQuote?: { amountCents: number; currency: string; promotionLabel?: string } | null
   paymentMethodLabel: string
   formatPackageMeta: (option?: EnrollmentOption | null) => string | undefined
   activeNumericField: ActiveNumericField
@@ -120,6 +124,17 @@ type EnrollStepRouterProps = {
 
 export default function EnrollStepRouter(props: EnrollStepRouterProps) {
   const { activeStepKey } = props
+  const dropInCard = activeStepKey === "packages"
+    ? resolveServiceDisplayPrice({
+        services: props.availableServices,
+        serviceId: props.service,
+        promotions: getCoursePromotions(props.course.scheduleRules),
+        // Checkout only applies course promotions on the trusted kiosk terminal channel here.
+        channel: props.isKioskTerminalFlow ? "trusted_kiosk" : null,
+        classDate: props.date,
+        purchaseDate: getNewYorkDateKey(),
+      })
+    : null
 
   return (
     <>
@@ -214,7 +229,6 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
       {activeStepKey === "packages" && (
         <StepPackages
           isCheckInNewFlow={props.isCheckInNewFlow}
-          isQrMobileCompactFlow={props.isQrMobileCompactFlow}
           course={props.course}
           pkg={props.pkg}
           setPkg={props.setPkg}
@@ -225,6 +239,8 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           profileQuote={props.profileQuote}
           profileQuoteLoading={props.profileQuoteLoading}
           profileQuoteError={props.profileQuoteError}
+          dropInPrice={dropInCard?.price}
+          promotionLabel={dropInCard?.promotionLabel}
         />
       )}
 
@@ -287,6 +303,8 @@ export default function EnrollStepRouter(props: EnrollStepRouterProps) {
           publicQuote={props.profileQuoteRequired ? props.profileQuote : props.publicQuote}
           publicQuoteLoading={props.profileQuoteRequired ? props.profileQuoteLoading : props.publicQuoteLoading}
           publicQuoteError={props.profileQuoteRequired ? props.profileQuoteError : props.publicQuoteError}
+          // Server profile quotes already carry promotions; the local kiosk promotion quote applies otherwise.
+          localPromotionQuote={props.profileQuoteRequired ? null : props.localPromotionQuote}
           t={props.t}
         />
       )}

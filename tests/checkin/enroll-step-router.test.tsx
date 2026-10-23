@@ -234,6 +234,37 @@ describe("EnrollStepRouter — per-step render", () => {
     expect(html).toContain("You save $5.00")
   })
 
+  it("passes the selected service's real price to the packages drop-in card", () => {
+    const course: CourseEnrollmentData = {
+      ...baseCourse,
+      enrollment: {
+        ...baseCourse.enrollment,
+        services: [
+          { id: "dropin", label: "Single class", price: 1 },
+          { id: "new-student", label: "New students", price: 1.5 },
+        ],
+        packages: [{ id: "pkg-4", label: "4 Class Pack", price: 3 }],
+      },
+    }
+    const render = (service: string) => renderToStaticMarkup(
+      <EnrollStepRouter
+        {...buildProps({
+          activeStepKey: "packages",
+          course,
+          availableServices: course.enrollment.services,
+          service,
+          stepKeys: ["packages", "payments"],
+        })}
+      />
+    )
+    const dropInHtml = render("dropin")
+    expect(dropInHtml).toContain("$1<")
+    expect(dropInHtml).toContain("$3")
+    expect(dropInHtml).not.toContain("$20")
+    expect(render("new-student")).toContain("$1.50")
+    expect(render("new-student")).not.toContain("$15")
+  })
+
   it("renders the consecutive step with offer data without throwing", () => {
     const offer = {
       linkedCourseSlug: "bachata-fusion",

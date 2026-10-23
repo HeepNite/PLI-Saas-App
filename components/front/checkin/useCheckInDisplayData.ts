@@ -16,6 +16,8 @@ import { shouldShowKioskResolvingOverlay, shouldShowPackageCheckInFailureOverlay
 import { resolvePhotoFlowContext } from "@/lib/checkin/photo-context-policy"
 import type { BootstrapResponse, CheckInQrClientProps, PackageOfferContext } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
+import { resolveCourseDisplayPrices } from "@/lib/promotions/course-display-prices"
+import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
 
 type UseCheckInDisplayDataArgs = {
   sourceCourses: CourseData[]
@@ -226,6 +228,21 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
   const checkInCardPriceLabel = forcedCoursePresentation
     ? `${new Intl.NumberFormat("en-US", { style: "currency", currency: forcedCoursePresentation.currency }).format(forcedCoursePresentation.priceCents / 100)} special class`
     : undefined
+  const checkInDisplayScheduleRules = forcedCoursePresentation ? undefined : catalogDisplayCourse?.scheduleRules
+  const checkInCardPrices = React.useMemo(
+    () => resolveCourseDisplayPrices({
+      // Special classes show their own price label; real catalog prices only for catalog courses.
+      services: forcedCoursePresentation ? undefined : catalogDisplayCourse?.enrollment?.services,
+      promotions: checkInDisplayScheduleRules && typeof checkInDisplayScheduleRules === "object"
+        ? (checkInDisplayScheduleRules as Record<string, unknown>).promotions
+        : [],
+      // Checkout only applies course promotions on the trusted kiosk terminal channel here.
+      channel: isKioskTerminalFlow ? "trusted_kiosk" : null,
+      classDate: activeDate,
+      purchaseDate: getNewYorkDateKey(nowTick),
+    }),
+    [activeDate, catalogDisplayCourse?.enrollment?.services, forcedCoursePresentation, checkInDisplayScheduleRules, isKioskTerminalFlow, nowTick]
+  )
 
   // ─── QR links ───────────────────────────────────────────────
   const checkInQrLink = React.useMemo(() => {
@@ -491,6 +508,7 @@ export function useCheckInDisplayData(args: UseCheckInDisplayDataArgs) {
     checkInCardCategory,
     checkInCardDescription,
     checkInCardPriceLabel,
+    checkInCardPrices,
     checkInQrLink,
     checkInQrImage,
 

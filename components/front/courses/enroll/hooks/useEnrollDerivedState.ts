@@ -18,6 +18,8 @@ import { buildEnrollCalendarLinks } from "@/components/front/courses/enroll/mode
 import { calculateEnrollPricing } from "@/components/front/courses/enroll/model/enroll-pricing"
 import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enroll-selectors"
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
+import { getCoursePromotions, resolveCoursePromotionCheckoutAmount } from "@/lib/promotions/course-promotion-checkout"
+import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
 import { resolveEnrollInitialStep, getCheckInSignInModalVariant } from "@/lib/checkin/enroll-flow"
 import type { SignInModalVariant } from "@/components/front/courses/enroll/steps/EnrollSignInOverlay"
 import { getKioskPaymentTransitionMessage } from "@/lib/checkin/kiosk-qr-payment"
@@ -231,7 +233,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
   )
 
   const regularServicePrice = React.useMemo(
-    () => availableServices.find((item) => item.id === regularServiceId)?.price || 20,
+    () => availableServices.find((item) => item.id === regularServiceId)?.price ?? null,
     [availableServices, regularServiceId]
   )
 
@@ -284,6 +286,32 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     consecutiveAccepted,
     consecutiveAddedCents,
   })
+
+  // Same promotion resolution as the checkout intent route (kiosk channel). Heritage-pin
+  // entitlement is server-side only, so identity-bound promotions are not displayed here.
+  // `pricing.total` stays the list total: checkout validates the submitted amount against it.
+  const displayPromotion = resolveCoursePromotionCheckoutAmount({
+    trustedChannel: isKioskTerminalFlow ? "trusted_kiosk" : null,
+    authoritativePromotions: getCoursePromotions(course.scheduleRules),
+    authoritativeCourse: course,
+    classDate: date,
+    classTime: time,
+    purchaseDate: getNewYorkDateKey(),
+    amountCents: Math.round(pricing.total * 100),
+    regularPriceCents: Math.round((course.enrollment.services.find((item) => item.id === "dropin")?.price ?? 0) * 100),
+    checkoutShape: {
+      serviceId: service,
+      safeParticipants: participants,
+      packageId: pkg,
+      coupon: appliedCoupon?.code || "",
+      addons,
+      consecutivePriceCents: consecutiveAccepted ? consecutiveAddedCents : null,
+      consecutiveAddOnOnly: false,
+    },
+    hasDeliveredHeritagePin: false,
+  })
+  const displayTotal = displayPromotion.effectiveAmountCents / 100
+  const displayPromotionLabel = displayPromotion.appliedPromotion?.promotion.label ?? null
 
   const calendarLinks = React.useMemo(
     () =>
@@ -389,6 +417,8 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
     kioskPaymentTransitionMessage,
     currentUserContact,
     pricing,
+    displayTotal,
+    displayPromotionLabel,
     calendarLinks,
     checkInTodayIso,
     checkInNowMinutes,

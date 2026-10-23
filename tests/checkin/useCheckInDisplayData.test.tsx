@@ -317,6 +317,61 @@ describe("useCheckInDisplayData", () => {
     expect(snap.checkInQrLink).toBe("https://pli.test/special-classes/special-salsa-tuesday")
   })
 
+  describe("checkInCardPrices", () => {
+    const pricedServices = [
+      { id: "dropin", label: "Single class", price: 1 },
+      { id: "new-student", label: "New students", price: 1.5 },
+    ]
+    const kioskPromotion = {
+      id: "april-kiosk",
+      label: "April special",
+      active: true,
+      pricing: { kind: "fixed", amountCents: 50 },
+      window: { basis: "class_date", startDate: "2026-04-01", endDate: "2026-04-30" },
+      audience: "everyone",
+      channels: ["trusted_kiosk"],
+    }
+
+    it("uses the displayed course's charged services, not hardcoded prices", async () => {
+      const rendered = await renderDisplay({
+        shellVariant: "terminal",
+        forcedCourseSlug: "salsa-nocturno",
+        sourceCourses: [createScheduledCourse({ enrollment: { services: pricedServices, packages: [] } })],
+      })
+      root = rendered.root
+      container = rendered.container
+      expect(rendered.getSnapshot().checkInCardPrices).toEqual({ dropIn: 1, firstClass: 1.5, promotionLabel: null })
+    })
+
+    it("applies an active kiosk promotion on the kiosk terminal", async () => {
+      const rendered = await renderDisplay({
+        shellVariant: "terminal",
+        forcedCourseSlug: "salsa-nocturno",
+        sourceCourses: [createScheduledCourse({
+          enrollment: { services: pricedServices, packages: [] },
+          scheduleRules: { promotions: [kioskPromotion] },
+        })],
+      })
+      root = rendered.root
+      container = rendered.container
+      expect(rendered.getSnapshot().checkInCardPrices).toEqual({ dropIn: 0.5, firstClass: 0.5, promotionLabel: "April special" })
+    })
+
+    it("keeps list prices outside the kiosk terminal, where checkout does not apply kiosk promotions", async () => {
+      const rendered = await renderDisplay({
+        shellVariant: "qr",
+        search: "courseSlug=salsa-nocturno&date=2026-04-02&time=20:10",
+        sourceCourses: [createScheduledCourse({
+          enrollment: { services: pricedServices, packages: [] },
+          scheduleRules: { promotions: [kioskPromotion] },
+        })],
+      })
+      root = rendered.root
+      container = rendered.container
+      expect(rendered.getSnapshot().checkInCardPrices).toEqual({ dropIn: 1, firstClass: 1.5, promotionLabel: null })
+    })
+  })
+
   it("does not jump to a future class when the terminal course has no slot today", async () => {
     const rendered = await renderDisplay({
       shellVariant: "terminal",
