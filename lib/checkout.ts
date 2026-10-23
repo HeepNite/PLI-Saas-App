@@ -274,9 +274,21 @@ const resolveKioskSessionAccount = async (
     } satisfies ApiError
   }
 
+  // New-student pricing needs real SMS proof: re-read the session user's Clerk
+  // record (uncached) so the verification snapshot reflects the phone state.
+  const clerkId = kioskSessionResult.session.user.clerkId
+  let clerkUser: ClerkUser | null = null
+  if (clerkId && options.serviceId && NEW_STUDENT_SERVICE_IDS.has(options.serviceId)) {
+    try {
+      clerkUser = await (await clerkClient()).users.getUser(clerkId)
+    } catch (err) {
+      console.warn("[checkout] Clerk lookup failed for kiosk new-student session", err)
+    }
+  }
+
   return {
     userId: null,
-    clerkUser: null,
+    clerkUser,
     resolvedUserId: kioskSessionResult.session.user.clerkId || null,
     identity: { resolvedEmail, phoneRaw, phoneNormalized },
     account: {
