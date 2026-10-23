@@ -70,6 +70,16 @@ function canonicalFulfillmentMetadata(value: unknown): string {
   return canonical
 }
 
+// Purchase.metadata keys that annotate an attempt's outcome (decline reason, kiosk outcome,
+// manual verify resolution). They are never part of the fulfillment selection or its digest.
+const ATTEMPT_ANNOTATION_KEYS = new Set(["stripeFailure", "attemptOutcome", "verifyResolution"])
+
+/** Fulfillment selection stored on a prepared Purchase, without attempt-outcome annotations. */
+export const preparedNativeFulfillmentMetadata = (metadata: unknown): Record<string, string> => {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return metadata as Record<string, string>
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) => !ATTEMPT_ANNOTATION_KEYS.has(key))) as Record<string, string>
+}
+
 export const nativeFulfillmentMetadataDigest = (metadata: unknown) =>
   createHash("sha256").update(canonicalFulfillmentMetadata(metadata)).digest("hex")
 

@@ -206,7 +206,7 @@ describe("stripe webhook checkout session persistence", () => {
 
     expect((await sendInternalEvent()).status).toBe(200)
     expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: "purchase_dynamic_1", status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed"] }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
       data: { status: "paid", stripePaymentIntentId: "pi_dynamic_1" },
     }))
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledWith(expect.objectContaining({
@@ -294,8 +294,6 @@ describe("stripe webhook checkout session persistence", () => {
     expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledTimes(2)
   })
   it.each([
-    ["payment_intent.payment_failed", "requires_payment_method"],
-    ["payment_intent.canceled", "canceled"],
     ["payment_intent.created", "requires_payment_method"],
     ["payment_intent.processing", "processing"],
   ])("acknowledges a prepared native %s as a no-op without fulfillment", async (type, status) => {
@@ -310,6 +308,97 @@ describe("stripe webhook checkout session persistence", () => {
     expect(info).toHaveBeenCalledWith("[native-m2-webhook:non-fulfilling-event-acknowledged]", { eventType: type })
     expectNoDynamicFallback()
     info.mockRestore()
+  })
+  const preparedNativeFailureEvent = async (type: "payment_intent.payment_failed" | "payment_intent.canceled") => {
+    const fixture = await preparedNativeEvent()
+    const declined = type === "payment_intent.payment_failed"
+    const intent = {
+      ...fixture.event.data.object, status: declined ? "requires_payment_method" : "canceled", amount_received: 0,
+      last_payment_error: declined
+        ? { message: "Your card was declined.", code: "card_declined", decline_code: "insufficient_funds", type: "card_error",
+            payment_method: { card_present: { brand: "visa", last4: "4242" } } }
+        : null,
+    }
+    return { ...fixture, event: { ...fixture.event, id: `evt_${type}`, type, created: 1_790_000_000, data: { object: intent } } }
+  }
+  it.each([
+    ["payment_intent.payment_failed", "failed", { code: "card_declined", declineCode: "insufficient_funds", type: "card_error", message: "Your card was declined." }],
+    ["payment_intent.canceled", "canceled", undefined],
+  ] as const)("records a prepared native %s on the pending Purchase as %s with an allowlisted reason and no fulfillment", async (type, status, error) => {
+    const { event, purchase } = await preparedNativeFailureEvent(type)
+    const bound = { ...purchase, stripePaymentIntentId: "pi_dynamic_1" }
+    mockPurchaseFindUnique.mockResolvedValue(bound)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledOnce()
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith({
+      where: { id: "purchase_dynamic_1", status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      data: {
+        status,
+        metadata: {
+          ...purchase.metadata,
+          stripeFailure: {
+            eventType: type, occurredAt: new Date(1_790_000_000 * 1000).toISOString(), paymentIntentId: "pi_dynamic_1",
+            ...(error ? { error } : {}),
+          },
+        },
+      },
+    })
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", purchaseId: "purchase_dynamic_1" }) }))
+    expectNoDynamicFallback()
+  })
+  it("never downgrades a prepared native Purchase that is no longer pending", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    mockPurchaseFindUnique.mockResolvedValue({ ...purchase, status: "paid", stripePaymentIntentId: "pi_dynamic_1" })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed" }) }))
+    expectNoDynamicFallback()
+  })
+  it("acknowledges a prepared native failure whose PaymentIntent is bound elsewhere without recording or binding it", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    mockPurchaseFindUnique.mockResolvedValue({ ...purchase, stripePaymentIntentId: "pi_other" })
+    mockConstructEvent.mockReturnValue(event)
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expect(mockPurchaseUpdate).not.toHaveBeenCalled()
+    expectNoDynamicFallback()
+  })
+  it("records a prepared native failure only once across a duplicate delivery", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.payment_failed")
+    mockPurchaseFindUnique.mockResolvedValue(purchase)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    const { Prisma } = await import("@prisma/client")
+    mockStripeWebhookEventCreate.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" }))
+    mockStripeWebhookEventUpdateMany.mockResolvedValueOnce({ count: 0 })
+    mockStripeWebhookEventFindUnique.mockResolvedValueOnce({ eventId: event.id, status: "completed" })
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledOnce()
+  })
+  it("fulfills a prepared native success after an earlier recorded decline on the same PaymentIntent", async () => {
+    const { event, purchase } = await preparedNativeEvent()
+    const declined = {
+      ...purchase, status: "failed", stripePaymentIntentId: "pi_dynamic_1",
+      metadata: { ...purchase.metadata, stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-10-04T17:00:00.000Z", error: { code: "card_declined" } } },
+    }
+    mockPurchaseFindUnique.mockResolvedValue(declined)
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed"] }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: "pi_dynamic_1" }] },
+      data: { status: "paid", stripePaymentIntentId: "pi_dynamic_1" },
+    }))
+    expect(mockSyncPackagePurchaseFromPaidPurchase).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ packageId: "package_dynamic_1", packageTotalCredits: "10" }),
+    }))
   })
   it("acknowledges a prepared native charge.succeeded carrying copied PaymentIntent metadata without fulfillment", async () => {
     const { event, purchase } = await preparedNativeEvent()

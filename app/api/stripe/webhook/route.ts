@@ -11,6 +11,7 @@ import { revokeUnusedInternalPackagePurchaseTx, syncPackagePurchaseFromPaidPurch
 import { normalizePersistedPurchaseStatus, SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import {
   normalizeFailureFromPaymentIntent,
+  normalizeNativeFailureFromPaymentIntent,
   normalizeFailureFromCheckoutSession,
   mergeFailureIntoMetadata,
   clearFailureFromMetadata,
@@ -44,6 +45,7 @@ import {
 } from "@/lib/stripe/internal-purchase"
 import {
   isReservedPreparedNativePaymentMetadata,
+  preparedNativeFulfillmentMetadata,
   validatePreparedNativePaymentIntent,
   type PreparedNativePaymentPurchase,
 } from "@/lib/stripe/prepared-native-payment"
@@ -876,9 +878,11 @@ const preparedNativePurchaseProof = (purchase: Pick<Purchase, "id" | "userId" | 
     amount: purchase.amount,
     currency: purchase.currency,
     idempotencyKey: purchase.idempotencyKey,
-    fulfillmentMetadata: purchase.metadata as Record<string, string>,
+    fulfillmentMetadata: preparedNativeFulfillmentMetadata(purchase.metadata),
   }
 }
+
+const PREPARED_NATIVE_FULFILLABLE_STATUSES = ["pending", "failed"]
 
 async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, eventId: string) {
   if (intent.status !== "succeeded" || !intent.metadata || typeof intent.metadata.purchaseId !== "string") {
@@ -901,12 +905,14 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
       await completeInternalWebhookEventTx(tx, eventId, purchase.id)
       return null
     }
-    if (purchase.status === "pending") {
+    // A recorded decline does not end the attempt: Stripe Terminal may retry the same
+    // PaymentIntent, so a later success still fulfills a failed prepared Purchase.
+    if (PREPARED_NATIVE_FULFILLABLE_STATUSES.includes(purchase.status)) {
       if (purchase.stripePaymentIntentId && purchase.stripePaymentIntentId !== intent.id) {
         throw new Error("Prepared native payment identity mismatch")
       }
       const updated = await tx.purchase.updateMany({
-        where: { id: purchase.id, status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
+        where: { id: purchase.id, status: { in: PREPARED_NATIVE_FULFILLABLE_STATUSES }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
         data: { status: "paid", stripePaymentIntentId: intent.id },
       })
       if (updated.count !== 1) {
@@ -968,11 +974,52 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
   })
 }
 
+const PREPARED_NATIVE_FAILURE_STATUS_BY_EVENT: Partial<Record<Stripe.Event.Type, "failed" | "canceled">> = {
+  "payment_intent.payment_failed": "failed",
+  "payment_intent.canceled": "canceled",
+}
+
+// Records a declined/canceled prepared native attempt on its still-pending Purchase so staff
+// can verify it. Never fulfills, never binds a PaymentIntent, never downgrades a non-pending row.
+async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, event: Stripe.Event, status: "failed" | "canceled") {
+  const purchaseId = intent.metadata?.purchaseId
+  const purchase = typeof purchaseId === "string" ? await prisma.purchase.findUnique({ where: { id: purchaseId } }) : null
+  let bound = false
+  if (purchase && isPreparedNativePurchase(purchase) &&
+      (purchase.stripePaymentIntentId === null || purchase.stripePaymentIntentId === intent.id)) {
+    try {
+      validatePreparedNativePaymentIntent(intent, undefined, preparedNativePurchaseProof(purchase))
+      bound = true
+    } catch {
+      bound = false
+    }
+  }
+  if (!purchase || !bound) {
+    console.warn("[native-m2-webhook:failure-binding-mismatch]", { eventId: event.id, eventType: event.type })
+    await prisma.$transaction(async (tx) => completeInternalWebhookEventTx(tx, event.id))
+    return
+  }
+  await prisma.$transaction(async (tx) => {
+    if (purchase.status === "pending") {
+      await tx.purchase.updateMany({
+        where: { id: purchase.id, status: "pending", OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
+        data: {
+          status,
+          metadata: mergeFailureIntoMetadata(purchase.metadata, normalizeNativeFailureFromPaymentIntent(intent, event)) as Prisma.InputJsonValue,
+        },
+      })
+    }
+    await completeInternalWebhookEventTx(tx, event.id, purchase.id)
+  })
+}
+
 async function handleReservedPreparedNativePaymentEvent(event: Stripe.Event) {
-  // Only a succeeded PaymentIntent fulfills. Other PaymentIntent lifecycle events
-  // and Charge events (Stripe copies PaymentIntent metadata onto Charges) are
-  // acknowledged as no-ops so they neither fulfill nor trigger endless retries.
-  if (event.type !== "payment_intent.succeeded") {
+  // Only a succeeded PaymentIntent fulfills. A declined/canceled PaymentIntent is recorded
+  // on its pending Purchase (verify state, never debt). Other PaymentIntent lifecycle events
+  // and Charge events (Stripe copies PaymentIntent metadata onto Charges) are acknowledged
+  // as no-ops so they neither fulfill nor trigger endless retries.
+  const failureStatus = PREPARED_NATIVE_FAILURE_STATUS_BY_EVENT[event.type]
+  if (event.type !== "payment_intent.succeeded" && !failureStatus) {
     console.info("[native-m2-webhook:non-fulfilling-event-acknowledged]", { eventType: event.type })
     return NextResponse.json({ received: true })
   }
@@ -980,10 +1027,11 @@ async function handleReservedPreparedNativePaymentEvent(event: Stripe.Event) {
   if (claim === "duplicate") return new NextResponse("Event already processed", { status: 200 })
   if (claim === "in-flight") return new NextResponse("Event is currently being processed", { status: 409 })
   try {
-    await fulfillPreparedNativePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
+    if (failureStatus) await recordPreparedNativePaymentFailure(event.data.object as Stripe.PaymentIntent, event, failureStatus)
+    else await fulfillPreparedNativePaymentIntent(event.data.object as Stripe.PaymentIntent, event.id)
   } catch {
     await markStripeWebhookEventFailed(event.id)
-    return new NextResponse("Prepared native payment fulfillment failed", { status: 500 })
+    return new NextResponse(failureStatus ? "Prepared native payment failure recording failed" : "Prepared native payment fulfillment failed", { status: 500 })
   }
   return NextResponse.json({ received: true })
 }

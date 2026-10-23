@@ -44,6 +44,28 @@ export function normalizeFailureFromPaymentIntent(
   }
 }
 
+const NATIVE_FAILURE_MESSAGE_MAX_LENGTH = 200
+
+/**
+ * Normalize a native M2 (card-present) payment_intent.payment_failed / payment_intent.canceled
+ * event. Same allowlisted contract as normalizeFailureFromPaymentIntent, but never records card
+ * data and caps the provider message so only coarse, staff-readable reasons are persisted.
+ */
+export function normalizeNativeFailureFromPaymentIntent(
+  intent: Stripe.PaymentIntent,
+  event: Stripe.Event
+): StripeFailureInfo {
+  const error = extractErrorFields(intent.last_payment_error as Record<string, unknown> | null | undefined)
+  if (error?.message) error.message = error.message.slice(0, NATIVE_FAILURE_MESSAGE_MAX_LENGTH)
+
+  return {
+    eventType: event.type,
+    occurredAt: new Date(event.created * 1000).toISOString(),
+    paymentIntentId: intent.id,
+    ...(error ? { error } : {}),
+  }
+}
+
 /**
  * Normalize a checkout.session.expired or checkout.session.async_payment_failed event.
  */

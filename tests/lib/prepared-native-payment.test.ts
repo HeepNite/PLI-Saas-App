@@ -49,6 +49,20 @@ describe("prepared native payment proof", () => {
       .toBe(attempt.selectionDigest)
   })
 
+  it("derives fulfillment metadata without attempt annotations so a recorded decline keeps the selection digest", async () => {
+    const proof = await import("@/lib/stripe/prepared-native-payment")
+    const annotated = {
+      ...purchase.fulfillmentMetadata,
+      stripeFailure: { eventType: "payment_intent.payment_failed", occurredAt: "2026-10-04T17:00:00.000Z" },
+      attemptOutcome: { code: "reader_timeout" },
+      verifyResolution: { action: "dismissed" },
+    }
+
+    expect(proof.preparedNativeFulfillmentMetadata(annotated)).toEqual(purchase.fulfillmentMetadata)
+    expect(proof.nativeFulfillmentMetadataDigest(proof.preparedNativeFulfillmentMetadata(annotated)))
+      .toBe(proof.nativeFulfillmentMetadataDigest(purchase.fulfillmentMetadata))
+  })
+
   it("uses code-unit metadata key ordering for mixed-case keys", async () => {
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const first = { aZ: "upper", aa: "lower" }

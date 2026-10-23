@@ -1,6 +1,7 @@
 import "server-only"
 import { createHash } from "node:crypto"
 import { prisma } from "@/lib/prisma"
+import { preparedNativeFulfillmentMetadata } from "@/lib/stripe/prepared-native-payment"
 
 type Selection = {
   courseSlug: string
@@ -93,10 +94,21 @@ const assertExactPurchase = (purchase: PurchaseRecord | null, expected: Omit<Pur
       purchase.serviceId !== expected.serviceId ||
       purchase.addonsCsv !== expected.addonsCsv ||
       purchase.idempotencyKey !== expected.idempotencyKey ||
-      !sameJson(purchase.metadata, expected.metadata)) {
+      // Attempt annotations (decline reason, kiosk outcome, verify resolution) are not
+      // fulfillment facts, so a recorded decline never blocks the idempotent reuse.
+      !sameJson(preparedNativeFulfillmentMetadata(purchase.metadata), expected.metadata)) {
     throw unavailable()
   }
   return purchase
+}
+
+// A declined card-present attempt keeps its PaymentIntent collectible, so re-preparing the
+// same context and selection reopens that Purchase (keeping its recorded decline) instead of
+// creating a second one. Canceled and other terminal statuses stay unavailable.
+async function reopenDeclinedPurchase(existing: PurchaseRecord, expected: Omit<PurchaseRecord, "id">) {
+  assertExactPurchase(existing, { ...expected, status: "failed" })
+  await prisma.purchase.updateMany({ where: { id: existing.id, status: "failed" }, data: { status: "pending" } })
+  return assertExactPurchase(await prisma.purchase.findUnique({ where: { idempotencyKey: expected.idempotencyKey! } }), expected)
 }
 
 export async function createOrReuseNativePreparedPurchase(input: NativePreparedPurchaseInput) {
@@ -127,6 +139,7 @@ export async function createOrReuseNativePreparedPurchase(input: NativePreparedP
   }
 
   const existing = await prisma.purchase.findUnique({ where: { idempotencyKey } })
+  if (existing?.status === "failed") return reopenDeclinedPurchase(existing, expected)
   if (existing) return assertExactPurchase(existing, expected)
 
   try {

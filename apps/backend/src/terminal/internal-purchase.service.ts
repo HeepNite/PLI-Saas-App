@@ -13,7 +13,7 @@ import {
 } from "@/lib/stripe/internal-purchase"
 import { consumePreparedNativePurchase, PreparedNativePurchaseError } from "@/lib/stripe/prepared-native-purchase"
 import {
-  PreparedNativePaymentError, issuePreparedNativePaymentAttempt, preparedNativePaymentIdempotencyKey,
+  PreparedNativePaymentError, issuePreparedNativePaymentAttempt, preparedNativeFulfillmentMetadata, preparedNativePaymentIdempotencyKey,
   preparedNativePaymentMetadata, readPreparedNativePaymentAttempt, validatePreparedNativePaymentIntent,
   type PreparedNativePaymentPurchase,
 } from "@/lib/stripe/prepared-native-payment"
@@ -122,7 +122,7 @@ const preparedPurchase = (purchase: BoundPurchase | null, requirePending = false
   try {
     return {
       id: purchase.id, userId: purchase.userId, amount: purchase.amount, currency: purchase.currency,
-      idempotencyKey: purchase.idempotencyKey, fulfillmentMetadata: purchase.metadata as Record<string, string>,
+      idempotencyKey: purchase.idempotencyKey, fulfillmentMetadata: preparedNativeFulfillmentMetadata(purchase.metadata),
     }
   } catch {
     throw new InternalPurchaseError("Prepared purchase is invalid", 409)

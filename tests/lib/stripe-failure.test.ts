@@ -359,3 +359,34 @@ describe("isStripeFailureInfo", () => {
     expect(isStripeFailureInfo(value)).toBe(true)
   })
 })
+
+describe("normalizeNativeFailureFromPaymentIntent", () => {
+  const event = { type: "payment_intent.payment_failed", created: 1_790_000_000 } as const
+
+  it("keeps only coarse error codes, caps the provider message, and never stores card data", async () => {
+    const { normalizeNativeFailureFromPaymentIntent } = await import("@/lib/stripe-failure")
+    const intent = {
+      id: "pi_native_1",
+      last_payment_error: {
+        message: "x".repeat(1000), code: "card_declined", decline_code: "insufficient_funds", type: "card_error",
+        payment_method: { card_present: { brand: "visa", last4: "4242" }, card: { brand: "visa", last4: "4242" } },
+      },
+    }
+
+    const result = normalizeNativeFailureFromPaymentIntent(intent as never, event as never)
+
+    expect(result).toEqual({
+      eventType: "payment_intent.payment_failed",
+      occurredAt: new Date(1_790_000_000 * 1000).toISOString(),
+      paymentIntentId: "pi_native_1",
+      error: { message: "x".repeat(200), code: "card_declined", declineCode: "insufficient_funds", type: "card_error" },
+    })
+    expect(isStripeFailureInfo(result)).toBe(true)
+  })
+
+  it("records a cancellation without an error payload", async () => {
+    const { normalizeNativeFailureFromPaymentIntent } = await import("@/lib/stripe-failure")
+    const result = normalizeNativeFailureFromPaymentIntent({ id: "pi_native_2", last_payment_error: null } as never, { ...event, type: "payment_intent.canceled" } as never)
+    expect(result).toEqual({ eventType: "payment_intent.canceled", occurredAt: new Date(1_790_000_000 * 1000).toISOString(), paymentIntentId: "pi_native_2" })
+  })
+})
