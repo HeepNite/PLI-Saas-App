@@ -20,7 +20,7 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 - **T2** — S2-S4 — Route: trusted kiosk QR cash authority continuity and regression tests. Commit: `77a9efd8` (`fix(qr): preserve scan cash authority`).
 - **T3** — S1-S4 — Route: production-equivalent verification, differential checks, and hotfix documentation. Commit: this work-unit commit (`test(qr): close booking source hotfix`).
 - **T4** — S5 — Route: merge current `main` into the hotfix branch and rerun verification. Commit: `eb108862` (merge `origin/main`) plus verification evidence in the following documentation commit.
-- **T5** — S5 — Route: create the approved issue before publishing the `main` pull request. Commit: N/A (GitHub delivery).
+- **T5** — S5 — Route: create the approved issue before publishing the `main` pull request. Commit: N/A; issue `#733`, PR `#737`.
 - **T6** — S5 — Route: port the reviewed hotfix to `codex/develop`, verify it, and prepare its pull request. Commit: pending.
 
 ## Log
@@ -35,3 +35,4 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 - crear el issue antes del PR,
 - llevarlo también a codex/develop.”
 - **L7** — Evidence after merging `origin/main`: focused QR/cash suite 51/51; typecheck and touched-file lint passed; repository suite passed 3667 tests with only the credential-gated `prisma-security` integration suite unavailable because `DATABASE_URL` is not present.
+- **L8** — Delivery: issue `#733` was created with the official bug form and labeled `status:approved`; PR `#737` targets `main` with exactly `type:bug`.
