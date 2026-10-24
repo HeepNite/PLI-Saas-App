@@ -86,6 +86,7 @@ describe("public checkout session route", () => {
         bookingSource: "public_booking",
         heritagePinCountryCode: "MX",
         phone: "+525512345678",
+        photoContext: "qr_phone",
       }),
     }))
 
@@ -100,6 +101,9 @@ describe("public checkout session route", () => {
       metadata: expect.objectContaining({
         coursePromotionId: "heritage-october",
         coursePromotionPriceCents: "1500",
+        checkoutChannel: "public_booking",
+        flowContext: "qr_phone",
+        paymentSurface: "web_checkout",
       }),
     }))
   })

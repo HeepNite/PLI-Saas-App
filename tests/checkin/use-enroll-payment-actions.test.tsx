@@ -949,7 +949,7 @@ describe("useEnrollPaymentActions", () => {
   // ---------------------------------------------------------------------
   describe("handleSubmit — hosted Stripe session paths", () => {
     it("uses the public session endpoint for public mobile/check-in bookings", async () => {
-      const fetchMock = vi.fn(async (url: string) => (
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => (
         url === "/api/public/checkout/quote"
           ? jsonResponse({ amountCents: 1500, currency: "usd" })
           : jsonResponse({ error: "declined" }, { status: 400, ok: false })
@@ -964,16 +964,24 @@ describe("useEnrollPaymentActions", () => {
       await getResult().handleSubmit()
 
       expect(fetchMock).toHaveBeenCalledWith("/api/public/checkout/session", expect.anything())
+      const sessionCall = fetchMock.mock.calls.find(([url]) => url === "/api/public/checkout/session")
+      const payload = JSON.parse(String(sessionCall?.[1]?.body))
+      expect(payload.checkInBooking).toBeUndefined()
     })
 
     it("keeps non-public mobile/check-in bookings on the default session endpoint", async () => {
-      const fetchMock = vi.fn(async () => jsonResponse({ error: "declined" }, { status: 400, ok: false }))
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(
+        async () => jsonResponse({ error: "declined" }, { status: 400, ok: false })
+      )
       vi.stubGlobal("fetch", fetchMock)
       const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true }))
 
       await getResult().handleSubmit()
 
       expect(fetchMock).toHaveBeenCalledWith("/api/checkout/session", expect.anything())
+      const sessionCall = fetchMock.mock.calls.find(([url]) => url === "/api/checkout/session")
+      const payload = JSON.parse(String(sessionCall?.[1]?.body))
+      expect(payload.checkInBooking).toBe(true)
     })
 
     it("retries public mobile/check-in bookings through the public session endpoint", async () => {

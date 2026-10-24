@@ -112,6 +112,7 @@ const resolveTrustedSpecialMetadata = (
 }
 
 const isTerminalFlow = (metadata: StripeMetadata) => {
+  if (metadata.checkoutChannel === "public_booking") return false
   if (metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL) return true
   // Mobile-QR check-in paid via Stripe HOSTED checkout (full-page redirect): the
   // browser navigates away to Stripe, so — unlike the embedded-modal path — there is
@@ -299,8 +300,10 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
   ) as Prisma.InputJsonValue
 
   if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
-    ;(mergedMetadata as Record<string, unknown>).purchaseSource =
-      resolveKioskPurchaseSource((mergedMetadata as Record<string, unknown>)?.flowContext as string | undefined)
+    const metadataRecord = mergedMetadata as Record<string, unknown>
+    metadataRecord.purchaseSource = metadataRecord.checkoutChannel === "public_booking"
+      ? PURCHASE_SOURCE.WEB
+      : resolveKioskPurchaseSource(metadataRecord.flowContext as string | undefined)
   }
 
   const purchase = await prisma.purchase.upsert({

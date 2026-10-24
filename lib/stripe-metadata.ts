@@ -47,6 +47,7 @@ export const pickStripeMetadata = (metadata?: Stripe.Metadata | null) => ({
   consecutiveCourseTitle: normalize(metadata?.consecutiveCourseTitle),
   consecutiveLinkedCourseTime: normalize(metadata?.consecutiveLinkedCourseTime),
   flowContext: normalize(metadata?.flowContext),
+  checkoutChannel: normalize(metadata?.checkoutChannel),
   paymentSurface: normalize(metadata?.paymentSurface),
 })
 

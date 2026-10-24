@@ -29,7 +29,7 @@ const hasSameWallClockParts = (left: WallClockParts, right: WallClockParts) =>
   left.hour === right.hour && left.minute === right.minute
 
 const toMonBasedWeekday = (date: Date) => (date.getDay() + 6) % 7 // Mon=0...Sun=6
-type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title" | "scheduleRules">
+export type ScheduleCourseLike = Pick<CourseData, "slug" | "schedule" | "title" | "scheduleRules">
 
 export const parseIsoDate = (value: string) => {
   if (!DATE_REGEX.test(value)) return null
