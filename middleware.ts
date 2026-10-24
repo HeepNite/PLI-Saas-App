@@ -1,5 +1,7 @@
 import { clerkMiddleware } from "@clerk/nextjs/server"
-import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server"
+import { NextRequest, NextResponse, type NextFetchEvent } from "next/server"
+
+import { isClerkFreeTerminalPath, stripClerkCookies } from "@/lib/security/clerk-cookie-strip"
 
 const clerkProtectedMiddleware = clerkMiddleware(async (auth, req: NextRequest) => {
   const allowE2eBypass =
@@ -58,7 +60,29 @@ export default function middleware(req: NextRequest, event: NextFetchEvent) {
     return new NextResponse(null, { status: 204 })
   }
 
-  return clerkProtectedMiddleware(req, event)
+  return clerkProtectedMiddleware(withoutClerkCookiesForTerminal(req), event)
+}
+
+// Clerk forwards the headers of the request it receives to the page
+// (x-middleware-override-headers), so the terminal page still gets every
+// non-Clerk cookie, including pli_terminal_session.
+function withoutClerkCookiesForTerminal(req: NextRequest): NextRequest {
+  const cookieHeader = req.headers.get("cookie")
+  // Only bodiless document loads are rewritten; Clerk only handshakes on those.
+  const isDocumentLoad = req.method === "GET" || req.method === "HEAD"
+  if (!cookieHeader || !isDocumentLoad || !isClerkFreeTerminalPath(req.nextUrl.pathname)) {
+    return req
+  }
+
+  const headers = new Headers(req.headers)
+  const stripped = stripClerkCookies(cookieHeader)
+  if (stripped) {
+    headers.set("cookie", stripped)
+  } else {
+    headers.delete("cookie")
+  }
+
+  return new NextRequest(req.url, { method: req.method, headers })
 }
 
 export const config = {
