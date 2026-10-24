@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -16,6 +17,12 @@ val provisioningConnectionTokens = if (readerProvisioningEnabled) {
         require(tokens.all { it.matches(Regex("pst_[A-Za-z0-9_]+")) }) { "Invalid provisioning connection token" }
     }.joinToString("\\n")
 } else ""
+// Release signing stays outside the repository: a local properties file holds the keystore path and passwords.
+val releaseKeystoreProperties = providers.gradleProperty("PLI_RELEASE_KEYSTORE_PROPERTIES").orNull?.let { path ->
+    Properties().apply { file(path).inputStream().use { load(it) } }
+}
+val kioskVersionCode = providers.gradleProperty("PLI_VERSION_CODE").map(String::toInt).orElse(1).get()
+val kioskVersionName = providers.gradleProperty("PLI_VERSION_NAME").orElse("1.0").get()
 
 android {
     namespace = "com.pli.kiosk.android"
@@ -24,8 +31,8 @@ android {
         applicationId = "com.pli.kiosk.livefoundation"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = kioskVersionCode
+        versionName = kioskVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // Deliberately blank/OFF until an approved build supplies both non-secret values.
         buildConfigField("String", "APPROVED_HTTPS_ORIGIN", "\"$approvedHttpsOrigin\"")
@@ -36,6 +43,24 @@ android {
             "com.pli.kiosk.android.ReaderProvisioningActivity"
         } else {
             "com.pli.kiosk.android.KioskWebActivity"
+        }
+    }
+    signingConfigs {
+        if (releaseKeystoreProperties != null) {
+            create("release") {
+                storeFile = file(releaseKeystoreProperties.getProperty("storeFile"))
+                storePassword = releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias = releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword = releaseKeystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+    buildTypes {
+        getByName("release") {
+            // Stability first: no code shrinking until Stripe Terminal keep rules are verified on device.
+            isMinifyEnabled = false
+            isDebuggable = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     buildFeatures {
