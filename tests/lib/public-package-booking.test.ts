@@ -2,8 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("@/lib/class-schedule", () => ({
   buildSessionStartsAt: vi.fn(() => new Date("2026-10-06T01:10:00.000Z")),
+  getAvailableTimesForCourseDateFromCourse: vi.fn((course: { slug: string }) =>
+    course.slug === "db-backed-course" ? ["19:00"] : ["21:10"]
+  ),
   getCourseBySlug: vi.fn(() => ({ slug: "salsa-night-beginner", title: "Salsa Beginner" })),
-  isTimeAllowedForCourseDate: vi.fn(() => true),
+  isTimeAllowedForCourseDate: vi.fn((courseSlug: string) => courseSlug !== "db-backed-course"),
 }))
 
 import { reservePublicPackageBooking } from "@/lib/bookings/public-package-booking"
@@ -55,6 +58,32 @@ describe("public package booking", () => {
 
     expect(result).toEqual({ kind: "no_package" })
     expect(tx.attendance.create).not.toHaveBeenCalled()
+  })
+
+  it("validates a DB-backed advertised slot against its authoritative course", async () => {
+    const { db, tx } = createDb()
+    tx.packagePurchase.findMany.mockResolvedValue([])
+    const authoritativeCourse = {
+      slug: "db-backed-course",
+      title: "DB Backed Course",
+      schedule: {
+        day: "Friday",
+        time: "19:00",
+        starts: "Ongoing",
+        availableWeekdays: [4],
+        availableTimes: ["19:00"],
+      },
+      scheduleRules: null,
+    }
+
+    const result = await reservePublicPackageBooking(db as never, {
+      ...input,
+      courseSlug: "db-backed-course",
+      time: "19:00",
+      authoritativeCourse,
+    })
+
+    expect(result).toEqual({ kind: "no_package" })
   })
 
   it("creates one scheduled attendance and a zero-delta package hold", async () => {
