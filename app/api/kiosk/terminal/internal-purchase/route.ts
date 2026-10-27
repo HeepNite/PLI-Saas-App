@@ -14,6 +14,7 @@ const respond = (body: unknown, status = 200, headers: Record<string, string> = 
 const KNOWN_ACTIONS = new Set([
   "preflight", "connection-token", "student-lookup", "attempt", "payment-intent", "recover",
   "prepared-attempt", "prepared-creation-status", "prepared-payment-intent", "prepared-recover",
+  "prepared-cancel",
 ])
 
 // Temporary diagnostics: fixed action names, key names, status, and fixed error messages only.

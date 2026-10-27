@@ -175,6 +175,49 @@ const resolvePreparedPaymentContext = async (
   return { attempt, purchase, paymentIntentId, exactBoundRecovery }
 }
 
+// Only states in which Stripe guarantees no charge has happened and none can happen after
+// cancellation. processing/requires_capture and anything unknown are never canceled here.
+const PREPARED_CANCELABLE_STATUSES = new Set(["requires_payment_method", "requires_confirmation", "requires_action"])
+
+const preparedCancelIdempotencyKey = (paymentIntentId: string) => `prepared-native-m2-cancel:v1:${paymentIntentId}`
+
+// Cancel is allowed only for the exact PaymentIntent already bound to the ticket's Purchase,
+// even after ticket expiry, mirroring exact-bound prepared-recover.
+const resolveExactBoundPreparedCancel = async (
+  input: Extract<InternalPurchaseRequest, { action: "prepared-cancel" }>,
+  caller: TerminalConnectionTokenGatewayRequest,
+) => {
+  const attempt = readPreparedNativePaymentAttempt(input.ticket, caller)
+  const associated = await prisma.purchase.findUnique({ where: { id: attempt.purchaseId } })
+  if (!associated?.stripePaymentIntentId || associated.stripePaymentIntentId !== input.paymentIntentId) {
+    throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+  }
+  const purchase = preparedPurchase(associated)
+  preparedNativePaymentMetadata(input.ticket, purchase)
+  return purchase
+}
+
+// Purchase status and the staff Verify record follow from Stripe's payment_intent.canceled
+// webhook (recordPreparedNativePaymentFailure); this action never writes the Purchase itself.
+const cancelPreparedPayment = async (
+  stripe: Stripe,
+  input: Extract<InternalPurchaseRequest, { action: "prepared-cancel" }>,
+  purchase: PreparedNativePaymentPurchase,
+) => {
+  const id = input.paymentIntentId
+  const intent = await stripe.paymentIntents.retrieve(id)
+  validatePreparedNativePaymentIntent(intent, input.ticket, purchase)
+  if (intent.id !== id) throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+  await verifyExactPreparedPaymentBinding(input.ticket, purchase.id, id)
+  let status: string = intent.status
+  if (PREPARED_CANCELABLE_STATUSES.has(status)) {
+    const canceled = await stripe.paymentIntents.cancel(id, {}, { idempotencyKey: preparedCancelIdempotencyKey(id) })
+    if (canceled.id !== id) throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
+    status = canceled.status
+  }
+  return { id, status, paid: status === "succeeded" }
+}
+
 const asInternalPreparedError = (error: unknown) => {
   if (error instanceof InternalPurchaseError) return error
   if (error instanceof PreparedNativePaymentError || error instanceof PreparedNativePurchaseError) {
@@ -389,6 +432,16 @@ export const prepareInternalPurchase = async (
       await verifyReader(stripe, readerId)
       const ticket = issuePreparedNativePaymentAttempt(caller, { readerId, purchase })
       return { ticket, expiresAt: readPreparedNativePaymentAttempt(ticket).expiresAt, readerId, locationId: approved.locationId }
+    } catch (error) {
+      throw asInternalPreparedError(error)
+    }
+  }
+  if (input.action === "prepared-cancel") {
+    try {
+      const purchase = await resolveExactBoundPreparedCancel(input, caller)
+      const stripe = createLiveClient(caller.terminalId)
+      await verifyLiveMerchant(stripe)
+      return await cancelPreparedPayment(stripe, input, purchase)
     } catch (error) {
       throw asInternalPreparedError(error)
     }

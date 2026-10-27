@@ -21,6 +21,7 @@ export type InternalPurchaseRequest =
   | { action: "prepared-creation-status"; ticket: string }
   | { action: "prepared-payment-intent"; ticket: string; paymentIntentId?: string }
   | { action: "prepared-recover"; ticket: string; paymentIntentId: string }
+  | { action: "prepared-cancel"; ticket: string; paymentIntentId: string }
 
 export class InternalPurchaseError extends Error {
   constructor(message: string, readonly status = 503) {
@@ -139,11 +140,11 @@ export const parseInternalPurchaseRequest = (body: unknown): InternalPurchaseReq
     return Object.keys(input).length === 2 && typeof ticket === "string" && ticket.length > 0 && ticket.length <= 2000
       ? input as InternalPurchaseRequest : null
   }
-  const prepared = action === "prepared-payment-intent" || action === "prepared-recover"
+  const prepared = action === "prepared-payment-intent" || action === "prepared-recover" || action === "prepared-cancel"
   if (!prepared && action !== "payment-intent" && action !== "recover") return null
   if (Object.keys(input).some((key) => !["action", "ticket", "paymentIntentId"].includes(key))) return null
   if (typeof ticket !== "string" || !ticket || ticket.length > (prepared ? 2000 : 500)) return null
-  if (action === "recover" || action === "prepared-recover" || Object.hasOwn(input, "paymentIntentId")) {
+  if (action === "recover" || action === "prepared-recover" || action === "prepared-cancel" || Object.hasOwn(input, "paymentIntentId")) {
     if (typeof paymentIntentId !== "string" || paymentIntentId.length > 128 || !/^pi_[a-zA-Z0-9]+$/.test(paymentIntentId)) return null
   }
   return input as InternalPurchaseRequest
