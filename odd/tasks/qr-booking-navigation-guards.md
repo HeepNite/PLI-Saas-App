@@ -14,16 +14,16 @@ Active contract: `docs/specs/qr-booking-navigation-guards/`.
 - **T1** — S1 — Replace avoidable QR booking document navigations with context-preserving client navigation and tests. Route: worker + parent. Status: done. Commit: `3bc51366`.
 - **T2** — S2 — Release the checkout single-flight lock when rendered processing becomes false after bfcache restoration, with regression coverage. Route: worker. Status: done. Commit: `fea50a61`.
 - **T3** — S3 — Add bounded cash-grant refresh retries without timer accumulation, with regression coverage. Route: parent inline. Status: done. Commit: `8f81f811`.
-- **T4** — S1-S4 — Run focused and repository verification, record risk, and close production work. Route: parent + independent verifier for high-risk shared auth/checkout behavior. Status: reopened. Evidence commits: `3bc51366`, `8ddf6b20`, `66b018f9`, `9ef20519`.
+- **T4** — S1-S4 — Run focused and repository verification, record risk, and close production work. Route: parent + independent verifier for high-risk shared auth/checkout behavior. Status: done. Evidence commits: `3bc51366`, `8ddf6b20`, `66b018f9`, `fea50a61`, `8f81f811`.
 - **T5** — S5-S6 — Move `docs/specs/qr-booking-navigation-guards/` into PR1 and preserve clean sub-400 stacked diffs. Route: parent inline. Status: done. Commit: `01b2d6ab`.
-- **T6** — S2-S6 — Re-run focused and repository verification without touching native M2 bridge files. Route: parent + independent verifier. Status: pending. Commit: pending.
+- **T6** — S2-S6 — Re-run focused and repository verification without touching native M2 bridge files. Route: parent + independent verifier. Status: done. Evidence commits: `01b2d6ab`, `1122a3fb`, `fea50a61`, `8f81f811`.
 
 Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/qr-booking-navigation-guards` contains `3bc51366` and spec commit `01b2d6ab` (397 changed lines). PR2 branch `fix/qr-booking-interaction-guards` targets PR1; its incremental diff excludes the inherited spec and remains below 400 lines.
 
 ## Verification
 
-- Focused public/component suite: 112/112 passed.
-- Repository unit suite: 3830 passed, 5 skipped; `tests/integration/prisma-security.test.ts` was unavailable because `DATABASE_URL` is missing.
+- Focused public/component suite: 115/115 passed; independent nit-focused verification passed 100/100 plus 4/4 scratch probes.
+- Repository unit suite: 3833 passed, 5 skipped; `tests/integration/prisma-security.test.ts` was unavailable because `DATABASE_URL` is missing.
 - TypeScript typecheck: passed.
 - Scoped ESLint: passed.
 - Production `npm run build`: passed.
@@ -31,7 +31,7 @@ Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/
 - Independent verifier: initial S1 failure reproduced redirect-context loss; correction reverified S1-S3 PASS with no remaining blocker.
 - Native review PR1: approved and acknowledged (`review-62260472c36c8d94`); two informational warnings, no correction required.
 - Native assessment PR2: medium/under-budget, review not due; independent high-risk verification already passed S2-S3.
-- Chain budget: PR1 308 changed lines; PR2 253 changed lines.
+- Chain budget: PR1 397 changed lines; PR2 288 changed lines; forbidden native-kiosk/native M2 diff is empty.
 - Risk: item 3 — shared authentication navigation and checkout action code are used by existing behavior; focused regressions and the independent verifier cover the touched contracts.
 
 ## Log
