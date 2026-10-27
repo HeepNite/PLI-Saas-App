@@ -78,13 +78,61 @@ class SecureWebBridgeTest {
         assertEquals(0, calls)
     }
 
-    @Test fun closesResponseCacheAfterCapacityWhileServingDuplicates() {
+    @Test
+    fun keepsAnsweringNewRequestsAfterMoreThanCacheCapacityMessages() {
         var calls = 0
-        val bridge = bridge(mapOf("collect" to SecureBridgeOperation(emptyMap()) { calls++; SecureBridgeState.ACCEPTED }))
-        repeat(256) { bridge.dispatch(request("id-$it", "collect", "{}")) }
-        assertEquals(SecureBridgeState.ACCEPTED, bridge.dispatch(request("id-0", "collect", "{}")).state)
-        listOf("overflow", "later").forEach { assertEquals(SecureBridgeError.RESPONSE_CACHE_EXHAUSTED, bridge.dispatch(request(it, "collect", "{}")).error) }
-        assertEquals(256, calls)
+        val bridge = bridge(mapOf(
+            PreparedBridgeOperations.START to SecureBridgeOperation(mapOf("token" to 10)) { calls++; SecureBridgeState.ACCEPTED },
+            PreparedBridgeOperations.POLL to SecureBridgeOperation(mapOf("token" to 10)) { calls++; SecureBridgeState.PENDING },
+        ))
+        repeat(300) { bridge.dispatch(request("id-$it", PreparedBridgeOperations.POLL, "{\"token\":\"a\"}")) }
+
+        val start = bridge.dispatch(request("next-start", PreparedBridgeOperations.START, "{\"token\":\"a\"}"))
+        val poll = bridge.dispatch(request("next-poll", PreparedBridgeOperations.POLL, "{\"token\":\"a\"}"))
+
+        assertEquals(SecureBridgeResponse("next-start", "opaque", SecureBridgeState.ACCEPTED, operation = PreparedBridgeOperations.START), start)
+        assertEquals(SecureBridgeResponse("next-poll", "opaque", SecureBridgeState.PENDING, operation = PreparedBridgeOperations.POLL), poll)
+        assertEquals(302, calls)
+        assertTrue(cachedResponses(bridge).size <= 256)
+    }
+
+    @Test
+    fun recentRequestIdsStillReplayAndConflictAfterEviction() {
+        var calls = 0
+        val bridge = bridge(mapOf("collect" to SecureBridgeOperation(mapOf("token" to 10)) { calls++; SecureBridgeState.PENDING })) { _, _ -> "ref-$calls" }
+        repeat(400) { bridge.dispatch(request("id-$it", "collect", "{\"token\":\"a\"}")) }
+        val recent = request("id-399", "collect", "{\"token\":\"a\"}")
+
+        assertEquals(SecureBridgeResponse("id-399", "ref-399", SecureBridgeState.PENDING, operation = "collect"), bridge.dispatch(recent))
+        assertEquals(SecureBridgeError.REQUEST_ID_CONFLICT, bridge.dispatch(request("id-399", "collect", "{\"token\":\"b\"}")).error)
+        assertEquals(SecureBridgeState.PENDING, bridge.dispatch(request("id-144", "collect", "{\"token\":\"a\"}")).state)
+        assertEquals(400, calls)
+    }
+
+    @Test
+    fun simulatedTwoSaleSessionNeverYieldsAnUnrepliableResponse() {
+        val bridge = bridge(mapOf(
+            PreparedBridgeOperations.START to SecureBridgeOperation(mapOf("token" to 10)) { SecureBridgeState.ACCEPTED },
+            PreparedBridgeOperations.POLL to SecureBridgeOperation(mapOf("token" to 10)) { SecureBridgeState.PENDING },
+            "getReaderStatus" to SecureBridgeOperation(emptyMap()) { SecureBridgeState.ACCEPTED },
+        ))
+        var sequence = 0
+        repeat(2) { sale ->
+            val responses = mutableListOf<SecureBridgeResponse>()
+            val start = request("start-$sale", PreparedBridgeOperations.START, "{\"token\":\"s$sale\"}")
+            responses += bridge.dispatch(start)
+            responses += bridge.dispatch(start)
+            repeat(180) { tick ->
+                val poll = request("poll-${sequence++}", PreparedBridgeOperations.POLL, "{\"token\":\"s$sale\"}")
+                responses += bridge.dispatch(poll)
+                if (tick % 3 == 0) responses += bridge.dispatch(poll)
+                if (tick % 10 == 0) responses += bridge.dispatch(request("reader-${sequence++}", "getReaderStatus", "{}"))
+            }
+            responses.forEach { response ->
+                assertNull(response.error)
+                assertTrue(response.state != null && response.operationRef != null && response.operation != null)
+            }
+        }
     }
 
     @Test
@@ -144,6 +192,9 @@ class SecureWebBridgeTest {
         assertNull(response.requestId)
         assertTrue(response.operation == null && response.operationRef == null && response.state == null)
     }
+
+    private fun cachedResponses(bridge: SecureWebBridge) =
+        bridge.javaClass.getDeclaredField("responses").apply { isAccessible = true }.get(bridge) as Map<*, *>
 
     private fun assertCachedRequestDigest(bridge: SecureWebBridge) {
         val responses = bridge.javaClass.getDeclaredField("responses").apply { isAccessible = true }.get(bridge) as Map<*, *>

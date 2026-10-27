@@ -13,7 +13,6 @@ enum class SecureBridgeError {
     UNKNOWN_OPERATION,
     INVALID_PAYLOAD,
     REQUEST_ID_CONFLICT,
-    RESPONSE_CACHE_EXHAUSTED,
     INTERNAL_ERROR,
     STALE_CONTEXT,
 }
@@ -63,7 +62,16 @@ class SecureWebBridge(
     private val operationRefFactory: (requestId: String, operation: String) -> String,
 ) {
     private val registry = registry.toMap()
-    private val responses = mutableMapOf<String, CachedResponse>()
+    /**
+     * Bounded replay cache in insertion order. When full, the oldest entry is evicted instead of
+     * refusing new requests: the web polls every 500 ms during a sale, so a hard cap starved the
+     * bridge after ~2 minutes of cumulative sale time and the web saw no reply while the native
+     * sale kept collecting. Eviction is safe because every operation is idempotent or server-bound
+     * (polls are read-only; startPreparedPurchase is bound to a single-use server prepared
+     * reference plus the native single-attempt guard), so re-dispatching an evicted, long-past
+     * requestId cannot double charge. Recent requestIds keep exact-replay and conflict semantics.
+     */
+    private val responses = LinkedHashMap<String, CachedResponse>()
     private var invalidated = false
     init {
         require(this.registry.keys.all { bounded(it, MAX_OPERATION_CHARS) })
@@ -86,11 +94,11 @@ class SecureWebBridge(
             return if (MessageDigest.isEqual(cached.digest, requestDigest)) cached.response
             else failure(envelope.requestId, SecureBridgeError.REQUEST_ID_CONFLICT, envelope.operation)
         }
-        if (responses.size >= 256) return failure(envelope.requestId, SecureBridgeError.RESPONSE_CACHE_EXHAUSTED, envelope.operation)
         val response = when {
             envelope.version != VERSION.toString() -> failure(envelope.requestId, SecureBridgeError.UNSUPPORTED_VERSION, envelope.operation)
             else -> dispatch(envelope)
         }
+        while (responses.size >= MAX_CACHED_RESPONSES) responses.remove(responses.keys.first())
         responses[envelope.requestId] = CachedResponse(requestDigest, response)
         return response
     }
@@ -248,6 +256,7 @@ class SecureWebBridge(
 
     private companion object {
         const val VERSION = 1
+        const val MAX_CACHED_RESPONSES = 256
         const val MAX_REQUEST_BYTES = 16 * 1024
         const val MAX_OPERATION_CHARS = 64
         const val MAX_REQUEST_ID_CHARS = 128
