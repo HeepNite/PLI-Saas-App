@@ -796,6 +796,33 @@ describe("useEnrollPaymentActions", () => {
   // handleSubmit — hosted Stripe session paths
   // ---------------------------------------------------------------------
   describe("handleSubmit — hosted Stripe session paths", () => {
+    it("admits one rapid hosted checkout, releases after a recoverable failure, and stays processing for redirect", async () => {
+      const firstResponse = deferred<Response>()
+      const redirectResponse = deferred<Response>()
+      const fetchMock = vi.fn(() => fetchMock.mock.calls.length === 1 ? firstResponse.promise : redirectResponse.promise)
+      vi.stubGlobal("fetch", fetchMock)
+      const setProcessing = vi.fn()
+      const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true, setProcessing }))
+
+      const failedCheckout = getResult().handleSubmit()
+      void getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      await act(async () => firstResponse.resolve(jsonResponse({ error: "declined" }, { status: 400, ok: false })))
+      await failedCheckout
+      expect(setProcessing).toHaveBeenLastCalledWith(false)
+
+      const hostedCheckout = getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      await act(async () => redirectResponse.resolve(jsonResponse({ url: "https://checkout.stripe.test/session" })))
+      await hostedCheckout
+
+      expect(setProcessing).toHaveBeenCalledTimes(3)
+      expect(setProcessing).toHaveBeenNthCalledWith(1, true)
+      expect(setProcessing).toHaveBeenNthCalledWith(2, false)
+      expect(setProcessing).toHaveBeenNthCalledWith(3, true)
+    })
+
     it("uses the public session endpoint for public mobile/check-in bookings", async () => {
       const fetchMock = vi.fn(async (url: string) => (
         url === "/api/public/checkout/quote"
