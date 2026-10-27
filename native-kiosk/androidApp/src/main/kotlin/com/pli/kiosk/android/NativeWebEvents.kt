@@ -12,7 +12,7 @@ enum class CollectionPrompt(val wire: String) { NONE("none"), AWAITING_CARD("awa
  * The page target is the reply proxy of the latest admitted message, so nothing is pushed until the
  * page itself has spoken through the origin-locked bridge.
  */
-class NativeWebEvents {
+class NativeWebEvents(private val log: (String) -> Unit = PliM2Diagnostics::log) {
     private var target: NativeWebEventTarget? = null
     private var status: ReaderStatus? = null
     private var prompt = CollectionPrompt.NONE
@@ -41,18 +41,31 @@ class NativeWebEvents {
     @Synchronized fun readerStatus(next: ReaderStatus) {
         if (invalidated || next == status) return
         status = next
+        pushed("readerStatus", next.name.lowercase())
         post(statusMessage(next))
     }
 
     @Synchronized fun collectionPrompt(next: CollectionPrompt) {
-        if (invalidated || next == prompt) return
+        if (invalidated) return
+        if (next == prompt) {
+            diagnose("event skipped type=collectionPrompt value=${next.wire} reason=unchanged")
+            return
+        }
         prompt = next
+        pushed("collectionPrompt", next.wire)
         post("{\"version\":1,\"event\":\"collectionPrompt\",\"payload\":{\"prompt\":\"${next.wire}\"}}")
     }
 
     @Synchronized fun invalidate() {
         invalidated = true
         target = null
+    }
+
+    /** Identifier-free: only the closed event type, its closed value, and whether a page is bound. */
+    private fun pushed(type: String, value: String) = diagnose("event pushed type=$type value=$value bound=${target != null}")
+
+    private fun diagnose(line: String) {
+        try { log(line) } catch (_: Exception) { Unit }
     }
 
     private fun post(message: String) {

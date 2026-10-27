@@ -218,4 +218,47 @@ class NativeWebEventsTest {
 
         assertTrue(delivered.isEmpty())
     }
+
+    @Test
+    fun `every collection prompt push logs an identifier-free line with its binding`() {
+        val lines = mutableListOf<String>()
+        val events = NativeWebEvents(log = { lines += it })
+
+        events.collectionPrompt(CollectionPrompt.AWAITING_CARD)
+        events.bind { }
+        events.collectionPrompt(CollectionPrompt.AWAITING_CARD)
+        events.collectionPrompt(CollectionPrompt.NONE)
+        events.readerStatus(ReaderStatus.CONNECTED)
+
+        assertEquals(
+            listOf(
+                "event pushed type=collectionPrompt value=awaiting_card bound=false",
+                "event skipped type=collectionPrompt value=awaiting_card reason=unchanged",
+                "event pushed type=collectionPrompt value=none bound=true",
+                "event pushed type=readerStatus value=connected bound=true",
+            ),
+            lines,
+        )
+    }
+
+    @Test
+    fun `a host push logs whether it reached a bound page or was dropped`() {
+        val lines = mutableListOf<String>()
+        val events = NativeWebEvents()
+        val queue = ArrayDeque<Runnable>()
+        val target = HostBoundWebEventTarget<String>(events, queue::addLast, log = { lines += it }) { _, _ -> }
+
+        target.post("unbound")
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+        target.bindProxy("page")
+        target.post("queued-for-replaced-page")
+        target.retireDocument()
+        target.bindProxy("next-page")
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+        assertEquals(listOf("event dropped reason=unbound", "event dropped reason=stale"), lines)
+
+        target.post("delivered")
+        while (queue.isNotEmpty()) queue.removeFirst().run()
+        assertEquals("event delivered", lines.last())
+    }
 }

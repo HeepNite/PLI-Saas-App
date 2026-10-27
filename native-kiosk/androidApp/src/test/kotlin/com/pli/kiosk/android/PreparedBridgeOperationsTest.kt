@@ -515,6 +515,49 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun aLateSaleThatTimesOutKeepsPollingPendingAndTheSameScreenCanRetryWithATapPrompt() {
+        // Production 2026-10-27 18:21: a sale >15 minutes after the session capture collected for 90 s.
+        // While the reader waits the bridge must answer pending and push the tap prompt; after the
+        // confirmed-not-charged cancel, an immediate retry from the same web session is admitted again.
+        val posted = mutableListOf<String>()
+        val events = NativeWebEvents().also { it.bind { message -> posted += message } }
+        var fixtureRef: WorkflowFixture? = null
+        val fixture = productionWorkflow(
+            recoveredPaid = { false },
+            cancelResult = { PaymentResult(it, "canceled", false) },
+            onCollectionPrompt = events::collectionPrompt,
+            renewSession = { requireNotNull(fixtureRef).store.state = DurableState(session()); true },
+        ).also { fixtureRef = it }
+        val bridge = bridge(PreparedBridgeOperations(fixture.workflow))
+        val awaiting = """{"version":1,"event":"collectionPrompt","payload":{"prompt":"awaiting_card"}}"""
+        val none = """{"version":1,"event":"collectionPrompt","payload":{"prompt":"none"}}"""
+        fixture.terminal.holdCollect = true
+        fixture.store.state = DurableState(session().copy(expiresAt = 500L))
+
+        val first = bridge.dispatch(request("first", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference()}\"}"))
+        fixture.queued.runAll()
+        events.collectionPrompt(CollectionPrompt.AWAITING_CARD) // the warm reader asks for a card
+        assertEquals(SecureBridgeState.PENDING, first.state)
+        assertEquals(SecureBridgeState.PENDING, poll(bridge, "first-poll", "opaque-first").state)
+        assertEquals(listOf(awaiting), posted)
+
+        fixture.runtime.cancel() // 90 s collection deadline
+        fixture.queued.runAll()
+        assertEquals(SecureBridgeState.REJECTED, poll(bridge, "first-final", "opaque-first").state)
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+        assertEquals(listOf(awaiting, none), posted)
+
+        val retry = bridge.dispatch(request("retry", PreparedBridgeOperations.START, "{\"preparedPurchaseReference\":\"${preparedReference('B')}\"}"))
+        fixture.queued.runAll()
+        events.collectionPrompt(CollectionPrompt.AWAITING_CARD)
+        assertEquals(SecureBridgeState.PENDING, retry.state)
+        assertEquals(SecureBridgeState.PENDING, poll(bridge, "retry-poll", "opaque-retry").state)
+        assertEquals(2, fixture.prepared.references.size)
+        assertEquals(listOf(awaiting, none, awaiting), posted)
+    }
+
+    @Test
     fun aRefusedSessionRenewalKeepsTheExpiredSaleFailClosedWithoutAServerCall() {
         val fixture = productionWorkflow(renewSession = { false })
         fixture.store.state = DurableState(session().copy(expiresAt = 500L))
