@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   product: vi.fn(),
   price: vi.fn(),
   location: vi.fn(),
-  reader: vi.fn(), create: vi.fn(), retrieve: vi.fn(),
+  reader: vi.fn(), create: vi.fn(), retrieve: vi.fn(), cancel: vi.fn(),
   usersQueryRaw: vi.fn(), usersFindUnique: vi.fn(),
   purchaseFindUnique: vi.fn(), purchaseCreate: vi.fn(), purchaseUpdateMany: vi.fn(),
   preparedFindUnique: vi.fn(), preparedUpdateMany: vi.fn(),
@@ -58,7 +58,7 @@ vi.mock("stripe", () => ({
     products = { retrieve: mocks.product }
     prices = { retrieve: mocks.price }
     terminal = { locations: { retrieve: mocks.location }, connectionTokens: { create: mocks.token }, readers: { retrieve: mocks.reader } }
-    paymentIntents = { create: mocks.create, retrieve: mocks.retrieve }
+    paymentIntents = { create: mocks.create, retrieve: mocks.retrieve, cancel: mocks.cancel }
   },
 }))
 
@@ -122,6 +122,7 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     mocks.token.mockResolvedValue({ secret: "pst_fixture", location: catalog.locationId })
     mocks.reader.mockResolvedValue({ id: "tmr_fixture", livemode: true, device_type: "stripe_m2", location: catalog.locationId })
     mocks.retrieve.mockReset()
+    mocks.cancel.mockReset()
     mocks.usersQueryRaw.mockReset()
     mocks.usersFindUnique.mockReset()
     mocks.purchaseFindUnique.mockReset()
@@ -741,6 +742,144 @@ describe("internal LIVE preflight and connection-token boundary", () => {
         expect(response.status).toBe(200)
         expect(await response.json()).toEqual({ id: "pi_fixture", status: "requires_payment_method", paid: false })
         expect(mocks.create).toHaveBeenCalledTimes(4)
+      })
+
+      describe("prepared-cancel of a confirmed-not-charged attempt", () => {
+        const cancelKey = "prepared-native-m2-cancel:v1:pi_fixture"
+        const boundAttempt = async () => {
+          preparePurchase()
+          const { ticket } = await admit()
+          expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(200)
+          const intent = await mocks.retrieve("pi_fixture") as Record<string, unknown>
+          mocks.cancel.mockImplementation(async (id: string) => {
+            const canceled = { ...intent, id, status: "canceled" }
+            mocks.retrieve.mockResolvedValue(canceled)
+            return canceled
+          })
+          vi.clearAllMocks()
+          return { ticket, intent }
+        }
+        const cancel = (ticket: string, paymentIntentId = "pi_fixture") =>
+          request({ action: "prepared-cancel", ticket, paymentIntentId })
+
+        it("strictly parses the closed cancel action with an exact PaymentIntent ID", async () => {
+          const { parseInternalPurchaseRequest } = await import("@/lib/stripe/internal-purchase")
+          expect(parseInternalPurchaseRequest({ action: "prepared-cancel", ticket: "ticket", paymentIntentId: "pi_known" }))
+            .toEqual({ action: "prepared-cancel", ticket: "ticket", paymentIntentId: "pi_known" })
+          for (const body of [
+            { action: "prepared-cancel", ticket: "ticket" },
+            { action: "prepared-cancel", ticket: "ticket", paymentIntentId: "not_a_pi" },
+            { action: "prepared-cancel", ticket: "ticket", paymentIntentId: "pi_known", extra: true },
+            { action: "prepared-cancel", paymentIntentId: "pi_known" },
+          ]) expect(parseInternalPurchaseRequest(body)).toBeNull()
+        })
+
+        it.each(["requires_payment_method", "requires_confirmation", "requires_action"])(
+          "cancels a %s PaymentIntent with a PaymentIntent-derived idempotency key and returns no secret",
+          async (status) => {
+            const { ticket, intent } = await boundAttempt()
+            mocks.retrieve.mockResolvedValueOnce({ ...intent, status })
+            const response = await cancel(ticket)
+            expect(response.status).toBe(200)
+            expect(response.headers.get("Cache-Control")).toBe("no-store")
+            const body = await response.json()
+            expect(body).toEqual({ id: "pi_fixture", status: "canceled", paid: false })
+            expect(JSON.stringify(body)).not.toContain("secret")
+            expect(mocks.cancel).toHaveBeenCalledExactlyOnceWith("pi_fixture", {}, { idempotencyKey: cancelKey })
+            expect(mocks.create).not.toHaveBeenCalled()
+            expect(mocks.purchaseUpdateMany).not.toHaveBeenCalled()
+          },
+        )
+
+        it("reuses the same idempotency key when the kiosk repeats the cancel", async () => {
+          const { ticket } = await boundAttempt()
+          expect((await cancel(ticket)).status).toBe(200)
+          const repeat = await cancel(ticket)
+          expect(await repeat.json()).toEqual({ id: "pi_fixture", status: "canceled", paid: false })
+          // The second call observes the canceled intent and never re-sends a cancel.
+          expect(mocks.cancel).toHaveBeenCalledExactlyOnceWith("pi_fixture", {}, { idempotencyKey: cancelKey })
+        })
+
+        it("reports an already canceled PaymentIntent as canceled without another provider cancel", async () => {
+          const { ticket, intent } = await boundAttempt()
+          mocks.retrieve.mockResolvedValueOnce({ ...intent, status: "canceled" })
+          const response = await cancel(ticket)
+          expect(await response.json()).toEqual({ id: "pi_fixture", status: "canceled", paid: false })
+          expect(mocks.cancel).not.toHaveBeenCalled()
+        })
+
+        it("never cancels a succeeded PaymentIntent and reports it paid", async () => {
+          const { ticket, intent } = await boundAttempt()
+          mocks.retrieve.mockResolvedValueOnce({ ...intent, status: "succeeded", amount_received: 2599 })
+          const response = await cancel(ticket)
+          expect(response.status).toBe(200)
+          expect(await response.json()).toEqual({ id: "pi_fixture", status: "succeeded", paid: true })
+          expect(mocks.cancel).not.toHaveBeenCalled()
+        })
+
+        it.each(["processing", "requires_capture"])("leaves an ambiguous %s PaymentIntent untouched and pending", async (status) => {
+          const { ticket, intent } = await boundAttempt()
+          mocks.retrieve.mockResolvedValueOnce({ ...intent, status })
+          const response = await cancel(ticket)
+          expect(response.status).toBe(200)
+          expect(await response.json()).toEqual({ id: "pi_fixture", status, paid: false })
+          expect(mocks.cancel).not.toHaveBeenCalled()
+        })
+
+        it("rejects a mismatched, unbound, or foreign attempt before any provider access", async () => {
+          const { ticket } = await boundAttempt()
+          expect((await cancel(ticket, "pi_other")).status).toBe(409)
+          expectNoPreparedProviderReads()
+          expect(mocks.cancel).not.toHaveBeenCalled()
+
+          boundPurchase = { ...boundPurchase!, stripePaymentIntentId: null }
+          vi.clearAllMocks()
+          expect((await cancel(ticket)).status).toBe(409)
+          expectNoPreparedProviderReads()
+          expect(mocks.cancel).not.toHaveBeenCalled()
+
+          boundPurchase = { ...boundPurchase!, stripePaymentIntentId: "pi_fixture" }
+          mocks.auth.mockResolvedValueOnce({ ok: true, sessionId: "foreign", terminal: { id: "terminal_live" } })
+          vi.clearAllMocks()
+          expect((await cancel(ticket)).status).toBe(403)
+          expectNoPreparedProviderReads()
+          expect(mocks.cancel).not.toHaveBeenCalled()
+        })
+
+        it("refuses a binding lost before the provider cancel", async () => {
+          const { ticket, intent } = await boundAttempt()
+          mocks.retrieve.mockImplementationOnce(async () => {
+            boundPurchase = { ...boundPurchase!, stripePaymentIntentId: null }
+            return intent
+          })
+          expect((await cancel(ticket)).status).toBe(409)
+          expect(mocks.cancel).not.toHaveBeenCalled()
+        })
+
+        it("still cancels the exact bound PaymentIntent after the ticket expired", async () => {
+          const { ticket } = await boundAttempt()
+          vi.setSystemTime(new Date("2026-09-23T12:12:00Z"))
+          const response = await cancel(ticket)
+          expect(response.status).toBe(200)
+          expect(await response.json()).toEqual({ id: "pi_fixture", status: "canceled", paid: false })
+        })
+
+        it("fails closed with a generic error when the provider cancel fails", async () => {
+          const { ticket } = await boundAttempt()
+          mocks.cancel.mockRejectedValueOnce(Object.assign(new Error("sk_live_leak pi_fixture_secret"), { type: "StripeInvalidRequestError" }))
+          const response = await cancel(ticket)
+          expect(response.status).toBe(502)
+          const text = await response.text()
+          expect(text).not.toContain("sk_live")
+          expect(text).not.toContain("secret")
+        })
+
+        it("treats a provider cancel that does not end canceled as pending", async () => {
+          const { ticket, intent } = await boundAttempt()
+          mocks.cancel.mockResolvedValueOnce({ ...intent, status: "processing" })
+          const response = await cancel(ticket)
+          expect(await response.json()).toEqual({ id: "pi_fixture", status: "processing", paid: false })
+        })
       })
     })
   })
