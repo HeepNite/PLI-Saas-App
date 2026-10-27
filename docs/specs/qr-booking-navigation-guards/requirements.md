@@ -12,17 +12,17 @@
 
 ## R2 — Stripe single-flight feedback
 
-> “Deshabilitar el botón y mostrar 'cargando' mientras se abre Stripe, para que no se toque varias veces.”
+> “Back-from-Stripe (bfcache): on the hosted redirects (useEnrollPaymentActions.ts ~:612, ~:689) checkoutAttemptRef stays true. If the page is restored with Back, resetForm frees the UI but Pay silently does nothing. Release the ref whenever processing becomes false (or on pageshow with persisted), and add a test.”
 
 - Checkout submission must reject a second invocation synchronously while the first invocation is active.
 - The final action must remain disabled and visibly display its processing state while checkout is created and while hosted Stripe navigation begins.
-- A recoverable failure must release the lock so the customer can retry.
+- A recoverable failure or rendered `processing=false` state after bfcache/reset must release the lock so the customer can retry.
 
 ## R3 — Cash QR timer ownership
 
-> “Revisar los temporizadores del QR de efectivo, que se acumulan.”
+> “KioskClassQrCode: a failed cash-grant refresh blanks the grant and schedules no retry (~:58, ~:67-68), so in-studio QR cash stays unavailable. Add a bounded retry, with a test.”
 
 - Each mounted cash-authorized QR component must own at most one refresh timer and one expiry timer.
 - Replacing a grant must cancel timers associated with the previous grant.
 - URL/context changes and unmount must cancel both timers.
-- Stale responses must not update the QR or schedule new timers.
+- Stale responses must schedule nothing; failures retry every five seconds at most three times without hiding an unexpired grant.
