@@ -823,6 +823,24 @@ describe("useEnrollPaymentActions", () => {
       expect(setProcessing).toHaveBeenNthCalledWith(3, true)
     })
 
+    it("admits another hosted checkout after bfcache restoration renders processing false", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ url: "https://checkout.stripe.test/session" }))
+      vi.stubGlobal("fetch", fetchMock)
+      const input = defaultInput({ isCheckInFlow: true, processing: false })
+      const { getResult, rerender } = await renderHook(input)
+
+      await getResult().handleSubmit()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+
+      // The hosted handoff keeps its rendered lock, then resetForm/bfcache releases
+      // the UI state after returning from Stripe while this hook instance remains mounted.
+      await rerender({ ...input, processing: true })
+      await rerender({ ...input, processing: false })
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
+
     it("uses the public session endpoint for public mobile/check-in bookings", async () => {
       const fetchMock = vi.fn(async (url: string) => (
         url === "/api/public/checkout/quote"

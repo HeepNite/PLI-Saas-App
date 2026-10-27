@@ -124,6 +124,10 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     setProcessingState(value)
   }, [setProcessingState])
 
+  React.useEffect(() => {
+    if (!processing) checkoutAttemptRef.current = false
+  }, [processing])
+
   React.useEffect(() => () => {
     if (nativeResetTimeoutRef.current !== null) window.clearTimeout(nativeResetTimeoutRef.current)
   }, [])
