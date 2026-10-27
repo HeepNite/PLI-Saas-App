@@ -25,7 +25,9 @@ Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/
 - Production `npm run build`: passed.
 - `npm run build:turbo`: unavailable in the isolated worktree because Turbopack rejects the external `node_modules` symlink; the standard production build passed.
 - Independent verifier: initial S1 failure reproduced redirect-context loss; correction reverified S1-S3 PASS with no remaining blocker.
-- Chain budget: PR1 308 changed lines; PR2 projected 241 changed lines.
+- Native review PR1: approved and acknowledged (`review-62260472c36c8d94`); two informational warnings, no correction required.
+- Native assessment PR2: medium/under-budget, review not due; independent high-risk verification already passed S2-S3.
+- Chain budget: PR1 308 changed lines; PR2 253 changed lines.
 - Risk: item 3 — shared authentication navigation and checkout action code are used by existing behavior; focused regressions and the independent verifier cover the touched contracts.
 
 ## Log
