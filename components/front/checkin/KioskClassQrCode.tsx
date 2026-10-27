@@ -36,6 +36,12 @@ export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in Q
     let active = true
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
     let expiryTimer: ReturnType<typeof setTimeout> | undefined
+    const cancelTimers = () => {
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+      if (expiryTimer !== undefined) clearTimeout(expiryTimer)
+      refreshTimer = undefined
+      expiryTimer = undefined
+    }
     const loadGrant = async () => {
       try {
         const response = await fetch("/api/checkin/qr/cash-grant", {
@@ -47,9 +53,9 @@ export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in Q
         const data = response.ok ? await response.json() : null
         if (!active) return
         const grant = typeof data?.grant === "string" ? data.grant : ""
+        cancelTimers()
         setGrantState({ url, grant })
         if (grant && typeof data?.expiresAt === "string") {
-          if (expiryTimer) clearTimeout(expiryTimer)
           const expiresAt = new Date(data.expiresAt).getTime()
           const refreshInMs = Math.min(2_147_000_000, Math.max(5_000, expiresAt - Date.now() - 30_000))
           const expireInMs = Math.min(2_147_000_000, Math.max(0, expiresAt - Date.now()))
@@ -65,8 +71,7 @@ export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in Q
     void loadGrant()
     return () => {
       active = false
-      if (refreshTimer) clearTimeout(refreshTimer)
-      if (expiryTimer) clearTimeout(expiryTimer)
+      cancelTimers()
     }
   }, [context, url])
 

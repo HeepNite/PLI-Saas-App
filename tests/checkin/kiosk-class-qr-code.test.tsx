@@ -93,4 +93,70 @@ describe("KioskClassQrCode", () => {
 
     expect(container.innerHTML).not.toContain("courseSlug=b&amp;date=2026-10-23&amp;time=20%3A00&amp;kioskQrCashGrant=grant-a")
   })
+
+  it("replaces the previous timer pair and cancels both on URL change and unmount", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-23T20:00:00.000Z"))
+    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout")
+    const expiresAt = ["2026-10-23T20:02:00.000Z", "2026-10-23T20:04:00.000Z", "2026-10-23T20:06:00.000Z"]
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      grant: `grant-${expiresAt.length}`,
+      expiresAt: expiresAt.shift(),
+    }), { status: 200 }))))
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    roots.push(root)
+
+    await act(async () => {
+      root.render(<KioskClassQrCode url="https://pli.test/checkin?courseSlug=a&date=2026-10-23&time=19%3A00" size={180} />)
+      await Promise.resolve()
+    })
+    expect(vi.getTimerCount()).toBe(2)
+
+    clearTimeoutSpy.mockClear()
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(2)
+
+    clearTimeoutSpy.mockClear()
+    await act(async () => {
+      root.render(<KioskClassQrCode url="https://pli.test/checkin?courseSlug=b&date=2026-10-23&time=20%3A00" size={180} />)
+      await Promise.resolve()
+    })
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(2)
+
+    clearTimeoutSpy.mockClear()
+    await act(async () => { root.unmount() })
+    roots.pop()
+    expect(clearTimeoutSpy).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it("does not schedule timers for a stale grant response", async () => {
+    vi.useFakeTimers()
+    let resolveFirst: ((response: Response) => void) | undefined
+    let resolveSecond: ((response: Response) => void) | undefined
+    vi.stubGlobal("fetch", vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveFirst = resolve }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSecond = resolve })))
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    roots.push(root)
+
+    await act(async () => {
+      root.render(<KioskClassQrCode url="https://pli.test/checkin?courseSlug=a&date=2026-10-23&time=19%3A00" size={180} />)
+    })
+    await act(async () => {
+      root.render(<KioskClassQrCode url="https://pli.test/checkin?courseSlug=b&date=2026-10-23&time=20%3A00" size={180} />)
+    })
+    await act(async () => {
+      resolveFirst?.(new Response(JSON.stringify({ grant: "grant-a", expiresAt: "2026-10-23T20:02:00.000Z" }), { status: 200 }))
+      await Promise.resolve()
+    })
+
+    expect(vi.getTimerCount()).toBe(0)
+    expect(container.querySelector("[data-qr-value]")).toBeNull()
+    expect(resolveSecond).toBeDefined()
+  })
 })
