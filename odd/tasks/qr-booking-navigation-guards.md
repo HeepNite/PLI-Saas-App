@@ -12,13 +12,13 @@ Active contract: `docs/specs/qr-booking-navigation-guards/`.
 
 ## Tasks
 - **T1** — S1 — Replace avoidable QR booking document navigations with context-preserving client navigation and tests. Route: worker + parent. Status: done. Commit: `3bc51366`.
-- **T2** — S2 — Release the checkout single-flight lock when rendered processing becomes false after bfcache restoration, with regression coverage. Route: parent inline. Status: reopened. Commit: pending.
-- **T3** — S3 — Add bounded cash-grant refresh retries without timer accumulation, with regression coverage. Route: parent inline. Status: reopened. Commit: pending.
+- **T2** — S2 — Release the checkout single-flight lock when rendered processing becomes false after bfcache restoration, with regression coverage. Route: worker. Status: done. Commit: `fea50a61`.
+- **T3** — S3 — Add bounded cash-grant refresh retries without timer accumulation, with regression coverage. Route: parent inline. Status: done. Commit: `8f81f811`.
 - **T4** — S1-S4 — Run focused and repository verification, record risk, and close production work. Route: parent + independent verifier for high-risk shared auth/checkout behavior. Status: reopened. Evidence commits: `3bc51366`, `8ddf6b20`, `66b018f9`, `9ef20519`.
-- **T5** — S5-S6 — Move `docs/specs/qr-booking-navigation-guards/` into PR1 and preserve clean sub-400 stacked diffs. Route: parent inline. Status: pending. Commit: pending.
+- **T5** — S5-S6 — Move `docs/specs/qr-booking-navigation-guards/` into PR1 and preserve clean sub-400 stacked diffs. Route: parent inline. Status: done. Commit: `01b2d6ab`.
 - **T6** — S2-S6 — Re-run focused and repository verification without touching native M2 bridge files. Route: parent + independent verifier. Status: pending. Commit: pending.
 
-Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/qr-booking-navigation-guards` contains `3bc51366` (308 changed lines). PR2 branch `fix/qr-booking-interaction-guards` targets PR1 and contains `8ddf6b20`, `66b018f9`, and closure/spec commit `9ef20519` (incremental slice below 400 lines).
+Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/qr-booking-navigation-guards` contains `3bc51366` and spec commit `01b2d6ab` (397 changed lines). PR2 branch `fix/qr-booking-interaction-guards` targets PR1; its incremental diff excludes the inherited spec and remains below 400 lines.
 
 ## Verification
 
@@ -45,3 +45,4 @@ Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/
 ▎ 2. KioskClassQrCode: a failed cash-grant refresh blanks the grant and schedules no retry (~:58, ~:67-68), so in-studio QR cash stays unavailable. Add a bounded retry, with a test.
 ▎ 3. Move the docs/specs/qr-booking-navigation-guards spec into PR1, so the spec lands with the code that implements it.
 ▎    Keep both PRs under 400 lines. Do not touch the native M2 bridge files”
+- **L7** — Failed cash-grant requests retry at five-second intervals up to three times; an existing unexpired grant remains visible during retries.
