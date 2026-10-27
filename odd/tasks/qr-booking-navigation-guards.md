@@ -12,9 +12,9 @@ Active contract: `docs/specs/qr-booking-navigation-guards/`.
 - **T1** — S1 — Replace avoidable QR booking document navigations with context-preserving client navigation and tests. Route: worker + parent. Status: done. Commit: `3bc51366`.
 - **T2** — S2 — Make checkout submission synchronously single-flight and test disabled/loading behavior through redirect or failure. Route: worker. Status: done. Commit: `8ddf6b20`.
 - **T3** — S3 — Make refresh/expiry timer replacement and cleanup explicit and deterministic, with lifecycle tests. Route: worker. Status: done. Commit: `66b018f9`.
-- **T4** — S1-S4 — Run focused and repository verification, record risk, and close production work. Route: parent + independent verifier for high-risk shared auth/checkout behavior. Status: done. Evidence commits: `3bc51366`, `8ddf6b20`, `66b018f9`.
+- **T4** — S1-S4 — Run focused and repository verification, record risk, and close production work. Route: parent + independent verifier for high-risk shared auth/checkout behavior. Status: done. Evidence commits: `3bc51366`, `8ddf6b20`, `66b018f9`, `9ef20519`.
 
-Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/qr-booking-navigation-guards` contains `3bc51366` (308 changed lines). PR2 branch `fix/qr-booking-interaction-guards` targets PR1 and contains `8ddf6b20`, `66b018f9`, and the closure/spec commit (incremental slice below 400 lines).
+Delivery strategy: stacked PRs to `main`, selected by the user. PR1 branch `fix/qr-booking-navigation-guards` contains `3bc51366` (308 changed lines). PR2 branch `fix/qr-booking-interaction-guards` targets PR1 and contains `8ddf6b20`, `66b018f9`, and closure/spec commit `9ef20519` (incremental slice below 400 lines).
 
 ## Verification
 
