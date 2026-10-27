@@ -141,9 +141,41 @@ class ProductionPreparedBridgeWorkflow(
             }
             NativeCollectionState.MANUAL_RECONCILIATION,
             NativeCollectionState.UNRESOLVED,
-            NativeCollectionState.RECONNECT_REQUIRED -> handle.publication.reject()
+            NativeCollectionState.RECONNECT_REQUIRED -> when {
+                // No PaymentIntent was ever collected by this runtime: nothing to cancel.
+                !runtime.hasActiveAttempt -> handle.publication.reject()
+                handle.publication.claimSettlement() -> settleNotPaid(handle)
+            }
             else -> handle.publication.publish(PreparedRecoveryState.PENDING)
         }
+    }
+
+    /**
+     * A sale that ended not paid frees the kiosk only when the server confirms Stripe canceled its
+     * PaymentIntent uncharged. The web result is published after the durable clear, so the next
+     * sale cannot race it. Ambiguous answers and failures keep the attempt retained (fail closed).
+     */
+    private fun settleNotPaid(handle: Handle) {
+        try {
+            backgroundExecutor.execute {
+                try {
+                    if (!active(handle)) return@execute
+                    val settled = try {
+                        withActive(handle) {
+                            coordinator.cancelUnpaidPreparedAttempt().also { outcome ->
+                                if (outcome == PreparedCancelOutcome.PAID) coordinator.clearResolvedPreparedAttempt()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    if (settled == PreparedCancelOutcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
+                    else handle.publication.reject()
+                } catch (failure: TerminalCompletionFailure) {
+                    throw failure.original
+                }
+            }
+        } catch (failure: Exception) { handle.publication.rejectUnlessTerminalCompletionFailure(failure) }
     }
 
     private fun prompt(next: CollectionPrompt) {
@@ -220,6 +252,7 @@ class ProductionPreparedBridgeWorkflow(
         private val deliveries = mutableListOf<PreparedRecoveryState>()
         private var deliveryInProgress = false
         private var paidRecoveryClaimed = false
+        private var settlementClaimed = false
         private var terminalCompletionFailure: Throwable? = null
         fun publish(next: PreparedRecoveryState) {
             val drain = synchronized(this) {
@@ -262,6 +295,12 @@ class ProductionPreparedBridgeWorkflow(
             reject()
         }
         fun reject() = publish(PreparedRecoveryState.REJECTED)
+        @Synchronized fun claimSettlement(): Boolean {
+            val available = state != PreparedRecoveryState.PAID && state != PreparedRecoveryState.REJECTED &&
+                !paidRecoveryClaimed && !settlementClaimed
+            if (available) settlementClaimed = true
+            return available
+        }
         @Synchronized fun claimPaidRecovery(): Boolean {
             val available = state != PreparedRecoveryState.PAID && state != PreparedRecoveryState.REJECTED && !paidRecoveryClaimed
             if (available) paidRecoveryClaimed = true

@@ -298,6 +298,77 @@ class WebSessionReadinessTest {
     }
 
     @Test
+    fun startupRolloverCancelsAConfirmedNotChargedAttemptAndClearsItDurably() {
+        val clock = MutableClock(1_000_000L)
+        val original = retainedPreparedState(clock, sessionExpiry = clock.now - 1)
+        val store = MemoryStore(original)
+        val preparedApi = RecordingPreparedApi(
+            PaymentResult("pi_retained", "requires_payment_method", false),
+            cancelResult = PaymentResult("pi_retained", "canceled", false),
+        )
+        val stages = mutableListOf<RetainedRecoveryStage>()
+        var readyReloads = 0
+        val readiness = readiness(store, clock, preparedApi, onRecoveryReady = { readyReloads++; true }, onRecoveryStage = { stages += it }) { cookie }
+
+        assertFalse(readiness.capture(terminal, terminal))
+
+        assertEquals(listOf("pi_retained"), preparedApi.recoveries)
+        assertEquals(listOf("pi_retained"), preparedApi.cancels)
+        assertNull(store.state.attempt)
+        assertTrue(requireNotNull(store.state.session).expiresAt > clock.now)
+        assertEquals(1, readyReloads)
+        assertEquals(
+            listOf(
+                RetainedRecoveryStage.SCHEDULED,
+                RetainedRecoveryStage.SESSION_RENEWED,
+                RetainedRecoveryStage.SERVER_PENDING,
+                RetainedRecoveryStage.SERVER_CANCELED,
+                RetainedRecoveryStage.RELOAD_REQUESTED,
+            ),
+            stages,
+        )
+    }
+
+    @Test
+    fun startupRolloverKeepsTheAttemptWhenCancelIsAmbiguousOrFails() {
+        listOf(
+            RecordingPreparedApi(PaymentResult("pi_retained", "requires_payment_method", false), cancelResult = PaymentResult("pi_retained", "processing", false)),
+            RecordingPreparedApi(PaymentResult("pi_retained", "requires_payment_method", false), cancelFailure = IOException("offline")),
+        ).forEach { preparedApi ->
+            val clock = MutableClock(1_000_000L)
+            val original = retainedPreparedState(clock, sessionExpiry = clock.now - 1)
+            val store = MemoryStore(original)
+            var readyReloads = 0
+            val readiness = readiness(store, clock, preparedApi, onRecoveryReady = { readyReloads++; true }) { cookie }
+
+            assertFalse(readiness.capture(terminal, terminal))
+
+            assertEquals(listOf("pi_retained"), preparedApi.cancels)
+            assertEquals(original.attempt, store.state.attempt)
+            assertEquals(0, readyReloads)
+            assertFalse(readiness.ready)
+        }
+    }
+
+    @Test
+    fun startupRolloverCancelThatFindsThePaymentPaidUsesThePaidRollover() {
+        val clock = MutableClock(1_000_000L)
+        val original = retainedPreparedState(clock, sessionExpiry = clock.now - 1)
+        val store = MemoryStore(original)
+        val preparedApi = RecordingPreparedApi(
+            PaymentResult("pi_retained", "requires_payment_method", false),
+            cancelResult = PaymentResult("pi_retained", "succeeded", true),
+        )
+        val stages = mutableListOf<RetainedRecoveryStage>()
+        val readiness = readiness(store, clock, preparedApi, onRecoveryStage = { stages += it }) { cookie }
+
+        assertFalse(readiness.capture(terminal, terminal))
+
+        assertNull(store.state.attempt)
+        assertTrue(RetainedRecoveryStage.PAID_COMMITTED in stages)
+    }
+
+    @Test
     fun changedBrowserSessionCannotRecoverOrMutateTheRetainedAttempt() {
         val clock = MutableClock(1_000_000L)
         val original = retainedPreparedState(clock, sessionExpiry = clock.now - 1)
@@ -531,8 +602,11 @@ class WebSessionReadinessTest {
         private val failure: Exception? = null,
         private val creationStatus: PreparedCreationStatus? = null,
         private val creationFailure: Exception? = null,
+        private val cancelResult: PaymentResult? = null,
+        private val cancelFailure: Exception? = null,
     ) : PreparedPurchaseApi {
         val recoveries = mutableListOf<String>()
+        val cancels = mutableListOf<String>()
         val creationStatusTickets = mutableListOf<AttemptTicket>()
         var onCreationStatus: () -> Unit = {}
         override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String) = error("unexpected attempt")
@@ -549,6 +623,11 @@ class WebSessionReadinessTest {
             recoveries += paymentIntentId
             failure?.let { throw it }
             return requireNotNull(result)
+        }
+        override fun preparedCancel(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+            cancels += paymentIntentId
+            cancelFailure?.let { throw it }
+            return cancelResult ?: throw UnsupportedOperationException("cancel unsupported")
         }
         override fun preparedCreationStatus(session: StaffSession, ticket: AttemptTicket): PreparedCreationStatus {
             creationStatusTickets += ticket

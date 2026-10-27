@@ -234,6 +234,16 @@ class StaffSessionPurchaseApi(
         )
     }
 
+    override fun preparedCancel(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+        Contract.attemptTicket(ticket)
+        require(paymentIntentId.isNotBlank()) { "Known PaymentIntent ID is required" }
+        return preparedPayment(
+            session,
+            JSONObject().put("action", "prepared-cancel").put("ticket", ticket.value).put("paymentIntentId", paymentIntentId),
+            recovery = true,
+        )
+    }
+
     override fun preparedCreationStatus(session: StaffSession, ticket: AttemptTicket): PreparedCreationStatus {
         Contract.attemptTicket(ticket)
         val response = transport.postInternalPurchase(

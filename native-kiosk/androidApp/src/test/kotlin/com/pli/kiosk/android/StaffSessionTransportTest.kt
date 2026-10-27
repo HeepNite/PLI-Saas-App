@@ -312,6 +312,29 @@ class StaffSessionTransportTest {
         assertFailsWith<IllegalArgumentException> { api.preparedRecover(session, ticket, "") }
     }
 
+    @Test
+    fun preparedCancelSendsOnlyTicketAndExactKnownIdAndRejectsClientSecrets() {
+        val ticket = AttemptTicket("prepared-ticket", now + 1, "tmr_fixture", Approved.LOCATION)
+        val session = StaffSession(origin.value, "association", "session-value", now + 1)
+        val client = RecordingStaffSessionHttpClient(
+            HttpResponse(200, emptyMap(), """{"id":"pi_known","status":"canceled","paid":false}""".toByteArray()),
+        )
+        val api: PreparedPurchaseApi = StaffSessionPurchaseApi(StaffSessionTransport(origin, client) { now })
+
+        assertEquals(PaymentResult("pi_known", "canceled", false), api.preparedCancel(session, ticket, "pi_known"))
+        val request = JSONObject(client.body.decodeToString())
+        assertEquals(setOf("action", "ticket", "paymentIntentId"), request.keys().asSequence().toSet())
+        assertEquals("prepared-cancel", request.getString("action"))
+        assertEquals("pi_known", request.getString("paymentIntentId"))
+        assertEquals("session-value", client.cookie)
+
+        assertFailsWith<IllegalArgumentException> {
+            preparedApi("""{"id":"pi_known","status":"canceled","paid":false,"clientSecret":"secret"}""").preparedCancel(session, ticket, "pi_known")
+        }
+        assertFailsWith<IllegalArgumentException> { preparedApi("""{"id":"pi_known","status":"succeeded","paid":false}""").preparedCancel(session, ticket, "pi_known") }
+        assertFailsWith<IllegalArgumentException> { api.preparedCancel(session, ticket, "") }
+    }
+
     private fun preparedApi(body: String): PreparedPurchaseApi = preparedApi(body.toByteArray())
 
     private fun preparedApi(body: ByteArray): PreparedPurchaseApi = StaffSessionPurchaseApi(
