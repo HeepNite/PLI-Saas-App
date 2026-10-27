@@ -27,7 +27,12 @@ interface PreparedBridgeLifecycle {
     fun onApplicationBackgrounded()
     fun onSessionInvalidated()
     fun onReaderInvalidated()
+    /** The web stopped watching this sale; a reader still waiting for a card must stop accepting one. */
+    fun onWebAbandoned(operationReference: String, reason: WebAbandonReason) = Unit
 }
+
+/** Why the native side concluded that no web document is watching a sale anymore. */
+enum class WebAbandonReason(val wire: String) { POLL_TIMEOUT("poll_timeout"), DOCUMENT_RETIRED("document_retired") }
 
 /**
  * Native-only prepared admission. Each launch owns its runtime, bootstrap, and state subscription
@@ -87,6 +92,8 @@ class ProductionPreparedBridgeWorkflow(
                         onReady = {
                             try {
                                 withActive(handle) {
+                                    // A sale nobody watches must never open the reader for a card.
+                                    if (handle.abandoned) return@withActive
                                     val start = coordinator.startCollection()
                                     if (active(handle)) runtime.start(start.attempt, start.clientSecret)
                                 }
@@ -119,6 +126,27 @@ class ProductionPreparedBridgeWorkflow(
     override fun onApplicationBackgrounded() = unwrapTerminalCompletionFailure { invalidateHandles { it.onApplicationBackgrounded() } }
     override fun onSessionInvalidated() = unwrapTerminalCompletionFailure { invalidateHandles { it.onSessionInvalidated() } }
     override fun onReaderInvalidated() = unwrapTerminalCompletionFailure { invalidateHandles { it.onReaderInvalidated() } }
+
+    /**
+     * Only a reader still waiting for the card is canceled; it then settles through the same not-paid
+     * path as the collection deadline. Once the card was read, the paid/recovery path must finish.
+     */
+    override fun onWebAbandoned(operationReference: String, reason: WebAbandonReason) = unwrapTerminalCompletionFailure {
+        val (handle, runtime) = synchronized(this) {
+            val handle = handles[operationReference]?.takeUnless { it.closed } ?: return@unwrapTerminalCompletionFailure
+            // Under the lock shared with collection start: either the attempt exists now or it never starts.
+            handle.abandoned = true
+            handle to handle.runtime
+        }
+        val action = when {
+            runtime?.cancelWhileAwaitingCard() == true -> "cancel"
+            runtime?.hasActiveAttempt == true -> "keep"
+            else -> "reject"
+        }
+        PliM2Diagnostics.log("sale abandoned by web reason=${reason.wire} action=$action")
+        if (action == "reject") handle.publication.reject()
+        handle.publication.rethrowTerminalCompletionFailure()
+    }
 
     private fun onRuntimeState(handle: Handle, runtime: NativeCollectionRuntime) {
         if (!active(handle)) return
@@ -256,6 +284,7 @@ class ProductionPreparedBridgeWorkflow(
         var bootstrap: PinnedReaderBootstrap? = null
         var subscription: NativeStateSubscription? = null
         var closed = false
+        var abandoned = false
     }
     private data class Resources(
         val subscription: NativeStateSubscription?, val bootstrap: PinnedReaderBootstrap?, val runtime: NativeCollectionRuntime?,
@@ -333,6 +362,9 @@ class ProductionPreparedBridgeWorkflow(
 class PreparedBridgeOperations(
     private val workflow: PreparedBridgeWorkflow,
     private val capacity: Int = DEFAULT_CAPACITY,
+    private val clock: () -> Long = System::currentTimeMillis,
+    private val livenessScheduler: CollectionDeadlineScheduler = NoopCollectionDeadlineScheduler,
+    private val livenessWindowMs: Long = WEB_LIVENESS_WINDOW_MS,
 ) {
     private val operations = mutableMapOf<String, Entry>()
     private var invalidated = false
@@ -365,6 +397,10 @@ class PreparedBridgeOperations(
         operations[operationReference] = entry // Reserve before launching; synchronous callbacks may poll it.
         return try {
             workflow.launch(operationReference, preparedPurchaseReference) { completion -> complete(operationReference, entry, completion) }
+            if (entry.state == SecureBridgeState.PENDING) {
+                entry.lastSeenAt = clock()
+                scheduleLivenessCheck(operationReference, entry, livenessWindowMs)
+            }
             SecureBridgeOperationResult(operationReference, SecureBridgeState.PENDING)
         } catch (_: Exception) {
             entry.state = SecureBridgeState.REJECTED
@@ -382,13 +418,47 @@ class PreparedBridgeOperations(
     @Synchronized
     private fun pollResult(operationReference: String) =
         if (invalidated || !validOperationReference(operationReference)) SecureBridgeOperationResult(null, SecureBridgeState.REJECTED)
-        else operations[operationReference]?.let { SecureBridgeOperationResult(operationReference, it.state) }
+        else operations[operationReference]?.let { entry ->
+            if (entry.state == SecureBridgeState.PENDING) entry.lastSeenAt = clock()
+            SecureBridgeOperationResult(operationReference, entry.state)
+        }
             ?: SecureBridgeOperationResult(null, SecureBridgeState.REJECTED)
 
     @Synchronized
     fun invalidate() {
         invalidated = true
+        operations.values.forEach { it.cancelWatchdog() }
         operations.clear()
+    }
+
+    /** The page that started these sales is gone; none of them can still be watched. */
+    fun onDocumentRetired() {
+        val abandoned = synchronized(this) {
+            if (invalidated) emptyList() else operations.filter { (_, entry) -> entry.claimAbandonment() }.keys.toList()
+        }
+        abandoned.forEach { abandon(it, WebAbandonReason.DOCUMENT_RETIRED) }
+    }
+
+    private fun scheduleLivenessCheck(operationReference: String, entry: Entry, delayMs: Long) {
+        entry.watchdog = livenessScheduler.schedule(delayMs) { checkLiveness(operationReference, entry) }
+    }
+
+    private fun checkLiveness(operationReference: String, entry: Entry) {
+        val abandoned = synchronized(this) {
+            if (invalidated || operations[operationReference] !== entry || entry.state != SecureBridgeState.PENDING) return
+            val silentFor = clock() - entry.lastSeenAt
+            if (silentFor < livenessWindowMs) {
+                scheduleLivenessCheck(operationReference, entry, livenessWindowMs - silentFor)
+                false
+            } else entry.claimAbandonment()
+        }
+        if (abandoned) abandon(operationReference, WebAbandonReason.POLL_TIMEOUT)
+    }
+
+    private fun abandon(operationReference: String, reason: WebAbandonReason) {
+        try {
+            (workflow as? PreparedBridgeLifecycle)?.onWebAbandoned(operationReference, reason)
+        } catch (_: Exception) { Unit }
     }
 
     fun onBluetoothPermissionResult(granted: Boolean) = (workflow as? PreparedBridgeLifecycle)?.onBluetoothPermissionResult(granted) ?: Unit
@@ -402,7 +472,7 @@ class PreparedBridgeOperations(
             PreparedRecoveryState.PENDING -> SecureBridgeState.PENDING
             PreparedRecoveryState.PAID -> SecureBridgeState.PAID
             PreparedRecoveryState.REJECTED -> SecureBridgeState.REJECTED
-        }
+        }.also { if (it != SecureBridgeState.PENDING) entry.cancelWatchdog() }
     }
 
     private fun validPreparedReference(value: String) =
@@ -411,7 +481,22 @@ class PreparedBridgeOperations(
     private fun validOperationReference(value: String) =
         value.isNotBlank() && value.length <= MAX_OPERATION_REFERENCE_LENGTH
 
-    private class Entry(var state: SecureBridgeState = SecureBridgeState.PENDING)
+    private class Entry(var state: SecureBridgeState = SecureBridgeState.PENDING) {
+        var lastSeenAt = 0L
+        var watchdog: NativeCancelable? = null
+        private var abandoned = false
+        /** One abandonment per sale; a terminal or already abandoned sale has nothing left to stop. */
+        fun claimAbandonment(): Boolean {
+            if (abandoned || state != SecureBridgeState.PENDING) return false
+            abandoned = true
+            cancelWatchdog()
+            return true
+        }
+        fun cancelWatchdog() {
+            try { watchdog?.cancel() } catch (_: Exception) { Unit }
+            watchdog = null
+        }
+    }
 
     companion object {
         const val START = "startPreparedPurchase"
@@ -422,5 +507,11 @@ class PreparedBridgeOperations(
         private const val PREPARED_REFERENCE_LENGTH = 43
         private const val MAX_OPERATION_REFERENCE_LENGTH = 128
         private const val DEFAULT_CAPACITY = 32
+        /**
+         * The web polls every 500 ms and abandons a reply after 5 s, so a watching page is never silent
+         * for more than ~5.5 s. Twice the web's own timeout tolerates main-thread jank yet still stops
+         * the reader long before the 90 s collection deadline.
+         */
+        const val WEB_LIVENESS_WINDOW_MS = 10_000L
     }
 }

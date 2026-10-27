@@ -268,6 +268,18 @@ class KioskWebActivityTest {
     }
 
     @Test
+    fun aReplacedDocumentMidSaleAbandonsItsSaleBeforeTheBridgeIsInvalidated() {
+        val reload = attachedFixture(Fixture(survivesReload = false))
+        reload.controller.onPageStarted(terminal)
+        assertEquals(1, reload.context.documentRetirements)
+
+        val navigation = attachedFixture(Fixture(survivesReload = false))
+        navigation.controller.onNavigation(terminal, false, true)
+        assertEquals(1, navigation.context.documentRetirements)
+        assertEquals(listOf("host.invalidate", "context.session"), navigation.events)
+    }
+
+    @Test
     fun terminalReloadMustCompleteExactlyWithTheSameSessionAuthority() {
         var current: StaffSession? = session
         val changed = attachedFixture(Fixture(currentSession = { current }))
@@ -346,7 +358,13 @@ class KioskWebActivityTest {
     private class RecordingContext(
         private val events: MutableList<String>, private val survivesReload: Boolean,
     ) : KioskWebHostContext {
+        var documentRetirements = 0
         override fun survivesDocumentReplacement() = survivesReload
+        override fun onDocumentRetired() {
+            documentRetirements++
+            // The sale must be told its page is gone before the bridge is invalidated.
+            check("context.session" !in events)
+        }
         override fun onBluetoothPermissionResult(granted: Boolean) { events += "context.permission:$granted" }
         override fun onApplicationBackgrounded() { events += "context.background" }
         override fun onSessionInvalidated() { events += "context.session" }
