@@ -89,6 +89,37 @@ class SecureWebMessageHostTest {
     }
 
     @Test
+    fun adapterLogsEachReplyStateChangeAndEveryRefusalWithoutIdentifiers() {
+        lateinit var completion: (PreparedRecoveryState) -> Unit
+        val lines = mutableListOf<String>()
+        val operations = PreparedBridgeOperations(PreparedBridgeWorkflow { _, _, callback -> completion = callback })
+        val bridge = SecureWebBridge(operations.bridgeOperations()) { requestId, _ -> "opaque-$requestId" }
+        val adapter = SecureWebMessageAdapter(requireNotNull(SecureWebAdmission.from(origin)), bridge, log = { lines += it })
+        val preparedReference = "A".repeat(43)
+        fun poll(id: String) = "{\"version\":1,\"operation\":\"getPreparedPurchaseState\",\"requestId\":\"$id\",\"payload\":{\"operationReference\":\"opaque-start\"}}"
+
+        adapter.handle(origin, true, terminal, "{\"version\":1,\"operation\":\"startPreparedPurchase\",\"requestId\":\"start\",\"payload\":{\"preparedPurchaseReference\":\"$preparedReference\"}}")
+        adapter.handle(origin, true, terminal, poll("poll-1"))
+        adapter.handle(origin, true, terminal, poll("poll-2"))
+        completion(PreparedRecoveryState.REJECTED)
+        adapter.handle(origin, true, terminal, poll("poll-3"))
+        adapter.handle("https://foreign.invalid", true, terminal, poll("poll-4"))
+        adapter.handle(origin, true, terminal, "bad")
+
+        assertEquals(
+            listOf(
+                "bridge reply op=startPreparedPurchase state=pending",
+                "bridge reply op=getPreparedPurchaseState state=pending",
+                "bridge reply op=getPreparedPurchaseState state=rejected",
+                "bridge message refused reason=not_admitted",
+                "bridge message refused reason=no_reply",
+            ),
+            lines,
+        )
+        assertTrue(lines.none { it.contains("opaque") || it.contains(preparedReference) })
+    }
+
+    @Test
     fun diagnosticRoundTripTraversesOnlyTheAdmittedHostAndDispatcherPath() {
         var launches = 0
         val operations = PreparedBridgeOperations(PreparedBridgeWorkflow { _, _, _ -> launches++ })

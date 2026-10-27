@@ -28,13 +28,33 @@ class SecureWebAdmission private constructor(val origin: String) {
 class SecureWebMessageAdapter(
     private val admission: SecureWebAdmission,
     private val bridge: SecureWebBridge,
+    private val log: (String) -> Unit = PliM2Diagnostics::log,
 ) {
     private var invalidated = false
+    private var lastReply: String? = null
     private val webStates = setOf(SecureBridgeState.ACCEPTED, SecureBridgeState.PENDING, SecureBridgeState.REJECTED)
 
     fun handle(sourceOrigin: String?, isMainFrame: Boolean, currentUrl: String?, data: String?): String? {
-        if (invalidated || data == null || !admission.acceptsMessage(sourceOrigin, isMainFrame, currentUrl)) return null
-        return reply(bridge.dispatch(data))
+        if (invalidated || data == null || !admission.acceptsMessage(sourceOrigin, isMainFrame, currentUrl)) {
+            diagnose("bridge message refused reason=not_admitted")
+            return null
+        }
+        val response = bridge.dispatch(data)
+        return reply(response).also { replied ->
+            if (replied == null) diagnose("bridge message refused reason=no_reply")
+            else replyDiagnostic(response)
+        }
+    }
+
+    /** One line per change of (operation, state); the 500 ms state polls do not flood the log. */
+    private fun replyDiagnostic(response: SecureBridgeResponse) {
+        val line = "bridge reply op=${response.operation} state=${response.state?.name?.lowercase()}"
+        synchronized(this) { if (line == lastReply) return else lastReply = line }
+        diagnose(line)
+    }
+
+    private fun diagnose(line: String) {
+        try { log(line) } catch (_: Exception) { Unit }
     }
 
     fun invalidate() {
@@ -142,6 +162,7 @@ class SecureWebMessageHost(
 internal class HostBoundWebEventTarget<P : Any>(
     private val events: NativeWebEvents,
     private val schedule: (Runnable) -> Unit,
+    private val log: (String) -> Unit = PliM2Diagnostics::log,
     private val deliver: (P, String) -> Unit,
 ) : NativeWebEventTarget {
     private class Bound<P>(val proxy: P, val generation: Long)
@@ -171,10 +192,21 @@ internal class HostBoundWebEventTarget<P : Any>(
         val queuedFor = generation
         schedule(Runnable {
             val current = bound
-            if (valid && current != null && current.generation == queuedFor && generation == queuedFor) {
-                deliver(current.proxy, message)
+            val outcome = when {
+                !valid -> "event dropped reason=invalidated"
+                current == null -> "event dropped reason=unbound"
+                current.generation != queuedFor || generation != queuedFor -> "event dropped reason=stale"
+                else -> null
+            }
+            if (outcome != null) diagnose(outcome) else {
+                deliver(requireNotNull(current).proxy, message)
+                diagnose("event delivered")
             }
         })
+    }
+
+    private fun diagnose(line: String) {
+        try { log(line) } catch (_: Exception) { Unit }
     }
 
     fun invalidate() {
