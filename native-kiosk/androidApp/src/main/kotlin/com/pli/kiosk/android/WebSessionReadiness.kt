@@ -33,7 +33,7 @@ class WebSessionReadiness(
 
     var ready: Boolean = false
         private set
-    private var capturedSession: StaffSession? = null
+    @Volatile private var capturedSession: StaffSession? = null
     private var startupRecoveryAttempted = false
     private var startupRecoveryFailed = false
 
@@ -67,6 +67,30 @@ class WebSessionReadiness(
         val state = store.read()
         state.session?.takeIf { state.attempt == null && it == captured && isCurrentApprovedSession(it) }
     }.getOrNull()
+
+    /**
+     * Sale admission renews the locally bounded capture of the exact session this page captured,
+     * only while the WebView still holds that same cookie and no attempt is retained. It never
+     * adopts a different session; the server stays the authority for the cookie itself.
+     */
+    fun renewCapturedSession(): Boolean = runCatching {
+        val captured = capturedSession ?: return@runCatching false
+        val state = store.read()
+        val persisted = state.session ?: return@runCatching false
+        if (state.attempt != null || !sameAuthority(persisted, captured)) return@runCatching false
+        val rawCookie = cookieReader.readCookie(terminalUrl) ?: return@runCatching false
+        val imported = transport.importBrowserSession(rawCookie)
+        if (!sameAuthority(imported, captured)) return@runCatching false
+        coordinator.login { imported }
+        val renewed = store.read().takeIf { it.attempt == null && it.session == imported }?.session
+            ?: return@runCatching false
+        capturedSession = renewed
+        true
+    }.getOrDefault(false)
+
+    private fun sameAuthority(current: StaffSession, captured: StaffSession) =
+        current.origin == captured.origin && current.origin == origin.value &&
+            current.association == captured.association && current.cookie == captured.cookie
 
     private fun scheduleRetainedPreparedRecovery(original: DurableState) {
         val knownPayment = isRecoverableKnownPreparedAttempt(original)

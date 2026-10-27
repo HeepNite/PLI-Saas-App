@@ -343,7 +343,10 @@ class KioskApplication : Application() {
      * BuildConfig-gated factory for the later Web host. Construction allocates no native runtime;
      * every admitted operation creates and owns its one runtime/bootstrap pair.
      */
-    internal fun createPreparedBridgeContext(admission: SecureWebAdmission): PreparedBridgeContext? {
+    internal fun createPreparedBridgeContext(
+        admission: SecureWebAdmission,
+        renewSession: () -> Boolean = { false },
+    ): PreparedBridgeContext? {
         val configuration = runCatching(NativeCollectionConfiguration::fromBuildConfig).getOrNull() ?: return null
         if (!configuration.collectionEnabled || configuration.approvedOrigin != admission.origin) return null
         return runCatching {
@@ -426,6 +429,7 @@ class KioskApplication : Application() {
                         bootstrapDeadlineScheduler = AndroidCollectionDeadlineScheduler(),
                         beforeSaleDiscovery = warmReader::retireDiscovery,
                         onCollectionPrompt = events::collectionPrompt,
+                        renewSession = renewSession,
                     )
                 },
                 permissionOwner = permissions::attach,

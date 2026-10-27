@@ -43,6 +43,7 @@ class ProductionPreparedBridgeWorkflow(
     private val bootstrapDeadlineScheduler: CollectionDeadlineScheduler = NoopCollectionDeadlineScheduler,
     private val beforeSaleDiscovery: () -> Unit = {},
     private val onCollectionPrompt: (CollectionPrompt) -> Unit = {},
+    private val renewSession: () -> Boolean = { true },
 ) : PreparedBridgeWorkflow, PreparedBridgeLifecycle {
     private val handles = mutableMapOf<String, Handle>()
 
@@ -57,7 +58,15 @@ class ProductionPreparedBridgeWorkflow(
                     if (!active(handle)) return@execute
                 publication.publish(PreparedRecoveryState.PENDING)
                 try {
-                    require(withActive(handle) { coordinator.startPrepared(preparedPurchaseReference) } == Outcome.PENDING)
+                    // The browser capture is locally bounded; renew it from the same WebView cookie first.
+                    val renewed = try { renewSession() } catch (_: Exception) { false }
+                    if (!renewed) PliM2Diagnostics.log("sale session renewal refused")
+                    try {
+                        require(withActive(handle) { coordinator.startPrepared(preparedPurchaseReference) } == Outcome.PENDING)
+                    } catch (failure: Exception) {
+                        PliM2Diagnostics.log("sale admission rejected reason=${coordinator.preparedAdmissionBlocker()}")
+                        throw failure
+                    }
                     if (!active(handle)) return@execute
                     val attempt = coordinator.retainedPreparedAttemptForNativeRuntime()
                     val runtime = nativeRuntimeFactory.create(attempt)
@@ -124,7 +133,10 @@ class ProductionPreparedBridgeWorkflow(
                             val recovered = try {
                                 withActive(handle) {
                                     coordinator.recoverKnownAttempt().also { outcome ->
-                                        if (outcome == Outcome.PAID) coordinator.clearResolvedPreparedAttempt()
+                                        if (outcome == Outcome.PAID) {
+                                            coordinator.clearResolvedPreparedAttempt()
+                                            PliM2Diagnostics.log("retained attempt cleared reason=paid")
+                                        }
                                     }
                                 }
                             } catch (_: Exception) {
@@ -163,12 +175,17 @@ class ProductionPreparedBridgeWorkflow(
                     val settled = try {
                         withActive(handle) {
                             coordinator.cancelUnpaidPreparedAttempt().also { outcome ->
-                                if (outcome == PreparedCancelOutcome.PAID) coordinator.clearResolvedPreparedAttempt()
+                                if (outcome == PreparedCancelOutcome.PAID) {
+                                    coordinator.clearResolvedPreparedAttempt()
+                                    PliM2Diagnostics.log("retained attempt cleared reason=paid")
+                                }
                             }
                         }
                     } catch (_: Exception) {
                         null
                     }
+                    PliM2Diagnostics.log("prepared cancel outcome=${settled?.name ?: "ERROR"}")
+                    if (settled == PreparedCancelOutcome.CANCELED) PliM2Diagnostics.log("retained attempt cleared reason=canceled")
                     if (settled == PreparedCancelOutcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
                     else handle.publication.reject()
                 } catch (failure: TerminalCompletionFailure) {

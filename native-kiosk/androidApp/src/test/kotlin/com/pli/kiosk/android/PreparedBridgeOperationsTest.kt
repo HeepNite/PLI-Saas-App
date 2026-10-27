@@ -476,6 +476,58 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun aSaleAfterTheCapturedSessionBoundIsAdmittedOnlyOnceAdmissionRenewsTheSession() {
+        // Production 2026-10-27: a not-charged sale was canceled and cleared, but the next sale came
+        // after the 15-minute browser-capture bound and was refused before any server call.
+        val renewals = mutableListOf<String>()
+        var paid = false
+        var fixtureRef: WorkflowFixture? = null
+        val fixture = productionWorkflow(
+            recoveredPaid = { paid },
+            cancelResult = { PaymentResult(it, "canceled", false) },
+            renewSession = {
+                renewals += "renew"
+                requireNotNull(fixtureRef).store.state = DurableState(session())
+                true
+            },
+        ).also { fixtureRef = it }
+        fixture.terminal.holdCollect = true
+        val first = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-one", preparedReference(), first::add)
+        fixture.queued.runAll()
+        fixture.runtime.cancel()
+        fixture.queued.runAll()
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), first)
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+
+        // Time passes beyond the locally bounded captured session; the browser still holds it.
+        fixture.store.state = DurableState(session().copy(expiresAt = 500L))
+        fixture.terminal.holdCollect = false
+        paid = true
+        val second = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-two", preparedReference('B'), second::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf("renew", "renew"), renewals)
+        assertEquals(2, fixture.prepared.references.size)
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.PAID), second)
+    }
+
+    @Test
+    fun aRefusedSessionRenewalKeepsTheExpiredSaleFailClosedWithoutAServerCall() {
+        val fixture = productionWorkflow(renewSession = { false })
+        fixture.store.state = DurableState(session().copy(expiresAt = 500L))
+        val results = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+        assertTrue(fixture.prepared.references.isEmpty())
+    }
+
+    @Test
     fun declinedSaleConfirmedNotChargedIsCanceledAndFreesTheKiosk() {
         val fixture = productionWorkflow(recoveredPaid = { false }, cancelResult = { PaymentResult(it, "canceled", false) })
         fixture.terminal.holdCollect = true
@@ -612,6 +664,7 @@ class PreparedBridgeOperationsTest {
         backgroundExecutor: OperatorBackgroundExecutor? = null,
         onCollectionPrompt: (CollectionPrompt) -> Unit = {},
         cancelResult: ((String) -> PaymentResult)? = null,
+        renewSession: () -> Boolean = { true },
     ): WorkflowFixture {
         val fixture = WorkflowFixture(failCollection, beforeCollection, cancelResult)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
@@ -646,6 +699,7 @@ class PreparedBridgeOperationsTest {
             },
             fixture.ticket.readerId, clock = { 1_000L },
             onCollectionPrompt = onCollectionPrompt,
+            renewSession = renewSession,
         )
         return fixture
     }

@@ -257,7 +257,7 @@ class KioskWebActivity : Activity() {
             readiness::capture,
             readiness::currentSession,
             {
-                app.createPreparedBridgeContext(admission)?.let { prepared ->
+                app.createPreparedBridgeContext(admission, readiness::renewCapturedSession)?.let { prepared ->
                     object : KioskWebHostContext {
                         override val bridge = prepared.bridge
                         override val webEvents = prepared.events
