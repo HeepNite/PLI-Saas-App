@@ -333,6 +333,25 @@ class PurchaseCoordinator private constructor(
         }
     }
 
+    /** Identifier-free category for a refused prepared admission (diagnostics only; never mutates). */
+    internal fun preparedAdmissionBlocker(): String {
+        if (!operationLock.tryLock()) return "busy"
+        return try {
+            val state = if (poisoned) null else runCatching { store.read() }.getOrNull()
+            val session = state?.session
+            when {
+                poisoned -> "poisoned"
+                state == null -> "store_unavailable"
+                session == null -> "session_missing"
+                session.expiresAt <= clock() -> "session_expired"
+                state.attempt != null -> "attempt_retained"
+                else -> "other"
+            }
+        } finally {
+            operationLock.unlock()
+        }
+    }
+
     fun login(login: () -> StaffSession): StaffSession = exclusive {
         val state = load(allowExpiredSession = true)
         require(state.attempt == null) { "A retained attempt cannot be replaced by login" }
@@ -484,12 +503,15 @@ class PurchaseCoordinator private constructor(
 
     private fun load(allowExpiredSession: Boolean = false): DurableState {
         check(!poisoned) { "The coordinator is poisoned after a durable-state failure" }
-        return try {
-            store.read().also { validateState(it, allowExpiredSession) }
+        val state = try {
+            store.read().also { validateState(it, allowExpiredSession = true) }
         } catch (error: Exception) {
             poisoned = true
             throw IllegalStateException("Durable state is unavailable or corrupt", error)
         }
+        // An expired session is valid state awaiting renewal, not corruption: refuse without poisoning.
+        if (!allowExpiredSession) state.session?.let(::validateSession)
+        return state
     }
 
     private fun persist(state: DurableState) {
