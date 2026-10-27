@@ -476,6 +476,111 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun aSaleTheWebStoppedPollingIsCanceledBeforeTheCardAndFreesTheKioskForTheNextSale() {
+        var paid = false
+        val fixture = productionWorkflow(recoveredPaid = { paid }, cancelResult = { PaymentResult(it, "canceled", false) })
+        fixture.terminal.holdCollect = true
+        val watchdog = ManualWatchdog()
+        val operations = PreparedBridgeOperations(fixture.workflow, clock = watchdog::now, livenessScheduler = watchdog)
+
+        assertEquals(SecureBridgeState.PENDING, operations.start("operation-one", preparedReference()))
+        fixture.queued.runAll()
+        assertEquals(NativeCollectionState.COLLECTING, fixture.runtime.state)
+        watchdog.advanceTo(PreparedBridgeOperations.WEB_LIVENESS_WINDOW_MS - 1)
+        assertEquals(NativeCollectionState.COLLECTING, fixture.runtime.state, "the window has not elapsed yet")
+
+        // The web lost the bridge reply and stopped polling: the reader must stop accepting a card.
+        watchdog.advanceTo(PreparedBridgeOperations.WEB_LIVENESS_WINDOW_MS)
+        assertEquals(NativeCollectionState.UNRESOLVED, fixture.runtime.state)
+        fixture.queued.runAll()
+
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+        assertEquals(SecureBridgeState.REJECTED, operations.poll("operation-one"))
+
+        fixture.terminal.holdCollect = false
+        paid = true
+        assertEquals(SecureBridgeState.PENDING, operations.start("operation-two", preparedReference('B')))
+        fixture.queued.runAll()
+        assertEquals(SecureBridgeState.PAID, operations.poll("operation-two"))
+    }
+
+    @Test
+    fun aSaleTheWebKeepsPollingIsNeverCanceledForLiveness() {
+        val fixture = productionWorkflow(cancelResult = { PaymentResult(it, "canceled", false) })
+        fixture.terminal.holdCollect = true
+        val watchdog = ManualWatchdog()
+        val operations = PreparedBridgeOperations(fixture.workflow, clock = watchdog::now, livenessScheduler = watchdog)
+
+        operations.start("operation", preparedReference())
+        fixture.queued.runAll()
+        repeat(120) {
+            watchdog.advanceTo(watchdog.now() + 500)
+            assertEquals(SecureBridgeState.PENDING, operations.poll("operation"))
+        }
+
+        assertEquals(NativeCollectionState.COLLECTING, fixture.runtime.state)
+        assertEquals(emptyList(), fixture.prepared.cancels)
+    }
+
+    @Test
+    fun webSilenceAfterTheCardWasReadKeepsTheSaleAndItsPaidResult() {
+        val fixture = productionWorkflow(cancelResult = { error("a read card must never be canceled") })
+        fixture.terminal.holdConfirm = true
+        val watchdog = ManualWatchdog()
+        val operations = PreparedBridgeOperations(fixture.workflow, clock = watchdog::now, livenessScheduler = watchdog)
+
+        operations.start("operation", preparedReference())
+        fixture.queued.runAll()
+        assertEquals(NativeCollectionState.CONFIRMING, fixture.runtime.state)
+        watchdog.advanceTo(3 * PreparedBridgeOperations.WEB_LIVENESS_WINDOW_MS)
+        assertEquals(NativeCollectionState.CONFIRMING, fixture.runtime.state)
+        assertEquals(0, fixture.terminal.heldConfirmCancels)
+
+        fixture.terminal.releaseConfirm()
+        fixture.queued.runAll()
+
+        assertEquals(emptyList(), fixture.prepared.cancels)
+        assertEquals(SecureBridgeState.PAID, operations.poll("operation"))
+        assertNull(fixture.store.state.attempt)
+    }
+
+    @Test
+    fun aSaleWhoseDocumentWasRetiredIsCanceledBeforeTheCard() {
+        val fixture = productionWorkflow(recoveredPaid = { false }, cancelResult = { PaymentResult(it, "canceled", false) })
+        fixture.terminal.holdCollect = true
+        val operations = PreparedBridgeOperations(fixture.workflow)
+
+        operations.start("operation", preparedReference())
+        fixture.queued.runAll()
+        assertEquals(NativeCollectionState.COLLECTING, fixture.runtime.state)
+
+        operations.onDocumentRetired()
+        fixture.queued.runAll()
+
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+        assertEquals(SecureBridgeState.REJECTED, operations.poll("operation"))
+    }
+
+    @Test
+    fun aSaleAbandonedBeforeCollectionStartsNeverOpensTheReader() {
+        val fixture = productionWorkflow(deferBootstrapConnection = true)
+        val watchdog = ManualWatchdog()
+        val operations = PreparedBridgeOperations(fixture.workflow, clock = watchdog::now, livenessScheduler = watchdog)
+
+        operations.start("operation", preparedReference())
+        fixture.queued.runAll()
+        watchdog.advanceTo(PreparedBridgeOperations.WEB_LIVENESS_WINDOW_MS)
+        assertEquals(SecureBridgeState.REJECTED, operations.poll("operation"))
+
+        fixture.bootstrap.completeConnection()
+        fixture.queued.runAll()
+        assertNull(fixture.terminal.secret, "no PaymentIntent may reach the reader")
+        assertEquals(emptyList(), fixture.prepared.paymentIds)
+    }
+
+    @Test
     fun aSaleAfterTheCapturedSessionBoundIsAdmittedOnlyOnceAdmissionRenewsTheSession() {
         // Production 2026-10-27: a not-charged sale was canceled and cleared, but the next sale came
         // after the 15-minute browser-capture bound and was refused before any server call.
@@ -775,6 +880,25 @@ class PreparedBridgeOperationsTest {
         fun runNext() { if (tasks.isNotEmpty()) tasks.removeAt(0).invoke() }
         fun runAll() { while (tasks.isNotEmpty()) runNext() }
     }
+    /** Deterministic clock plus scheduler: tasks run only when the test advances time past them. */
+    private class ManualWatchdog : CollectionDeadlineScheduler {
+        private var current = 0L
+        private val tasks = mutableListOf<Pair<Long, () -> Unit>>()
+        fun now() = current
+        override fun schedule(delayMs: Long, task: () -> Unit): NativeCancelable {
+            val entry = (current + delayMs) to task
+            tasks += entry
+            return NativeCancelable { tasks.remove(entry) }
+        }
+        fun advanceTo(time: Long) {
+            current = time
+            while (true) {
+                val due = tasks.filter { it.first <= current }.minByOrNull { it.first } ?: return
+                tasks.remove(due)
+                due.second()
+            }
+        }
+    }
     private class DirectExecutor : OperatorBackgroundExecutor {
         override fun execute(task: () -> Unit) = task()
     }
@@ -842,6 +966,10 @@ class PreparedBridgeOperationsTest {
         var recoveries = 0
         var discoveryCancels = 0
         var holdCollect = false
+        var holdConfirm = false
+        private var heldConfirm: (() -> Unit)? = null
+        var heldConfirmCancels = 0
+        fun releaseConfirm() { val release = requireNotNull(heldConfirm); heldConfirm = null; release() }
         private var heldCollectFailure: (() -> Unit)? = null
         fun failHeldCollect() = requireNotNull(heldCollectFailure).invoke()
         override fun initialize(connectionTokenProvider: () -> String) = Unit
@@ -863,7 +991,12 @@ class PreparedBridgeOperationsTest {
             onSuccess(paymentIntentId); return NativeCancelable {}
         }
         override fun confirm(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            beforeConfirm(); onSuccess(paymentIntentId); return NativeCancelable {}
+            beforeConfirm()
+            if (holdConfirm) {
+                heldConfirm = { onSuccess(paymentIntentId) }
+                return NativeCancelable { if (heldConfirm != null) heldConfirmCancels++ }
+            }
+            onSuccess(paymentIntentId); return NativeCancelable {}
         }
     }
 

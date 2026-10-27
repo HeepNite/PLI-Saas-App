@@ -260,6 +260,12 @@ class NativeCollectionRuntime(
         require(activeAttempt != null && state in setOf(NativeCollectionState.RETRIEVING_INTENT, NativeCollectionState.COLLECTING, NativeCollectionState.CONFIRMING)) { "Cancellation is not legal in $state" }
         requestCancellation()
     }
+    /** Cancels only while the reader still waits for the card; a read card is left to confirm and recover. */
+    @Synchronized fun cancelWhileAwaitingCard(): Boolean {
+        if (activeAttempt == null || state !in setOf(NativeCollectionState.RETRIEVING_INTENT, NativeCollectionState.COLLECTING)) return false
+        requestCancellation()
+        return true
+    }
     @Synchronized fun recover() { requireNotNull(activeAttempt) { "No active PaymentIntent to recover" }; invalidatePayment(); recoverOriginal() }
     @Synchronized fun onTimeAdvanced() {
         if (!hasCurrentAuthority()) invalidateContext()

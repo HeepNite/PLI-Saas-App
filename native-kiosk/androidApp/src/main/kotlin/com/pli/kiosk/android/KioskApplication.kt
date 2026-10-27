@@ -435,6 +435,7 @@ class KioskApplication : Application() {
                 permissionOwner = permissions::attach,
                 warmReader = warmReader,
                 events = events,
+                livenessScheduler = AndroidCollectionDeadlineScheduler(),
             )
         }.getOrNull()
     }
@@ -448,10 +449,11 @@ class KioskApplication : Application() {
         permissionOwner: (android.app.Activity) -> Unit = {},
         warmReader: ReaderConnectionLifecycle? = null,
         events: NativeWebEvents? = null,
+        livenessScheduler: CollectionDeadlineScheduler = NoopCollectionDeadlineScheduler,
     ): PreparedBridgeContext? {
         if (!configuration.collectionEnabled || configuration.approvedOrigin != admission.origin) return null
         return runCatching {
-            val operations = PreparedBridgeOperations(workflowFactory())
+            val operations = PreparedBridgeOperations(workflowFactory(), livenessScheduler = livenessScheduler)
             val registry = operations.bridgeOperations() + listOfNotNull(events?.let { channel ->
                 NativeWebEvents.READ_STATUS to SecureBridgeOperation(emptyMap()) { channel.requestStatus(); SecureBridgeState.ACCEPTED }
             })

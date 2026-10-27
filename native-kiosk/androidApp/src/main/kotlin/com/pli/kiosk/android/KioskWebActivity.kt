@@ -30,6 +30,8 @@ internal interface KioskWebHostContext {
     /** True only when no sale is in flight, so a same-page reload cannot orphan one. */
     fun survivesDocumentReplacement() = false
     fun attachPermissionOwner() = Unit
+    /** The page that may be watching a sale was replaced; it can no longer observe that sale. */
+    fun onDocumentRetired() = Unit
     fun onBluetoothPermissionResult(granted: Boolean)
     fun onApplicationBackgrounded()
     fun onSessionInvalidated()
@@ -130,6 +132,7 @@ internal class KioskWebHostLifecycle(
     fun onPageStarted(url: String?) {
         if (terminal) return
         runCatching { host?.retireDocument() }
+        runCatching { context?.onDocumentRetired() }
         if (active && !keepsBridgeAcross(url, isRedirect = false)) invalidate(KioskWebHostContext::onSessionInvalidated)
     }
 
@@ -138,7 +141,10 @@ internal class KioskWebHostLifecycle(
         if (blocked) invalidate(KioskWebHostContext::onSessionInvalidated)
         else if (isMainFrame && active) {
             if (keepsBridgeAcross(url, isRedirect)) runCatching { host?.retireDocument() }
-            else invalidate(KioskWebHostContext::onSessionInvalidated)
+            else {
+                runCatching { context?.onDocumentRetired() }
+                invalidate(KioskWebHostContext::onSessionInvalidated)
+            }
         }
         return blocked
     }
@@ -263,6 +269,7 @@ class KioskWebActivity : Activity() {
                         override val webEvents = prepared.events
                         override fun survivesDocumentReplacement() = !prepared.operations.hasPendingOperation()
                         override fun attachPermissionOwner() = prepared.attachPermissionOwner(this@KioskWebActivity)
+                        override fun onDocumentRetired() = prepared.operations.onDocumentRetired()
                         override fun onBluetoothPermissionResult(granted: Boolean) =
                             prepared.lifecycleOwner.onBluetoothPermissionResult(granted)
                         override fun onApplicationBackgrounded() = prepared.lifecycleOwner.onApplicationBackgrounded()
@@ -277,6 +284,7 @@ class KioskWebActivity : Activity() {
                 object : KioskWebHost {
                     override fun attach() = host.attach()
                     override fun invalidate() = host.invalidate()
+                    override fun retireDocument() = host.retireDocument()
                 }
             },
         )
