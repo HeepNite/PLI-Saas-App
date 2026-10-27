@@ -114,9 +114,18 @@ interface PreparedPurchaseApi {
     /** Existing prepared API fakes remain fail-closed until they explicitly support this narrow action. */
     fun preparedCreationStatus(session: StaffSession, ticket: AttemptTicket): PreparedCreationStatus =
         throw UnsupportedOperationException("Prepared creation status is unavailable")
+    /**
+     * Asks the server to cancel the exact retained PaymentIntent only if Stripe confirms it was not
+     * charged. Returns its resulting status: canceled, succeeded (paid), or anything else (pending).
+     */
+    fun preparedCancel(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult =
+        throw UnsupportedOperationException("Prepared cancel is unavailable")
 }
 
 enum class Outcome { PENDING, PAID, DISABLED }
+
+/** Server answer to a prepared cancel. Only [CANCELED] frees the kiosk; [PENDING] keeps it locked. */
+enum class PreparedCancelOutcome { CANCELED, PAID, PENDING }
 
 /** UI seam: implementations may expose only lookup and explicit confirmation, never a student ID. */
 interface StudentSelectionActions {
@@ -288,6 +297,40 @@ class PurchaseCoordinator private constructor(
         confirmedPhone = null
         selectedStudent = null
         persist(DurableState(session))
+    }
+
+    /**
+     * Owner decision 2026-10-27: a not-paid prepared attempt is cleared only after the server
+     * confirms Stripe canceled its exact PaymentIntent uncharged. The clear is persisted and read
+     * back before returning, so no new sale can start on a non-durable clear. A paid answer is
+     * persisted as resolved for the existing paid rollover; anything else keeps the attempt.
+     */
+    internal fun cancelUnpaidPreparedAttempt(): PreparedCancelOutcome = exclusive {
+        val state = load()
+        val session = originalSession(state)
+        val attempt = requireNotNull(state.attempt) { "No retained attempt exists" }
+        validateBinding(session, attempt)
+        require(attempt.mode == AttemptMode.PREPARED && !attempt.resolved) { "No unresolved prepared attempt exists" }
+        val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
+        val id = requireNotNull(attempt.paymentIntentId) { "No known PaymentIntent exists to cancel" }
+        val payment = preparedApiOrFail().preparedCancel(session, ticket, id)
+        val next = validatedRecoveredAttempt(attempt, payment)
+        when {
+            next.resolved -> {
+                persist(DurableState(session, next))
+                PreparedCancelOutcome.PAID
+            }
+            payment.status == "canceled" -> {
+                val cleared = DurableState(session)
+                pendingPhone = null
+                confirmedPhone = null
+                selectedStudent = null
+                persist(cleared)
+                check(load() == cleared) { "Canceled prepared rollover was not durable" }
+                PreparedCancelOutcome.CANCELED
+            }
+            else -> PreparedCancelOutcome.PENDING
+        }
     }
 
     fun login(login: () -> StaffSession): StaffSession = exclusive {

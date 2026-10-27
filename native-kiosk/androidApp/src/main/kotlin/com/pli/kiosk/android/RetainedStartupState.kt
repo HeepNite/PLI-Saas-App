@@ -21,6 +21,7 @@ enum class RetainedRecoveryStage {
     SESSION_RENEWED,
     SERVER_PAID,
     SERVER_PENDING,
+    SERVER_CANCELED,
     PAID_COMMITTED,
     RELOAD_REQUESTED,
     FAILED,

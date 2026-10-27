@@ -129,7 +129,7 @@ class WebSessionReadiness(
                 }
                 Outcome.PENDING, Outcome.DISABLED -> {
                     report(RetainedRecoveryStage.SERVER_PENDING)
-                    false
+                    rollOverConfirmedNotChargedAttempt(imported)
                 }
             }
         } catch (_: Exception) {
@@ -139,6 +139,26 @@ class WebSessionReadiness(
             false
         }
     }
+
+    /**
+     * A not-paid retained payment is cleared only when the server confirms Stripe canceled it
+     * uncharged. Ambiguous answers and cancel failures keep the renewed attempt, exactly like an
+     * unresolved recovery; they never restore or poison anything.
+     */
+    private fun rollOverConfirmedNotChargedAttempt(imported: StaffSession): Boolean =
+        when (runCatching { coordinator.cancelUnpaidPreparedAttempt() }.getOrDefault(PreparedCancelOutcome.PENDING)) {
+            PreparedCancelOutcome.CANCELED -> {
+                report(RetainedRecoveryStage.SERVER_CANCELED)
+                true
+            }
+            PreparedCancelOutcome.PAID -> {
+                report(RetainedRecoveryStage.SERVER_PAID)
+                commitPaidRollover(imported).also { committed ->
+                    if (committed) report(RetainedRecoveryStage.PAID_COMMITTED)
+                }
+            }
+            PreparedCancelOutcome.PENDING -> false
+        }
 
     /** UNCREATED is narrow negative authority, never a payment or reader recovery result. */
     private fun recoverUncreatedTicketOnlyAttempt(original: DurableState, imported: StaffSession): Boolean {

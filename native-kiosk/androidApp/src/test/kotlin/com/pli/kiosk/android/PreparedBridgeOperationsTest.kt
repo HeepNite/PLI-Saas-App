@@ -6,6 +6,7 @@ import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PreparedBridgeOperationsTest {
@@ -447,6 +448,109 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun collectionTimeoutConfirmedNotChargedIsCanceledAndFreesTheKioskForTheNextSale() {
+        var paid = false
+        val fixture = productionWorkflow(recoveredPaid = { paid }, cancelResult = { PaymentResult(it, "canceled", false) })
+        fixture.terminal.holdCollect = true
+        val first = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation-one", preparedReference(), first::add)
+        fixture.queued.runAll()
+        assertEquals(NativeCollectionState.COLLECTING, fixture.runtime.state)
+        // The 90 s collection deadline cancels through this same runtime cancellation path.
+        fixture.runtime.cancel()
+        assertEquals(NativeCollectionState.UNRESOLVED, fixture.runtime.state)
+        assertEquals(listOf(PreparedRecoveryState.PENDING), first, "the web sees no result until the kiosk is freed")
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), first)
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+
+        fixture.terminal.holdCollect = false
+        paid = true
+        val second = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-two", preparedReference('B'), second::add)
+        fixture.queued.runAll()
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.PAID), second)
+    }
+
+    @Test
+    fun declinedSaleConfirmedNotChargedIsCanceledAndFreesTheKiosk() {
+        val fixture = productionWorkflow(recoveredPaid = { false }, cancelResult = { PaymentResult(it, "canceled", false) })
+        fixture.terminal.holdCollect = true
+        val results = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        fixture.queued.runAll()
+        fixture.terminal.failHeldCollect()
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+    }
+
+    @Test
+    fun readerDisconnectConfirmedNotChargedIsCanceledAndFreesTheKiosk() {
+        val fixture = productionWorkflow(
+            recoveredPaid = { false }, beforeConfirm = { it.onReaderDisconnected() },
+            cancelResult = { PaymentResult(it, "canceled", false) },
+        )
+        val results = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+        assertNull(fixture.store.state.attempt)
+    }
+
+    @Test
+    fun ambiguousCancelResultKeepsTheAttemptRetainedAndTheKioskLocked() {
+        val fixture = productionWorkflow(recoveredPaid = { false }, cancelResult = { PaymentResult(it, "processing", false) })
+        val first = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-one", preparedReference(), first::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), first)
+        assertEquals("pi_exact", fixture.store.state.attempt?.paymentIntentId)
+        assertFalse(requireNotNull(fixture.store.state.attempt).resolved)
+        val second = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-two", preparedReference('B'), second::add)
+        fixture.queued.runAll()
+        assertEquals(PreparedRecoveryState.REJECTED, second.last())
+        assertEquals(1, fixture.prepared.references.size)
+    }
+
+    @Test
+    fun cancelServerErrorKeepsTheAttemptRetainedAndTheKioskLocked() {
+        val fixture = productionWorkflow(recoveredPaid = { false }, cancelResult = { throw java.io.IOException("offline") })
+        val first = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-one", preparedReference(), first::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), first)
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertEquals("pi_exact", fixture.store.state.attempt?.paymentIntentId)
+        val second = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-two", preparedReference('B'), second::add)
+        fixture.queued.runAll()
+        assertEquals(PreparedRecoveryState.REJECTED, second.last())
+    }
+
+    @Test
+    fun cancelThatFindsThePaymentPaidPublishesPaidThroughTheExistingPaidRollover() {
+        val fixture = productionWorkflow(recoveredPaid = { false }, cancelResult = { PaymentResult(it, "succeeded", true) })
+        val results = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.PAID), results)
+        assertNull(fixture.store.state.attempt)
+    }
+
+    @Test
     fun bootstrapDeadlineRejectsAndClosesTheOrphanedRuntimeDiscovery() {
         val fixture = WorkflowFixture()
         val events = mutableListOf<String>()
@@ -507,11 +611,12 @@ class PreparedBridgeOperationsTest {
         beforeCollection: () -> Unit = {},
         backgroundExecutor: OperatorBackgroundExecutor? = null,
         onCollectionPrompt: (CollectionPrompt) -> Unit = {},
+        cancelResult: ((String) -> PaymentResult)? = null,
     ): WorkflowFixture {
-        val fixture = WorkflowFixture(failCollection, beforeCollection)
+        val fixture = WorkflowFixture(failCollection, beforeCollection, cancelResult)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
         fixture.workflow = ProductionPreparedBridgeWorkflow(
-            coordinator(fixture.prepared), backgroundExecutor ?: fixture.queued,
+            coordinator(fixture.prepared, fixture.store), backgroundExecutor ?: fixture.queued,
             NativeCollectionRuntimeFactory { attempt ->
                 assertEquals(AttemptMode.PREPARED, attempt.mode)
                 fixture.runtimeAttempt = attempt
@@ -545,16 +650,20 @@ class PreparedBridgeOperationsTest {
         return fixture
     }
 
-    private fun coordinator(prepared: RecordingPreparedApi): PurchaseCoordinator = PurchaseCoordinator(
-        ApprovedOrigin("https://approved.invalid"), MemoryStore(DurableState(session())), LegacyApi(), { 1_000L }, prepared,
-    )
+    private fun coordinator(prepared: RecordingPreparedApi, store: MemoryStore = MemoryStore(DurableState(session()))): PurchaseCoordinator =
+        PurchaseCoordinator(ApprovedOrigin("https://approved.invalid"), store, LegacyApi(), { 1_000L }, prepared)
     private fun session() = StaffSession("https://approved.invalid", "association", "cookie", 2_000L)
     private fun reader(ticket: AttemptTicket) = ConnectedReader(ticket.readerId, Approved.M2_SERIAL, "stripe_m2", ticket.locationId)
 
-    private class WorkflowFixture(failCollection: Boolean = false, beforeCollection: () -> Unit = {}) {
+    private class WorkflowFixture(
+        failCollection: Boolean = false,
+        beforeCollection: () -> Unit = {},
+        cancelResult: ((String) -> PaymentResult)? = null,
+    ) {
         val ticket = AttemptTicket("ticket", 2_000L, "tmr_exact", Approved.LOCATION)
         val queued = QueuedExecutor()
-        val prepared = RecordingPreparedApi(ticket, failCollection, beforeCollection)
+        val store = MemoryStore(DurableState(StaffSession("https://approved.invalid", "association", "cookie", 2_000L)))
+        val prepared = RecordingPreparedApi(ticket, failCollection, beforeCollection, cancelResult)
         val terminal = RecordingTerminal()
         lateinit var bootstrap: ReadyBootstrapRuntime
         lateinit var runtime: NativeCollectionRuntime
@@ -572,7 +681,7 @@ class PreparedBridgeOperationsTest {
     private class DirectExecutor : OperatorBackgroundExecutor {
         override fun execute(task: () -> Unit) = task()
     }
-    private class MemoryStore(private var state: DurableState) : StateStore {
+    private class MemoryStore(var state: DurableState) : StateStore {
         override fun read() = state
         override fun write(state: DurableState) { this.state = state }
     }
@@ -587,8 +696,10 @@ class PreparedBridgeOperationsTest {
         private val ticket: AttemptTicket,
         private val failCollection: Boolean = false,
         private val beforeCollection: () -> Unit = {},
+        private val cancelResult: ((String) -> PaymentResult)? = null,
     ) : PreparedPurchaseApi {
         val references = mutableListOf<String>()
+        val cancels = mutableListOf<String>()
         val paymentIds = mutableListOf<String?>()
         val recoveries = mutableListOf<String>()
         override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket = ticket.also { references += preparedPurchaseReference }
@@ -598,6 +709,10 @@ class PreparedBridgeOperationsTest {
             }
         override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
             PaymentResult("pi_exact", "succeeded", true).also { recoveries += paymentIntentId }
+        override fun preparedCancel(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+            cancels += paymentIntentId
+            return requireNotNull(cancelResult) { "cancel unsupported" }(paymentIntentId)
+        }
     }
     private class GrantedPermissions : BluetoothPermissions {
         override fun hasBluetoothPermissions() = true
@@ -629,6 +744,9 @@ class PreparedBridgeOperationsTest {
         var secret: String? = null
         var recoveries = 0
         var discoveryCancels = 0
+        var holdCollect = false
+        private var heldCollectFailure: (() -> Unit)? = null
+        fun failHeldCollect() = requireNotNull(heldCollectFailure).invoke()
         override fun initialize(connectionTokenProvider: () -> String) = Unit
         override fun discover(request: BluetoothDiscoveryRequest, onUpdate: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit): NativeCancelable {
             readers = onUpdate; return NativeCancelable { discoveryCancels++ }
@@ -640,6 +758,11 @@ class PreparedBridgeOperationsTest {
             secret = clientSecret; onSuccess("pi_exact"); return NativeCancelable {}
         }
         override fun collect(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
+            if (holdCollect) {
+                heldCollectFailure = onFailure
+                // The SDK reports a canceled collection through its failure callback.
+                return NativeCancelable { onFailure() }
+            }
             onSuccess(paymentIntentId); return NativeCancelable {}
         }
         override fun confirm(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
