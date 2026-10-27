@@ -133,6 +133,60 @@ describe("KioskClassQrCode", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it("keeps the current grant while failed refreshes retry and then recovers", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-23T20:00:00.000Z"))
+    const responses = [
+      new Response(JSON.stringify({ grant: "grant-a", expiresAt: "2026-10-23T20:01:00.000Z" }), { status: 200 }),
+      new Response(null, { status: 503 }),
+      new Response(null, { status: 503 }),
+      new Response(JSON.stringify({ grant: "grant-b", expiresAt: "2026-10-23T20:03:00.000Z" }), { status: 200 }),
+    ]
+    const fetchMock = vi.fn(async () => responses.shift() ?? new Response(null, { status: 503 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    roots.push(root)
+
+    await act(async () => {
+      root.render(<KioskClassQrCode url="https://pli.test/checkin?courseSlug=a&date=2026-10-23&time=19%3A00" size={180} />)
+      await Promise.resolve()
+    })
+    expect(container.querySelector("[data-qr-value]")?.getAttribute("data-qr-value")).toContain("grant-a")
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(container.querySelector("[data-qr-value]")?.getAttribute("data-qr-value")).toContain("grant-a")
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(container.querySelector("[data-qr-value]")?.getAttribute("data-qr-value")).toContain("grant-a")
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000) })
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(container.querySelector("[data-qr-value]")?.getAttribute("data-qr-value")).toContain("grant-b")
+    expect(vi.getTimerCount()).toBe(2)
+  })
+
+  it("stops retrying after three consecutive grant failures", async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn(async () => new Response(null, { status: 503 }))
+    vi.stubGlobal("fetch", fetchMock)
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    roots.push(root)
+
+    await act(async () => {
+      root.render(<KioskClassQrCode url="https://pli.test/checkin?courseSlug=a&date=2026-10-23&time=19%3A00" size={180} />)
+      await Promise.resolve()
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(container.querySelector("[data-qr-value]")).toBeNull()
+  })
+
   it("does not schedule timers for a stale grant response", async () => {
     vi.useFakeTimers()
     let resolveFirst: ((response: Response) => void) | undefined
