@@ -2,6 +2,7 @@ import Image from "next/image"
 import { cn } from "@/lib/utils"
 import { formatTerminalClassDateTime } from "@/lib/checkin/class-date-format"
 import type { TerminalPastClass } from "@/components/front/checkin/checkin.types"
+import { KioskClassQrCode } from "@/components/front/checkin/KioskClassQrCode"
 import { formatEnrollmentOptionPrice } from "@/components/front/courses/utils/package-pricing"
 import type { CourseDisplayPrices } from "@/lib/promotions/course-display-prices"
 
@@ -300,11 +301,10 @@ function PastCoursesList({
 
               <div className="relative flex items-center justify-center pl-5">
                 <span aria-hidden="true" className="absolute inset-y-2 left-0 w-px bg-gradient-to-b from-transparent via-white/12 to-transparent" />
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={item.qrImageUrl}
-                  alt={`${item.title} QR code`}
-                  className="h-36 w-36 rounded-2xl border border-white/15 bg-white object-contain lg:h-40 lg:w-40"
+                <KioskClassQrCode
+                  url={item.qrImageUrl}
+                  size={160}
+                  ariaLabel={`${item.title} QR code`}
                 />
               </div>
             </div>
@@ -426,16 +426,11 @@ function QrSection({
         Scan QR code
       </p>
       <div className="flex min-h-[238px] items-center justify-center">
-      
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={qrImage}
-        alt="Check-in QR code"
-        className={cn(
-          "mt-4 rounded-2xl border border-white/15 bg-white object-contain",
-          compact ? "h-48 w-48 lg:h-52 lg:w-52" : "h-48 w-48 lg:h-56 lg:w-56"
-        )}
-      />
+        <KioskClassQrCode
+          url={qrImage}
+          size={compact ? 208 : 224}
+          className="mt-4"
+        />
       </div>
       
       {actionSlot && <div className="mt-4 w-full max-w-[22rem]">{actionSlot}</div>}
