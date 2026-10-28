@@ -4,6 +4,8 @@ import {
   buildQrSignInUrl,
   buildQrWelcomeUrl,
   isQrBookingAuthReady,
+  resolveQrFlowVariant,
+  shouldResolveQrExistingCustomer,
   shouldSkipQrBookingContactStep,
 } from "@/lib/checkin/qr-booking-links"
 
@@ -17,6 +19,17 @@ describe("QR booking links", () => {
         durationMinutes: 60,
       })
     ).toBe("/courses/salsa-1?enroll=1&qrBooking=1&date=2026-06-11&time=19%3A30&durationMinutes=60")
+  })
+
+  it("preserves the server-issued kiosk cash grant", () => {
+    expect(
+      buildQrBookingUrl({
+        courseSlug: "salsa-1",
+        date: "2026-06-11",
+        time: "19:30",
+        kioskQrCashGrant: "signed.grant",
+      })
+    ).toContain("kioskQrCashGrant=signed.grant")
   })
 
   it("uses the real catalog route when the QR is missing a course slug", () => {
@@ -74,6 +87,19 @@ describe("QR booking links", () => {
         isSignedIn: true,
       })
     ).toBe(false)
+  })
+
+  it("classifies a signed-in established customer as existing despite newStudent=1", () => {
+    expect(shouldResolveQrExistingCustomer({
+      hasQrBookingContext: true,
+      isLoaded: true,
+      isSignedIn: true,
+    })).toBe(true)
+    expect(resolveQrFlowVariant({ isSignedIn: true, isExistingCustomer: true })).toBe("checkin-existing")
+  })
+
+  it("keeps a signed-in customer without purchase history in the new-student flow", () => {
+    expect(resolveQrFlowVariant({ isSignedIn: true, isExistingCustomer: false })).toBe("checkin-new")
   })
 
   it("keeps the mounted QR booking ready after its flow variant was captured", () => {

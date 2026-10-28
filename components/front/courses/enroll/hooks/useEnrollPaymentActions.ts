@@ -59,6 +59,7 @@ export type UseEnrollPaymentActionsInput = {
   checkInContextDuration: number
   bookingSource?: "public_booking"
   heritagePinCountryCode?: string
+  kioskQrCashGrant?: string
   consecutiveAccepted: boolean
   consecutiveAddedCents: number
   effectiveConsecutiveOffer: ConsecutiveOfferData | null | undefined
@@ -106,7 +107,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     course, service, pkg, addons, participants, date, time, contact,
     appliedCoupon, paymentMethod, total, displayTotal = total, photoFlowContext, kioskSessionToken,
     checkInContextDate, checkInContextTime, checkInContextDuration,
-    bookingSource, heritagePinCountryCode, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
+    bookingSource, heritagePinCountryCode, kioskQrCashGrant, consecutiveAccepted, consecutiveAddedCents, effectiveConsecutiveOffer,
     isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
     paymentsStepIndex, regularServiceId, regularServicePrice,
     getToken,
@@ -196,6 +197,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
           ...(bookingSource === "public_booking"
             ? { bookingSource, ...(heritagePinCountryCode ? { heritagePinCountryCode } : {}) }
             : {}),
+          ...(kioskQrCashGrant ? { kioskQrCashGrant } : {}),
           ...extra,
         },
       }),
@@ -214,6 +216,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       checkInContextTime,
       bookingSource,
       heritagePinCountryCode,
+      kioskQrCashGrant,
       pkg,
       kioskSessionToken,
       service,

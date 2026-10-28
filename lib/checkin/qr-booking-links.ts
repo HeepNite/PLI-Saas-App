@@ -3,6 +3,7 @@ export type QrBookingLinkParams = {
   date?: string
   time?: string
   durationMinutes?: number
+  kioskQrCashGrant?: string
 }
 
 type QrBookingAuthReadyInput = {
@@ -10,6 +11,17 @@ type QrBookingAuthReadyInput = {
   isLoaded: boolean
   existingCustomerResolved: boolean
   hasCapturedFlowVariant: boolean
+}
+
+type QrExistingCustomerCheckInput = {
+  hasQrBookingContext: boolean
+  isLoaded: boolean
+  isSignedIn: boolean
+}
+
+type QrFlowVariantInput = {
+  isSignedIn: boolean
+  isExistingCustomer: boolean | null
 }
 
 type QrBookingContactStepInput = {
@@ -30,6 +42,21 @@ export function isQrBookingAuthReady({
   return !hasQrBookingContext || (isLoaded && (existingCustomerResolved || hasCapturedFlowVariant))
 }
 
+export function shouldResolveQrExistingCustomer({
+  hasQrBookingContext,
+  isLoaded,
+  isSignedIn,
+}: QrExistingCustomerCheckInput) {
+  return hasQrBookingContext && isLoaded && isSignedIn
+}
+
+export function resolveQrFlowVariant({
+  isSignedIn,
+  isExistingCustomer,
+}: QrFlowVariantInput): "checkin-new" | "checkin-existing" {
+  return isSignedIn && isExistingCustomer === true ? "checkin-existing" : "checkin-new"
+}
+
 export function shouldSkipQrBookingContactStep({
   hasQrBookingContext,
   isLoaded,
@@ -44,6 +71,7 @@ export function buildQrBookingUrl({
   date,
   time,
   durationMinutes,
+  kioskQrCashGrant,
 }: QrBookingLinkParams) {
   const slug = courseSlug.trim()
   if (!slug) return FALLBACK_COURSE_CATALOG_URL
@@ -54,6 +82,7 @@ export function buildQrBookingUrl({
   if (typeof durationMinutes === "number" && Number.isFinite(durationMinutes)) {
     params.set("durationMinutes", String(Math.round(durationMinutes)))
   }
+  if (kioskQrCashGrant) params.set("kioskQrCashGrant", kioskQrCashGrant)
 
   return `/courses/${encodeURIComponent(slug)}?${params.toString()}`
 }
