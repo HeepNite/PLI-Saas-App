@@ -92,6 +92,16 @@ describe("booking payment channels", () => {
     expect(html).toContain("payments_stripe")
   })
 
+  it("keeps ordinary public booking card-only when passed a grant-looking value", () => {
+    const html = renderPayments({
+      isCheckInFlow: false,
+      isOrdinaryPublicBooking: true,
+      hasKioskQrCashGrant: true,
+    })
+    expect(html).not.toContain("payments_onSite")
+    expect(html).toContain("payments_stripe")
+  })
+
   it("resets an onsite selection when the booking becomes public", async () => {
     const container = document.createElement("div")
     const root = createRoot(container)
