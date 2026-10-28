@@ -51,6 +51,9 @@ import {
   validatePreparedNativePaymentIntent,
   type PreparedNativePaymentPurchase,
 } from "@/lib/stripe/prepared-native-payment"
+import {
+  isCanceledLoggedPaymentIntent, recordPreparedNativeAttemptFailure, type PreparedNativeFailureStatus,
+} from "@/lib/stripe/prepared-native-attempt-failure"
 
 export const runtime = "nodejs"
 
@@ -1005,26 +1008,14 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
   })
 }
 
-const PREPARED_NATIVE_RECORDABLE_STATUSES = ["pending", "failed", "canceled"]
-
-const PREPARED_NATIVE_FAILURE_STATUS_BY_EVENT: Partial<Record<Stripe.Event.Type, "failed" | "canceled">> = {
+const PREPARED_NATIVE_FAILURE_STATUS_BY_EVENT: Partial<Record<Stripe.Event.Type, PreparedNativeFailureStatus>> = {
   "payment_intent.payment_failed": "failed",
   "payment_intent.canceled": "canceled",
 }
 
-const isCanceledLoggedPaymentIntent = (metadata: unknown, paymentIntentId: string) => {
-  const attempts = metadata && typeof metadata === "object" && !Array.isArray(metadata)
-    ? (metadata as Record<string, unknown>).paymentAttempts
-    : undefined
-  return Array.isArray(attempts) && attempts.some((attempt) =>
-    Boolean(attempt) && typeof attempt === "object" &&
-    (attempt as Record<string, unknown>).paymentIntentId === paymentIntentId &&
-    (attempt as Record<string, unknown>).status === "canceled")
-}
-
 // Records a declined/canceled prepared native attempt on its unpaid Purchase so staff can
 // verify it. Never fulfills, never binds a PaymentIntent, never downgrades a paid row.
-async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, event: Stripe.Event, status: "failed" | "canceled") {
+async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, event: Stripe.Event, status: PreparedNativeFailureStatus) {
   const purchaseId = intent.metadata?.purchaseId
   const purchase = typeof purchaseId === "string" ? await prisma.purchase.findUnique({ where: { id: purchaseId } }) : null
   let bound = false
@@ -1050,15 +1041,7 @@ async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, 
   await prisma.$transaction(async (tx) => {
     // Every attempt is logged (History), including a repeat decline on an already failed row.
     // Paid, reversed, or any other non-attempt status is never overwritten.
-    if (PREPARED_NATIVE_RECORDABLE_STATUSES.includes(purchase.status)) {
-      await tx.purchase.updateMany({
-        where: { id: purchase.id, status: { in: PREPARED_NATIVE_RECORDABLE_STATUSES }, OR: [{ stripePaymentIntentId: null }, { stripePaymentIntentId: intent.id }] },
-        data: {
-          status,
-          metadata: mergeFailureIntoMetadata(purchase.metadata, normalizeNativeFailureFromPaymentIntent(intent, event), { channel: "native_m2", status }) as Prisma.InputJsonValue,
-        },
-      })
-    }
+    await recordPreparedNativeAttemptFailure(tx, purchase, intent, event, status)
     await completeInternalWebhookEventTx(tx, event.id, purchase.id)
   })
 }
