@@ -127,6 +127,9 @@ enum class Outcome { PENDING, PAID, DISABLED }
 /** Server answer to a prepared cancel. Only [CANCELED] frees the kiosk; [PENDING] keeps it locked. */
 enum class PreparedCancelOutcome { CANCELED, PAID, PENDING }
 
+/** In-session ticket-only resolution: only [CLEARED] frees the kiosk directly. */
+enum class TicketOnlyResolution { CLEARED, RECOVERED_PENDING, RECOVERED_PAID }
+
 /** UI seam: implementations may expose only lookup and explicit confirmation, never a student ID. */
 interface StudentSelectionActions {
     fun lookupStudent(phone: String): StudentLookupResult
@@ -321,16 +324,50 @@ class PurchaseCoordinator private constructor(
                 PreparedCancelOutcome.PAID
             }
             payment.status == "canceled" -> {
-                val cleared = DurableState(session)
-                pendingPhone = null
-                confirmedPhone = null
-                selectedStudent = null
-                persist(cleared)
-                check(load() == cleared) { "Canceled prepared rollover was not durable" }
+                persistReadBackClear(session)
                 PreparedCancelOutcome.CANCELED
             }
             else -> PreparedCancelOutcome.PENDING
         }
+    }
+
+    /**
+     * In-session counterpart of the startup creation-status recovery for a sale that failed after
+     * ticket issuance but before its PaymentIntent identity was retained. UNCREATED clears durably
+     * (read back); CREATED only recovers and persists the exact PaymentIntent so the caller settles
+     * it through the existing not-paid cancel or paid rollover. Failures keep the attempt retained.
+     */
+    internal fun resolveTicketOnlyPreparedAttempt(): TicketOnlyResolution = exclusive {
+        val state = load()
+        val session = originalSession(state)
+        val attempt = requireNotNull(state.attempt) { "No retained attempt exists" }
+        validateBinding(session, attempt)
+        require(attempt.mode == AttemptMode.PREPARED && !attempt.resolved && attempt.paymentIntentId == null) {
+            "No unresolved ticket-only prepared attempt exists"
+        }
+        val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
+        val api = preparedApiOrFail()
+        when (api.preparedCreationStatus(session, ticket)) {
+            PreparedCreationStatus.UNCREATED -> {
+                persistReadBackClear(session)
+                TicketOnlyResolution.CLEARED
+            }
+            PreparedCreationStatus.CREATED ->
+                if (accept(session, attempt, api.preparedPaymentIntent(session, ticket)) == Outcome.PAID) {
+                    TicketOnlyResolution.RECOVERED_PAID
+                } else {
+                    TicketOnlyResolution.RECOVERED_PENDING
+                }
+        }
+    }
+
+    private fun persistReadBackClear(session: StaffSession) {
+        val cleared = DurableState(session)
+        pendingPhone = null
+        confirmedPhone = null
+        selectedStudent = null
+        persist(cleared)
+        check(load() == cleared) { "Prepared rollover was not durable" }
     }
 
     /** Identifier-free category for a refused prepared admission (diagnostics only; never mutates). */
