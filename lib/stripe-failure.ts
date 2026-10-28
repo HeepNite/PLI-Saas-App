@@ -53,7 +53,7 @@ const NATIVE_FAILURE_MESSAGE_MAX_LENGTH = 200
  */
 export function normalizeNativeFailureFromPaymentIntent(
   intent: Stripe.PaymentIntent,
-  event: Stripe.Event
+  event: Pick<Stripe.Event, "type" | "created">
 ): StripeFailureInfo {
   const error = extractErrorFields(intent.last_payment_error as Record<string, unknown> | null | undefined)
   if (error?.message) error.message = error.message.slice(0, NATIVE_FAILURE_MESSAGE_MAX_LENGTH)

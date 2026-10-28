@@ -17,6 +17,7 @@ import {
   preparedNativePaymentMetadata, readPreparedNativePaymentAttempt, validatePreparedNativePaymentIntent,
   type PreparedNativePaymentPurchase,
 } from "@/lib/stripe/prepared-native-payment"
+import { recordPreparedNativeAttemptFailure } from "@/lib/stripe/prepared-native-attempt-failure"
 export { InternalPurchaseError } from "@/lib/stripe/internal-purchase"
 
 export const isInternalPurchaseEnabled = () =>
@@ -197,8 +198,17 @@ const resolveExactBoundPreparedCancel = async (
   return purchase
 }
 
-// Purchase status and the staff Verify record follow from Stripe's payment_intent.canceled
-// webhook (recordPreparedNativePaymentFailure); this action never writes the Purchase itself.
+// A canceled PaymentIntent is recorded on its still-bound unpaid Purchase here, so the staff
+// Verify record never depends on payment_intent.canceled webhook delivery. Same recording as
+// the webhook path; idempotent, never downgrades paid, and leaves the PaymentIntent bound so
+// a retry reopens the Purchase (reopenRetryablePurchase).
+const recordPreparedCancellation = async (purchaseId: string, intent: Stripe.PaymentIntent) => {
+  const current = await prisma.purchase.findUnique({ where: { id: purchaseId } })
+  if (!current || current.stripePaymentIntentId !== intent.id) return
+  const created = typeof intent.canceled_at === "number" ? intent.canceled_at : Math.floor(Date.now() / 1000)
+  await recordPreparedNativeAttemptFailure(prisma, current, intent, { type: "payment_intent.canceled", created }, "canceled", { requireBoundIntent: true })
+}
+
 const cancelPreparedPayment = async (
   stripe: Stripe,
   input: Extract<InternalPurchaseRequest, { action: "prepared-cancel" }>,
@@ -209,12 +219,13 @@ const cancelPreparedPayment = async (
   validatePreparedNativePaymentIntent(intent, input.ticket, purchase)
   if (intent.id !== id) throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
   await verifyExactPreparedPaymentBinding(input.ticket, purchase.id, id)
-  let status: string = intent.status
-  if (PREPARED_CANCELABLE_STATUSES.has(status)) {
-    const canceled = await stripe.paymentIntents.cancel(id, {}, { idempotencyKey: preparedCancelIdempotencyKey(id) })
-    if (canceled.id !== id) throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
-    status = canceled.status
+  let final: Stripe.PaymentIntent = intent
+  if (PREPARED_CANCELABLE_STATUSES.has(intent.status)) {
+    final = await stripe.paymentIntents.cancel(id, {}, { idempotencyKey: preparedCancelIdempotencyKey(id) })
+    if (final.id !== id) throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
   }
+  const status: string = final.status
+  if (status === "canceled") await recordPreparedCancellation(purchase.id, final)
   return { id, status, paid: status === "succeeded" }
 }
 
