@@ -501,6 +501,19 @@ describe("stripe webhook checkout session persistence", () => {
     expect((await sendInternalEvent()).status).toBe(200)
     expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
   })
+  it("completes a payment_intent.canceled already recorded by the kiosk cancel without logging it twice", async () => {
+    const { event, purchase } = await preparedNativeFailureEvent("payment_intent.canceled")
+    mockPurchaseFindUnique.mockResolvedValue({
+      ...purchase, status: "canceled", stripePaymentIntentId: "pi_dynamic_1",
+      metadata: { ...purchase.metadata, paymentAttempts: [{ at: "2026-10-04T16:59:00.000Z", channel: "native_m2", status: "canceled", paymentIntentId: "pi_dynamic_1" }] },
+    })
+    mockConstructEvent.mockReturnValue(event)
+
+    expect((await sendInternalEvent()).status).toBe(200)
+    expect(mockPurchaseUpdateMany).not.toHaveBeenCalled()
+    expect(mockStripeWebhookEventUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "completed", purchaseId: "purchase_dynamic_1" }) }))
+    expectNoDynamicFallback()
+  })
   it("pays a reopened canceled Purchase when the retry PaymentIntent succeeds", async () => {
     const { event, purchase } = await preparedNativeEvent()
     const retry = { ...event, id: "evt_retry_succeeded", data: { object: { ...event.data.object, id: "pi_retry_1" } } }

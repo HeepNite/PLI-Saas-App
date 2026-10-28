@@ -787,9 +787,51 @@ describe("internal LIVE preflight and connection-token boundary", () => {
             expect(JSON.stringify(body)).not.toContain("secret")
             expect(mocks.cancel).toHaveBeenCalledExactlyOnceWith("pi_fixture", {}, { idempotencyKey: cancelKey })
             expect(mocks.create).not.toHaveBeenCalled()
-            expect(mocks.purchaseUpdateMany).not.toHaveBeenCalled()
+            expectCanceledRecorded()
           },
         )
+
+        const expectCanceledRecorded = () => {
+          const at = new Date().toISOString()
+          expect(mocks.purchaseUpdateMany).toHaveBeenCalledExactlyOnceWith({
+            where: { id: "purchase_dynamic_1", status: { in: ["pending", "failed", "canceled"] }, stripePaymentIntentId: "pi_fixture" },
+            data: {
+              status: "canceled",
+              metadata: expect.objectContaining({
+                paymentSurface: "native_m2_prepare",
+                stripeFailure: { eventType: "payment_intent.canceled", occurredAt: at, paymentIntentId: "pi_fixture" },
+                paymentAttempts: [{ at, channel: "native_m2", status: "canceled", paymentIntentId: "pi_fixture" }],
+              }),
+            },
+          })
+        }
+
+        it("records an already canceled PaymentIntent on the still pending Purchase so staff see Verify", async () => {
+          const { ticket, intent } = await boundAttempt()
+          mocks.retrieve.mockResolvedValueOnce({ ...intent, status: "canceled" })
+          expect((await cancel(ticket)).status).toBe(200)
+          expectCanceledRecorded()
+        })
+
+        it("does not log the same cancellation twice when the Purchase already recorded it", async () => {
+          const { ticket } = await boundAttempt()
+          expect((await cancel(ticket)).status).toBe(200)
+          boundPurchase = {
+            ...boundPurchase!, status: "canceled",
+            metadata: { ...(boundPurchase!.metadata as Record<string, unknown>), paymentAttempts: [{ at: "x", channel: "native_m2", status: "canceled", paymentIntentId: "pi_fixture" }] },
+          }
+          mocks.purchaseUpdateMany.mockClear()
+          expect((await cancel(ticket)).status).toBe(200)
+          expect(mocks.purchaseUpdateMany).not.toHaveBeenCalled()
+        })
+
+        it("never records a cancellation over a paid Purchase", async () => {
+          const { ticket } = await boundAttempt()
+          boundPurchase = { ...boundPurchase!, status: "paid" }
+          const response = await cancel(ticket)
+          expect(response.status).toBe(200)
+          expect(mocks.purchaseUpdateMany).not.toHaveBeenCalled()
+        })
 
         it("reuses the same idempotency key when the kiosk repeats the cancel", async () => {
           const { ticket } = await boundAttempt()
@@ -815,6 +857,7 @@ describe("internal LIVE preflight and connection-token boundary", () => {
           expect(response.status).toBe(200)
           expect(await response.json()).toEqual({ id: "pi_fixture", status: "succeeded", paid: true })
           expect(mocks.cancel).not.toHaveBeenCalled()
+          expect(mocks.purchaseUpdateMany).not.toHaveBeenCalled()
         })
 
         it.each(["processing", "requires_capture"])("leaves an ambiguous %s PaymentIntent untouched and pending", async (status) => {
@@ -824,6 +867,7 @@ describe("internal LIVE preflight and connection-token boundary", () => {
           expect(response.status).toBe(200)
           expect(await response.json()).toEqual({ id: "pi_fixture", status, paid: false })
           expect(mocks.cancel).not.toHaveBeenCalled()
+          expect(mocks.purchaseUpdateMany).not.toHaveBeenCalled()
         })
 
         it("rejects a mismatched, unbound, or foreign attempt before any provider access", async () => {
