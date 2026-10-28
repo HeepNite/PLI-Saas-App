@@ -24,8 +24,8 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 - **T5** — S5 — Route: create the approved issue before publishing the `main` pull request. Commit: N/A; issue `#733`, PR `#737`.
 - **T6** — S5-S6 — Route: port signed kiosk QR grant minting and verification to current `codex/develop`. Status: done. Commit: `588f7328`.
 - **T7** — S5-S6 — Route: port signed grant QR rendering and timer ownership. Status: done. Commit: `79a24007`.
-- **T8** — S1-S6 — Route: port cash authorization continuity and authoritative established-customer pricing. Status: done. Commit: this work-unit commit.
-- **T9** — S6 — Route: port client-side QR navigation and phone/SMS auth resume from PR #754 without native M2 bridge changes. Status: pending. Commit: pending.
+- **T8** — S1-S6 — Route: port cash authorization continuity and authoritative established-customer pricing. Status: done. Commit: `d29bbb47`.
+- **T9** — S6 — Route: port client-side QR navigation and phone/SMS auth resume from PR #754 without native M2 bridge changes. Status: done. Commit: this work-unit commit.
 - **T10** — S6 — Route: port Stripe bfcache single-flight recovery and bounded cash-grant retry from PR #755. Status: pending. Commit: pending.
 - **T11** — S5-S6 — Route: verify and publish a stacked PR chain targeting `codex/develop`; do not merge or promote to `main`. Status: pending. Commit: pending.
 
