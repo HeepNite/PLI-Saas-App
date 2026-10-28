@@ -5,12 +5,17 @@ import SignInPage from "@/app/(auth)/sign-in/page"
 import { resolveCheckInActiveContext, resolveCheckInBootstrapContextPayload } from "@/lib/checkin/checkin-bootstrap-context"
 import { resolveSafeQrRedirect } from "@/lib/checkin/qr-auth-resume"
 
-const { signInMock } = vi.hoisted(() => ({
+const { embeddedSignInMock, signInMock } = vi.hoisted(() => ({
+  embeddedSignInMock: vi.fn(() => null),
   signInMock: vi.fn(() => null),
 }))
 
 vi.mock("@clerk/nextjs", () => ({
   SignIn: signInMock,
+}))
+
+vi.mock("@/components/front/auth/EmbeddedSignIn", () => ({
+  default: embeddedSignInMock,
 }))
 
 function findElementProps(node: ReactNode, targetType: unknown): Record<string, unknown> | null {
@@ -26,14 +31,15 @@ function findElementProps(node: ReactNode, targetType: unknown): Record<string, 
   return null
 }
 
-async function getSignInProps(redirectUrl?: string | string[]) {
-  const page = await SignInPage({
+async function getPage(redirectUrl?: string | string[]) {
+  return SignInPage({
     searchParams: Promise.resolve({ redirect_url: redirectUrl }),
   })
+}
 
-  const props = findElementProps(page, signInMock)
+async function getSignInProps(redirectUrl?: string | string[]) {
+  const props = findElementProps(await getPage(redirectUrl), signInMock)
   expect(props).not.toBeNull()
-
   return props!
 }
 
@@ -103,7 +109,7 @@ describe("resolveCheckInActiveContext", () => {
 
 describe("resolveSafeQrRedirect", () => {
   it("keeps the original /checkin QR context when required params are valid", () => {
-    const candidate = "/checkin?courseSlug=salsa-1&date=2026-06-11&time=19%3A30&durationMinutes=75&fromQr=1&entry=existing"
+    const candidate = "/checkin?courseSlug=salsa-1&date=2026-06-11&time=19%3A30&durationMinutes=75&fromQr=1&entry=existing&kioskQrCashGrant=signed.grant&enroll=1&qrBooking=1&step=2"
 
     expect(resolveSafeQrRedirect(candidate)).toBe(candidate)
   })
@@ -122,12 +128,20 @@ describe("resolveSafeQrRedirect", () => {
 })
 
 describe("SignInPage", () => {
-  it("forces the validated QR redirect and preserves the ordinary fallback", async () => {
-    const redirectUrl = "/checkin?courseSlug=salsa-1&date=2026-06-11&time=19%3A30&durationMinutes=75&fromQr=1"
+  it("renders embedded phone sign-in for a validated QR redirect", async () => {
+    const redirectUrl = "/checkin?courseSlug=salsa-1&date=2026-06-11&time=19%3A30&durationMinutes=75&fromQr=1&kioskQrCashGrant=signed.grant&enroll=1&qrBooking=1&step=2"
+    const page = await getPage(redirectUrl)
 
-    const props = await getSignInProps(redirectUrl)
+    expect(findElementProps(page, embeddedSignInMock)).toEqual(expect.objectContaining({
+      redirectUrl,
+    }))
+    expect(findElementProps(page, signInMock)).toBeNull()
+  })
 
-    expect(props.forceRedirectUrl).toBe(redirectUrl)
+  it("keeps the Clerk widget and local redirect for ordinary sign-in", async () => {
+    const props = await getSignInProps("/client-profile?tab=bookings")
+
+    expect(props.forceRedirectUrl).toBe("/client-profile?tab=bookings")
     expect(props.fallbackRedirectUrl).toBe("/client-profile")
   })
 

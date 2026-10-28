@@ -1,6 +1,16 @@
 import { parseQrCheckInContext } from "@/lib/checkin/qr"
 
-const SAFE_QR_EXTRA_PARAMS = new Set(["fromQr", "scan", "entry", "device", "terminal"])
+const SAFE_QR_EXTRA_PARAMS = new Set([
+  "fromQr",
+  "scan",
+  "entry",
+  "device",
+  "terminal",
+  "kioskQrCashGrant",
+  "enroll",
+  "qrBooking",
+  "step",
+])
 
 export function resolveSafeQrRedirect(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined
