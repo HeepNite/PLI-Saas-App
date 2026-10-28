@@ -16,6 +16,9 @@ type GrantState = {
   grant: string
 }
 
+const GRANT_RETRY_DELAY_MS = 5_000
+const MAX_GRANT_RETRY_ATTEMPTS = 3
+
 export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in QR code" }: Props) {
   const [grantState, setGrantState] = React.useState<GrantState>({ url: "", grant: "" })
   const context = React.useMemo(() => {
@@ -36,7 +39,21 @@ export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in Q
     let active = true
     let refreshTimer: ReturnType<typeof setTimeout> | undefined
     let expiryTimer: ReturnType<typeof setTimeout> | undefined
-    const loadGrant = async () => {
+    let retryAttempts = 0
+    const cancelTimers = () => {
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+      if (expiryTimer !== undefined) clearTimeout(expiryTimer)
+      refreshTimer = undefined
+      expiryTimer = undefined
+    }
+    const scheduleRetry = () => {
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer)
+      refreshTimer = undefined
+      if (!active || retryAttempts >= MAX_GRANT_RETRY_ATTEMPTS) return
+      retryAttempts += 1
+      refreshTimer = setTimeout(loadGrant, GRANT_RETRY_DELAY_MS)
+    }
+    async function loadGrant() {
       try {
         const response = await fetch("/api/checkin/qr/cash-grant", {
           method: "POST",
@@ -47,26 +64,28 @@ export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in Q
         const data = response.ok ? await response.json() : null
         if (!active) return
         const grant = typeof data?.grant === "string" ? data.grant : ""
-        setGrantState({ url, grant })
-        if (grant && typeof data?.expiresAt === "string") {
-          if (expiryTimer) clearTimeout(expiryTimer)
-          const expiresAt = new Date(data.expiresAt).getTime()
-          const refreshInMs = Math.min(2_147_000_000, Math.max(5_000, expiresAt - Date.now() - 30_000))
-          const expireInMs = Math.min(2_147_000_000, Math.max(0, expiresAt - Date.now()))
-          refreshTimer = setTimeout(loadGrant, refreshInMs)
-          expiryTimer = setTimeout(() => {
-            if (active) setGrantState((current) => current.url === url && current.grant === grant ? { url, grant: "" } : current)
-          }, expireInMs)
+        const expiresAt = typeof data?.expiresAt === "string" ? new Date(data.expiresAt).getTime() : Number.NaN
+        if (!grant || !Number.isFinite(expiresAt)) {
+          scheduleRetry()
+          return
         }
+        retryAttempts = 0
+        cancelTimers()
+        setGrantState({ url, grant })
+        const refreshInMs = Math.min(2_147_000_000, Math.max(5_000, expiresAt - Date.now() - 30_000))
+        const expireInMs = Math.min(2_147_000_000, Math.max(0, expiresAt - Date.now()))
+        refreshTimer = setTimeout(loadGrant, refreshInMs)
+        expiryTimer = setTimeout(() => {
+          if (active) setGrantState((current) => current.url === url && current.grant === grant ? { url, grant: "" } : current)
+        }, expireInMs)
       } catch {
-        if (active) setGrantState({ url, grant: "" })
+        scheduleRetry()
       }
     }
     void loadGrant()
     return () => {
       active = false
-      if (refreshTimer) clearTimeout(refreshTimer)
-      if (expiryTimer) clearTimeout(expiryTimer)
+      cancelTimers()
     }
   }, [context, url])
 

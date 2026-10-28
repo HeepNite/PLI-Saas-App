@@ -92,4 +92,16 @@ describe("EnrollFormFooter", () => {
     expect(buttonLabels(html)).toEqual(["Back", "Checking reader..."])
     expect(html).not.toContain("Create new QR")
   })
+
+  it("disables the final action and shows processing while hosted checkout redirects", () => {
+    const html = renderFooter({
+      step: 1,
+      activeStepKey: "datetime",
+      isKioskTerminalFlow: false,
+      processing: true,
+    })
+
+    expect(buttonLabels(html)).toEqual(["Back", "Processing..."])
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Processing\.\.\.<\/button>/)
+  })
 })
