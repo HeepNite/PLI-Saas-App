@@ -181,6 +181,7 @@ export default function RaffleScreen({ slug, isRevealReady }: RaffleScreenProps)
 
   return (
     <RaffleScreenView
+      slug={slug}
       phase={state.phase}
       prizeLabel={currentDraw?.prizeLabel ?? null}
       countdownMs={countdownMs}

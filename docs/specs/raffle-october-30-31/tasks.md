@@ -47,6 +47,16 @@
 - [x] Run focused checks, relevant suite, typecheck, lint, differential checks for omitted/explicit video config, and independent high-risk verification. Relevant raffle suite passed 17 files/181 tests; TypeScript passed; full lint had zero errors and 114 warnings, followed by clean focused ESLint. Independent verification found legacy replay and pending-winner exclusion regressions; both were corrected and pinned with focused tests. Prisma validate passed with the DEV environment.
 - [x] Deploy to DEV, rehearse both days visibly, and restore exact official state. Day 30 and day 31 each proved audited no-show/confirmation behavior; the final S12 contract intentionally restores clean draws to `draft` rather than `open`.
 
+## Phase 8 - October 31 Waiting/Ready Background Video
+
+- [x] Document the approved October 31-only waiting/ready background, preserving all other phases and events.
+- [x] Add the supplied MP4 without modifying the source; render a muted inline autoplay loop behind the dark readability overlay.
+- [x] Observe focused RED (3 expected failures, 31 passing), then GREEN (34 passing) across branding and screen tests.
+- [x] Verify the relevant raffle suite (101 passing across 8 files), shared-screen differential behavior (12 October 30/other-event phase renders byte-identical to HEAD), typecheck (exit 0), and scoped lint (exit 0; one pre-existing unused-argument warning). `git diff --check` passed. The copied MP4 SHA-256 matches the original.
+- [x] Resolve the publication decision: the user authorized DEV publication (“Dale, mételo entonces”) to enable a real-tablet check after publication; no additional feature work or production change was requested.
+- [ ] Normalize the review candidate and obtain independent verification. The initial verifier launch was rejected by the harness; the earlier native assessment was unassessable because the MP4 was untracked. No independent proof has been obtained yet.
+- [ ] Publish to DEV and then check actual tablet/browser playback and visual legibility. Neither publication nor real-device proof has occurred yet.
+
 ## Phase 7 - Tablet Prize Authoring
 
 - [x] Resolve the product contract: prizes are authored independently on each tablet before live drawing, and an explicit `Start raffle` action permanently locks the list.

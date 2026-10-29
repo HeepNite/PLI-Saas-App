@@ -37,6 +37,10 @@ Add two stable, event-specific tablet entrances and reproducible DEV seed inputs
 - Attendance requests carry the exact attempt identifier. Replaying a resolved attempt is idempotent; it never resolves the current later attempt.
 - Screen state treats `awaiting_confirmation` as current and exposes its pending attempt/winner so refresh returns to the attendance decision instead of skipping to finished.
 
+## October 31 Waiting/Ready Background Video
+
+Pass the tablet event slug from the container to the view. Only `october-31-raffle-2026` in `waiting` or `ready` selects `/raffle/tapville-halloween-background.mp4`. A decorative inline, muted, autoplaying loop sits behind a dark overlay and the existing content. Preserve the static backdrop beneath the video and keep draw-video selection and the state machine unchanged. Serve the supplied 1920×1080 H.264, 32-second file as a local static asset without modifying its source. No schema, API, dependencies, or deployment changes.
+
 ## Prize Authoring Design
 
 - A tablet may author prizes only when every draw for its event is `draft`, attempt-free, and winner-free.

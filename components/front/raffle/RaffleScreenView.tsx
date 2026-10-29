@@ -7,6 +7,7 @@ import RaffleBackdrop from "./RaffleBackdrop"
 import { RAFFLE_PRIMARY_BUTTON_CLASS } from "./raffleButtonStyles"
 
 type RaffleScreenViewProps = {
+  slug?: string
   phase: RafflePhase
   prizeLabel: string | null
   countdownMs: number
@@ -31,6 +32,7 @@ const SHELL_CLASS =
  * makes no requests — `RaffleScreen.tsx` (the container) drives every prop.
  */
 export default function RaffleScreenView({
+  slug,
   phase,
   prizeLabel,
   countdownMs,
@@ -121,11 +123,16 @@ export default function RaffleScreenView({
     )
   }
 
+  const backgroundVideoUrl =
+    slug === "october-31-raffle-2026" && (phase === "waiting" || phase === "ready")
+      ? "/raffle/tapville-halloween-background.mp4"
+      : undefined
+
   // waiting or ready
   return (
     <>
       {videoOverlay}
-      <RaffleBackdrop className={SHELL_CLASS}>
+      <RaffleBackdrop className={SHELL_CLASS} backgroundVideoUrl={backgroundVideoUrl}>
         {prizeLabel ? <p className="text-xl font-semibold text-white/80">{prizeLabel}</p> : null}
         <p className="text-7xl font-bold tabular-nums">{formatCountdownMs(countdownMs)}</p>
         <p className="text-white/60">{entryCount} entered</p>
