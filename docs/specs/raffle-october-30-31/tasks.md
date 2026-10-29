@@ -54,8 +54,15 @@
 - [x] Observe focused RED (3 expected failures, 31 passing), then GREEN (34 passing) across branding and screen tests.
 - [x] Verify the relevant raffle suite (101 passing across 8 files), shared-screen differential behavior (12 October 30/other-event phase renders byte-identical to HEAD), typecheck (exit 0), and scoped lint (exit 0; one pre-existing unused-argument warning). `git diff --check` passed. The copied MP4 SHA-256 matches the original.
 - [x] Resolve the publication decision: the user authorized DEV publication (“Dale, mételo entonces”) to enable a real-tablet check after publication; no additional feature work or production change was requested.
-- [ ] Normalize the review candidate and obtain independent verification. The initial verifier launch was rejected by the harness; the earlier native assessment was unassessable because the MP4 was untracked. No independent proof has been obtained yet.
-- [ ] Publish to DEV and then check actual tablet/browser playback and visual legibility. Neither publication nor real-device proof has occurred yet.
+- [x] Normalize the review candidate as `3da3ba85`, based on current `codex/develop` (`b2fd0dc0`). Native assessment succeeded for the committed 96-line change: native medium, explicit shared-render Risk item 3, review not due because under budget. The independent verifier remained unavailable; the user authorized DEV publication after disclosure, and no independent verdict is claimed.
+- [x] Publish through PR #759, merged to `codex/develop` as `cd91992275c31a518d080873fdee7a5a4268886a`. All PR and merge CI/CodeQL checks passed. The automatic Vercel preview `pli-saas-o00pbcgqs-heepnites-projects.vercel.app` is Ready and aliased to `dev.palladiumlatin.art`.
+- [x] Verify both live tablet entrances return 200 and the matching access page. The live MP4 returns 200 `video/mp4`, 29,318,557 bytes, and SHA-256 `c0cb14b1ee60fb0527fe37631524a7b68a4f541145bfaf40d1ee3f5f47752054` (identical to the supplied original); a 1024-byte range returns 206 with the exact content range. No authentication, raffle state, or production mutations were performed.
+- Real-device autoplay, playback smoothness, and visual legibility remain for the owner's tablet inspection. The video appears only in waiting/ready, not in prize setup. These public delivery checks are not browser-playback proof.
+
+### Supplied video replacement
+
+- User requested “hay que cambiar el video a este” and supplied the updated `TAPVILLE_HALLOWEEN_TABLET_1920x1080.mp4` at the same source path. Replace only the served media; retain waiting/ready-only behavior and DEV-only delivery.
+- The new source is H.264, 1920×1080, 30 fps, 32 seconds, no audio, 38,971,176 bytes; SHA-256 `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`. Pre-replacement byte comparison failed as expected (exit 1), proving the currently packaged file differs. Verify equality after copying and verify the new live media after publication; do not claim real-tablet playback proof.
 
 ## Phase 7 - Tablet Prize Authoring
 
