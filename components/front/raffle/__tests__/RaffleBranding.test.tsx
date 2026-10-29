@@ -37,6 +37,34 @@ function expectPrimaryAction(markup: string, label: string) {
 }
 
 describe("raffle branding", () => {
+  it.each(["waiting", "ready", "drawing", "reveal", "between_draws", "finished"] as const)(
+    "limits the October 31 background video in phase %s", (phase) => {
+      for (const slug of ["october-31-raffle-2026", "october-30-raffle-2026", "ple-launch"]) {
+        const markup = renderToStaticMarkup(<RaffleScreenView slug={slug} phase={phase} prizeLabel="Grand Prize"
+          countdownMs={1000} entryCount={3} entryUrl={null} videoUrl="" winner={{ name: "Jane Doe", phoneLast4: "1234" }}
+          error={null} onDraw={() => {}} onNextDraw={() => {}} onVideoEnded={() => {}} />)
+        const node = document.createElement("div")
+        node.innerHTML = markup
+        const video = node.querySelector('[data-testid="raffle-background-video"]')
+        const expected = slug === "october-31-raffle-2026" && ["waiting", "ready"].includes(phase)
+        expect(Boolean(video)).toBe(expected)
+        expectBranding(markup)
+        if (expected) {
+          expect(video?.getAttribute("src")).toBe("/raffle/tapville-halloween-background.mp4")
+          for (const attribute of ["autoplay", "loop", "muted", "playsinline"]) {
+            expect(video?.hasAttribute(attribute)).toBe(true)
+          }
+          expect(video?.getAttribute("aria-hidden")).toBe("true")
+          expect(video?.parentElement?.classList.contains("pointer-events-none")).toBe(true)
+          expect(node.querySelector('[data-testid="raffle-background-shade"]')).not.toBeNull()
+          expect(node.textContent).toContain("3 entered")
+          expect(node.textContent).toContain("Grand Prize")
+          if (phase === "ready") expectPrimaryAction(markup, "Draw")
+        }
+      }
+    },
+  )
+
   it("brands the public entry page without changing its form", async () => {
     const markup = renderToStaticMarkup(await RaffleEntryPage({ params: Promise.resolve({ slug: "ple-launch" }) }))
     expectBranding(markup)

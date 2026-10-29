@@ -75,6 +75,20 @@ describe("RaffleScreen", () => {
     })
   }
 
+  it.each(["october-31-raffle-2026", "october-30-raffle-2026"])(
+    "scopes the waiting background to the October 31 tablet: %s", async (slug) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+        ok: true, status: 200, json: async () => screenStateResponse(),
+      }))
+      const node = await render(slug)
+      await flushPoll()
+      const video = node.querySelector('[data-testid="raffle-background-video"]') as HTMLVideoElement | null
+      expect(Boolean(video)).toBe(slug === "october-31-raffle-2026")
+      if (video) expect(video.muted).toBe(true)
+      expect(node.textContent).toContain("3 entered")
+    },
+  )
+
   it("renders the persistent prize editor for an all-draft event", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
