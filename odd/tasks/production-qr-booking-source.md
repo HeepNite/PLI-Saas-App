@@ -26,8 +26,8 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 - **T7** — S5-S6 — Route: port signed grant QR rendering and timer ownership. Status: done. Commit: `79a24007`.
 - **T8** — S1-S6 — Route: port cash authorization continuity and authoritative established-customer pricing. Status: done. Commit: `d29bbb47`.
 - **T9** — S6 — Route: port client-side QR navigation and phone/SMS auth resume from PR #754 without native M2 bridge changes. Status: done. Commits: `9e2138ad`, `f074c35b`.
-- **T10** — S6 — Route: port Stripe bfcache single-flight recovery and bounded cash-grant retry from PR #755. Status: done. Commits: `00961e1f` plus this regression-test commit.
-- **T11** — S5-S6 — Route: verify and publish a stacked PR chain targeting `codex/develop`; do not merge or promote to `main`. Status: pending. Commit: pending.
+- **T10** — S6 — Route: port Stripe bfcache single-flight recovery and bounded cash-grant retry from PR #755. Status: done. Commits: `00961e1f`, `10c712d5`.
+- **T11** — S5-S6 — Route: verify and publish a stacked PR chain targeting `codex/develop`; do not merge or promote to `main`. Status: done. Commit: this delivery documentation commit.
 
 ## Log
 
@@ -47,3 +47,4 @@ Target: production behavior on `pli-saas-app.vercel.app`, implemented without de
 - **L11** — “y de ahi pasarlo a develop asi lo probamos por alla no metamos nada a prod ahora”
 - **L12** — Delivery decision: keep PRs #754-#755 open toward `main` without merging, and create a separate review chain based on current `origin/codex/develop` for testing. The old 438-line local port commit is being reconstructed into smaller review slices without rewriting or deleting the preserved worktree.
 - **L13** — Develop port evidence by slice: signed grant foundation RED→GREEN 8/8; QR renderer RED→GREEN 11/11; cash/pricing RED→GREEN 133/133; navigation/auth RED→GREEN 15/15; interaction guards RED→GREEN 106/106 plus 16/16 restored renderer and payment-boundary regressions. The interaction port preserves develop's existing canvas QR renderer and adds no dependency.
+- **L14** — Delivery: main PRs #754-#755 remain open and unmerged. Develop PRs #763-#767 are open as a five-slice chain targeting `codex/develop`; all initial remote checks passed, and no branch was merged or promoted to production.
