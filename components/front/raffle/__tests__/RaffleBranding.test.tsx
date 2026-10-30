@@ -86,7 +86,8 @@ describe("raffle branding", () => {
       expect(qr.getAttribute("width")).toBe(String(size))
       expect(qr.getAttribute("height")).toBe(String(size))
       expect(qr.src).toBe(`https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(entryUrl)}`)
-      expect(node.textContent?.includes(entryUrl)).toBe(!october)
+      const urlLabels = Array.from(node.querySelectorAll("p")).filter((label) => label.textContent === entryUrl)
+      expect(urlLabels).toHaveLength(october ? 0 : 1)
       expect(node.querySelector('[data-testid="raffle-backdrop"]')?.classList.contains("min-h-dvh")).toBe(true)
     }
   })
