@@ -10,6 +10,9 @@ vi.mock("next/image", () => ({
   // eslint-disable-next-line @next/next/no-img-element
   default: ({ alt, src }: { alt: string; src: string }) => <img alt={alt} src={src} />,
 }))
+vi.mock("@/components/front/checkin/KioskClassQrCode", () => ({
+  KioskClassQrCode: ({ ariaLabel = "Check-in QR code", url }: { ariaLabel?: string; url: string }) => <div aria-label={ariaLabel} data-qr-url={url} />,
+}))
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -70,10 +73,10 @@ describe("CourseCardPanel", () => {
     expect(container.textContent).toContain("Bachata Intermediate")
     expect(container.textContent).toContain("9:10 PM")
     expect(container.textContent).toContain("Start current check-in")
-    expect(container.querySelector('img[alt="Check-in QR code"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Check-in QR code"]')).not.toBeNull()
     expect(container.textContent).toContain("Salsa Fundamentals")
     expect(container.textContent).toContain("8:10 PM")
-    expect(container.querySelector('img[alt="Salsa Fundamentals QR code"]')).not.toBeNull()
+    expect(container.querySelector('[aria-label="Salsa Fundamentals QR code"]')).not.toBeNull()
     expect(container.textContent).toContain("$35.00 special class")
     expect(container.textContent).not.toContain("$20 drop-in")
     expect(container.textContent).not.toContain("$15 first time")
