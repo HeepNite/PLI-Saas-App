@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server"
+import Stripe from "stripe"
+import * as Sentry from "@sentry/nextjs"
 import {
   clearPreparedCheckoutAfterSuccess,
   enforceNewStudentRules,
@@ -19,6 +21,90 @@ import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 
 export const runtime = "nodejs"
+
+const stripeSecret = process.env.STRIPE_SECRET_KEY
+const stripe = stripeSecret ? new Stripe(stripeSecret, { apiVersion: "2026-01-28.clover" }) : null
+
+const QR_CHECKOUT_LOOKBACK_SECONDS = 24 * 60 * 60
+// Studio volume is far below this; hitting it means we cannot be sure we saw every session.
+const QR_CHECKOUT_MAX_SCANNED_SESSIONS = 1000
+
+type QrCheckoutSessionGuard =
+  | { ok: true }
+  | { ok: false; status: number; error: string; code: "ALREADY_PAID_BY_CARD" | "CARD_CHECKOUT_UNVERIFIED" }
+
+const CARD_CHECKOUT_UNVERIFIED: QrCheckoutSessionGuard = {
+  ok: false,
+  status: 409,
+  code: "CARD_CHECKOUT_UNVERIFIED",
+  error: "We couldn't confirm your card checkout was cancelled, so cash was not recorded. Please try again or pay at the front desk.",
+}
+
+const ALREADY_PAID_BY_CARD: QrCheckoutSessionGuard = {
+  ok: false,
+  status: 409,
+  code: "ALREADY_PAID_BY_CARD",
+  error: "This class was already paid by card, so cash was not recorded. Please check with the front desk.",
+}
+
+type QrBookingIdentity = { courseSlug: string; date: string; time: string; email: string; userId: string }
+
+const sameEmail = (value: string | null | undefined, email: string) =>
+  Boolean(value && email && value.trim().toLowerCase() === email.trim().toLowerCase())
+
+/** True for a hosted session our session route created for this exact student + QR class. */
+const isSessionForQrBooking = (session: Stripe.Checkout.Session, booking: QrBookingIdentity) => {
+  const metadata = session.metadata ?? {}
+  const sameBooking =
+    metadata.flowContext === FLOW_CONTEXT.QR_PHONE &&
+    metadata.courseSlug === booking.courseSlug &&
+    metadata.date === booking.date &&
+    metadata.time === booking.time
+  if (!sameBooking) return false
+  return (
+    sameEmail(metadata.email, booking.email) ||
+    sameEmail(session.customer_email, booking.email) ||
+    sameEmail(session.customer_details?.email, booking.email) ||
+    (Boolean(metadata.userId) && metadata.userId !== "guest" && metadata.userId === booking.userId)
+  )
+}
+
+/**
+ * A kiosk-QR student who cancelled Stripe Checkout leaves the hosted session open
+ * (regular hosted sessions have no expiry), so it could still be paid from browser
+ * history after cash is recorded. Before recording cash, find every recent session
+ * our session route created for this student + class: refuse if any was paid,
+ * expire the open ones, and fail closed on any Stripe error or doubt.
+ */
+async function guardQrCashAgainstCardCheckout(booking: QrBookingIdentity): Promise<QrCheckoutSessionGuard> {
+  if (!stripe || !booking.courseSlug || !booking.date || !booking.time) return CARD_CHECKOUT_UNVERIFIED
+  try {
+    const matches: Stripe.Checkout.Session[] = []
+    let scanned = 0
+    for await (const session of stripe.checkout.sessions.list({
+      created: { gte: Math.floor(Date.now() / 1000) - QR_CHECKOUT_LOOKBACK_SECONDS },
+      limit: 100,
+    })) {
+      scanned += 1
+      if (scanned > QR_CHECKOUT_MAX_SCANNED_SESSIONS) return CARD_CHECKOUT_UNVERIFIED
+      if (isSessionForQrBooking(session, booking)) matches.push(session)
+    }
+    if (matches.some((session) => session.payment_status === "paid" || session.status === "complete")) {
+      return ALREADY_PAID_BY_CARD
+    }
+    for (const session of matches) {
+      if (session.status === "expired") continue
+      if (session.status !== "open") return CARD_CHECKOUT_UNVERIFIED
+      const expired = await stripe.checkout.sessions.expire(session.id)
+      if (expired.status !== "expired") return CARD_CHECKOUT_UNVERIFIED
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error("qr_cash_card_checkout_guard_failed", err)
+    Sentry.captureException(err)
+    return CARD_CHECKOUT_UNVERIFIED
+  }
+}
 
 const isApiError = (value: unknown): value is ApiError =>
   Boolean(value && typeof value === "object" && "status" in value && "error" in value)
@@ -184,6 +270,19 @@ export async function POST(req: Request) {
           { status: 409 }
         )
       }
+    }
+  }
+
+  if (isInStudioQrPhone) {
+    const guard = await guardQrCashAgainstCardCheckout({
+      courseSlug: validation.courseSlug,
+      date: effectiveSession.date ?? "",
+      time: effectiveSession.time ?? "",
+      email: identity.resolvedEmail ?? "",
+      userId: resolvedUserId ?? "",
+    })
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.error, code: guard.code }, { status: guard.status })
     }
   }
 
