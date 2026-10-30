@@ -121,9 +121,17 @@
 - [x] Verify both live entrances, successful 302 session exchanges, screen-state 200 and authenticated screen HTML 200. Both SSR pages contain the correct video with `object-contain`, no video shade, 192px QR placeholder, and no visible entry-URL label. Both events still have zero entries and open test prizes; no prizes, entries, draws, schedules or reset state were mutated. Two GitHub `/jobs` HTTP 502 errors interrupted monitoring, not CI execution; direct workflow metadata confirmed final success.
 - Deferred by the user's explicit sequence: inspect actual iPad presentation before any separate reset/deletion. This delivery does not authorize or perform that reset.
 
+## Phase 13 - Apply User-Demonstrated Object Fill
+
+- Latest request: “listo usa en object cover usa fill”; the supplied DevTools screenshot shows `object-fit: fill` applied to the background video. Change only the video utility to `object-fill`, not the global `object-cover` rule.
+- [x] Observe RED: waiting/ready branding assertions fail before the fix (2 failed, 13 passed).
+- [x] Apply only `h-full w-full object-fill` to both videos, preserving absent overlay, shell dimensions, QR, MP4 files and data. GREEN: 15 branding and 128 relevant tests; typecheck/scoped lint/diff check exit 0. Differential: 28 unaffected renders identical, eight requested renders differ only in `object-cover`→`object-fill`. MP4 assets unchanged.
+- [ ] Publish DEV and verify both authenticated screens plus the generated `object-fit: fill` CSS. No reset or data changes.
+
 ## Phase 12 - Restore Original Edge-To-Edge Video Framing
 
 - Latest correction: “Lo único que te pedi es que saques el overlay no que modifiques nada mas” and “El video tiene que abarcar de arriba a abajo y de lateral a lateral.”
 - [x] Reproduce the incorrect `object-contain` selection: updated original-framing assertions fail in waiting/ready (2 failed, 13 passed).
 - [x] Restore only the original background-video `object-cover` class, keeping the shade absent and preserving shell, media, QR and data. GREEN: 15 branding tests and 128 relevant tests; typecheck, scoped lint and diff check exit 0. Differential: 28 unaffected renders byte-identical; eight requested renders differ only in `object-contain`→`object-cover`. MP4 assets unchanged.
-- [ ] Publish DEV and verify authenticated server HTML uses the original cover framing without a shade. No reset or deletion; actual iPad inspection remains with the owner.
+- [x] Publish through PR #771, merged into `codex/develop` as `812c6f33af224fb66f9b179d99a0ef60cef94029`. PR checks and merge CI (`41108906736`)/CodeQL (`41108906675`) succeeded. Preview `pli-saas-4ib4mmfj1-heepnites-projects.vercel.app` is Ready and assigned to `dev.palladiumlatin.art`.
+- [x] Authenticated live SSR verification passed for both days: session exchange 302, state/screen 200; original `h-full w-full object-cover`, no `object-contain`, no video shade, original video paths, QR192 and hidden URL label preserved. Both events still have zero entries and open test prizes. No media, QR, app-shell, prize, entry, draw, schedule, reset, or production mutation. Actual iPad appearance remains owner inspection.
