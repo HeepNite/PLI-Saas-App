@@ -196,6 +196,35 @@ describe("RaffleQrPanel", () => {
     expect(container!.textContent).toContain(entryUrl)
   })
 
+  it("sizes the October fallback and placeholder to 192 while encoding the unchanged URL without a label", async () => {
+    const entryUrl = "https://thepalladium.art/raffle/october-30-raffle-2026"
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={entryUrl} sizePx={192} showEntryUrl={false} />)
+    })
+    const img = container!.querySelector('[data-testid="raffle-qr-image"]') as HTMLImageElement
+    expect(img.width).toBe(192)
+    expect(img.height).toBe(192)
+    expect(img.src).toBe(`https://api.qrserver.com/v1/create-qr-code/?size=192x192&format=png&data=${encodeURIComponent(entryUrl)}`)
+    expect(container!.textContent).not.toContain(entryUrl)
+
+    await act(async () => {
+      img.dispatchEvent(new Event("error"))
+      await Promise.resolve()
+    })
+    const canvas = container!.querySelector('[data-testid="raffle-qr-canvas"]') as HTMLCanvasElement
+    expect(canvas.width).toBe(192)
+    expect(canvas.height).toBe(192)
+    expect(toCanvasMock).toHaveBeenCalledWith(canvas, entryUrl, expect.objectContaining({ width: 192 }))
+    expect(container!.textContent).not.toContain(entryUrl)
+
+    await act(async () => {
+      root!.render(<RaffleQrPanel entryUrl={null} sizePx={192} showEntryUrl={false} />)
+    })
+    const placeholder = container!.querySelector('[data-testid="raffle-qr-placeholder"]') as HTMLDivElement
+    expect(placeholder.classList.contains("h-48")).toBe(true)
+    expect(placeholder.classList.contains("w-48")).toBe(true)
+  })
+
   it("resets to the remote image and clears the failure flag when the URL changes", async () => {
     const firstUrl = "https://pli.test/raffle/first"
     await act(async () => {

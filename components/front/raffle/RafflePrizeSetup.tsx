@@ -39,6 +39,7 @@ export default function RafflePrizeSetup({
   const [message, setMessage] = useState("")
   const [error, setError] = useState("")
   const lastServerRevision = useRef(revision)
+  const octoberTablet = slug === "october-30-raffle-2026" || slug === "october-31-raffle-2026"
 
   useEffect(() => {
     if (lastServerRevision.current === revision) return
@@ -140,7 +141,7 @@ export default function RafflePrizeSetup({
           Add prize
         </button>
 
-        {entryUrl ? <RaffleQrPanel entryUrl={entryUrl} /> : null}
+        {entryUrl ? <RaffleQrPanel entryUrl={entryUrl} sizePx={octoberTablet ? 192 : 160} showEntryUrl={!octoberTablet} /> : null}
         {message ? <p role="status" className="text-center text-sm text-green-200">{message}</p> : null}
         {error ? <p role="alert" className="text-center text-sm text-red-200">{error}</p> : null}
 

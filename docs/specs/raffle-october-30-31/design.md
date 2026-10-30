@@ -39,7 +39,11 @@ Add two stable, event-specific tablet entrances and reproducible DEV seed inputs
 
 ## October 30–31 Waiting/Ready Background Videos
 
-Pass the tablet event slug from the container to the view. Only `waiting` or `ready` selects a background: `october-30-raffle-2026` uses `/raffle/inka-halloween-background.mp4`, while `october-31-raffle-2026` retains `/raffle/tapville-halloween-background.mp4`. A decorative inline, muted, autoplaying loop sits behind a black overlay at 40% opacity and the existing content. The static background gradient remains unchanged. Preserve the static backdrop beneath the video and keep draw-video selection and the state machine unchanged. Serve each supplied 1920×1080 H.264, 32-second file as a separate local static asset without modifying its source. No schema, API, dependencies, or deployment changes.
+Pass the tablet event slug from the container to the view. Only `waiting` or `ready` selects a background: `october-30-raffle-2026` uses `/raffle/inka-halloween-background.mp4`, while `october-31-raffle-2026` retains `/raffle/tapville-halloween-background.mp4`. A decorative inline, muted, autoplaying loop sits behind the existing content without a video shade. Its full 16:9 frame fits inside the unchanged tablet app backdrop using `object-contain`, without zoom, crop, stretch, or changing the shell dimensions. The static background gradient remains unchanged. Preserve the static backdrop beneath the video and keep draw-video selection and the state machine unchanged. Serve each supplied 1920×1080 H.264, 32-second file as a separate local static asset without modifying its source. No schema, API, dependencies, or deployment changes.
+
+## October Tablet QR Presentation
+
+Both October tablet waiting/ready screens and prize setup pass a 192-pixel QR size and hide only the visible URL label. The shared panel keeps its 160-pixel, visible-URL defaults for all other raffles. Remote QR image, local canvas fallback, and placeholder share the selected size; both encoded QR paths use the original entry URL.
 
 ## Prize Authoring Design
 
