@@ -38,7 +38,7 @@ function expectPrimaryAction(markup: string, label: string) {
 
 describe("raffle branding", () => {
   it.each(["waiting", "ready", "drawing", "reveal", "between_draws", "finished"] as const)(
-    "limits the October 31 background video in phase %s", (phase) => {
+    "limits each October background video in phase %s", (phase) => {
       for (const slug of ["october-31-raffle-2026", "october-30-raffle-2026", "ple-launch"]) {
         const markup = renderToStaticMarkup(<RaffleScreenView slug={slug} phase={phase} prizeLabel="Grand Prize"
           countdownMs={1000} entryCount={3} entryUrl={null} videoUrl="" winner={{ name: "Jane Doe", phoneLast4: "1234" }}
@@ -46,11 +46,13 @@ describe("raffle branding", () => {
         const node = document.createElement("div")
         node.innerHTML = markup
         const video = node.querySelector('[data-testid="raffle-background-video"]')
-        const expected = slug === "october-31-raffle-2026" && ["waiting", "ready"].includes(phase)
-        expect(Boolean(video)).toBe(expected)
+        const expectedSrc = ["waiting", "ready"].includes(phase)
+          ? slug === "october-31-raffle-2026" ? "/raffle/tapville-halloween-background.mp4"
+            : slug === "october-30-raffle-2026" ? "/raffle/inka-halloween-background.mp4" : null
+          : null
+        expect(video?.getAttribute("src") ?? null).toBe(expectedSrc)
         expectBranding(markup)
-        if (expected) {
-          expect(video?.getAttribute("src")).toBe("/raffle/tapville-halloween-background.mp4")
+        if (expectedSrc) {
           for (const attribute of ["autoplay", "loop", "muted", "playsinline"]) {
             expect(video?.hasAttribute(attribute)).toBe(true)
           }

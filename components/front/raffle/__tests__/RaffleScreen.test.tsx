@@ -75,21 +75,35 @@ describe("RaffleScreen", () => {
     })
   }
 
-  it.each(["october-31-raffle-2026", "october-30-raffle-2026"])(
-    "scopes the waiting background to the October 31 tablet: %s", async (slug) => {
+  it.each(["waiting", "ready"] as const)("shows each event's own background in %s", async (phase) => {
+    for (const [slug, expectedSrc] of [
+      ["october-30-raffle-2026", "/raffle/inka-halloween-background.mp4"],
+      ["october-31-raffle-2026", "/raffle/tapville-halloween-background.mp4"],
+      ["ple-launch", null],
+    ] as const) {
       vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-        ok: true, status: 200, json: async () => screenStateResponse(),
+        ok: true, status: 200, json: async () => screenStateResponse({
+          draws: [{ id: "draw_1", order: 1, prizeLabel: "Grand Prize", status: "open",
+            drawAt: new Date(Date.now() + (phase === "waiting" ? 10_000 : -1_000)).toISOString() }],
+        }),
       }))
       const node = await render(slug)
       await flushPoll()
+      if (phase === "ready") await act(async () => { await vi.advanceTimersByTimeAsync(500) })
       const video = node.querySelector('[data-testid="raffle-background-video"]') as HTMLVideoElement | null
-      expect(Boolean(video)).toBe(slug === "october-31-raffle-2026")
+      expect(video?.getAttribute("src") ?? null).toBe(expectedSrc)
       if (video) expect(video.muted).toBe(true)
       expect(node.textContent).toContain("3 entered")
-    },
-  )
+      if (phase === "ready") expect(node.textContent).toContain("Draw")
+      await act(async () => root?.unmount())
+      container?.remove()
+      root = null
+      container = null
+    }
+  })
 
-  it("renders the persistent prize editor for an all-draft event", async () => {
+  it.each(["october-30-raffle-2026", "october-31-raffle-2026", "ple-launch"])(
+    "renders the persistent prize editor without a background for %s", async (slug) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -104,9 +118,10 @@ describe("RaffleScreen", () => {
       }),
     }))
 
-    const node = await render()
+    const node = await render(slug)
     await flushPoll()
 
+    expect(node.querySelector('[data-testid="raffle-background-video"]')).toBeNull()
     expect(node.textContent).toContain("Prize setup")
     expect((node.querySelector('input[aria-label="Prize 1"]') as HTMLInputElement).value).toBe("Temporary Prize")
     expect(node.textContent).toContain("Start raffle")
