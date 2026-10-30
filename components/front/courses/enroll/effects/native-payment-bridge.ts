@@ -40,8 +40,13 @@ export function isNativePaymentBridgeAvailable() {
   return bridge() !== null
 }
 
+// The iPad app appends `PLINativeKiosk/<version>` via WKWebViewConfiguration.applicationNameForUserAgent.
+// It also ships builds without reader pins that inject no shim, so the token alone is not enough.
+const iosNativeKioskTokenPattern = /(?:^|\s)PLINativeKiosk\/[0-9A-Za-z._-]+(?:\s|$)/
+
 export function isNativeKioskWebView(userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent) {
-  return /\bAndroid\b/i.test(userAgent) && /(?:;\s*wv\)|\bwv\b)/i.test(userAgent)
+  if (/\bAndroid\b/i.test(userAgent) && /(?:;\s*wv\)|\bwv\b)/i.test(userAgent)) return true
+  return iosNativeKioskTokenPattern.test(userAgent) && bridge() !== null
 }
 
 export function hasNativeKioskBridgeRecoveryAttempted() {
