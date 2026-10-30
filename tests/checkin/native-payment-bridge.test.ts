@@ -42,6 +42,35 @@ describe("native payment bridge", () => {
     expect(isNativeKioskWebView("Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15")).toBe(false)
   })
 
+  it("recognizes the iPad native kiosk only with its UA token and the injected shim", () => {
+    const iPadApp = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) PLINativeKiosk/1.0"
+    const iPadAppMobile = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 PLINativeKiosk/1.2.3"
+    const browsers = [
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+      "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0 Mobile/15E148 Safari/604.1",
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36",
+      "Mozilla/5.0 (Linux; Android 11; SM-T500) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36",
+    ]
+
+    // Debug builds without reader pins inject no shim: they must stay a plain web kiosk.
+    expect(isNativeKioskWebView(iPadApp)).toBe(false)
+    installBridge(vi.fn())
+    expect(isNativeKioskWebView(iPadApp)).toBe(true)
+    expect(isNativeKioskWebView(iPadAppMobile)).toBe(true)
+    expect(isNativeKioskWebView(iPadApp.replace("PLINativeKiosk/", "plinativekiosk/"))).toBe(false)
+    expect(isNativeKioskWebView(iPadApp.replace("PLINativeKiosk/1.0", "XPLINativeKiosk/1.0"))).toBe(false)
+    for (const userAgent of browsers) expect(isNativeKioskWebView(userAgent)).toBe(false)
+  })
+
+  it("keeps the Android WebView match independent of the shim", () => {
+    installBridge(vi.fn())
+    expect(isNativeKioskWebView("Mozilla/5.0 (Linux; Android 11; SM-T500) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36")).toBe(false)
+    delete (window as unknown as { pliNativeBridge?: Bridge }).pliNativeBridge
+    expect(isNativeKioskWebView("Mozilla/5.0 (Linux; Android 11; SM-T500 Build/RP1A; wv) AppleWebKit/537.36 Version/4.0 Chrome/131 Mobile Safari/537.36")).toBe(true)
+  })
+
   it("reloads a missing native WebView bridge once, then fails closed until a bridge succeeds", () => {
     vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (Linux; Android 11; SM-T500; wv) Version/4.0 Chrome/131" })
     const reload = vi.fn()
