@@ -3,6 +3,7 @@
 import React from "react"
 import { Loader2 } from "lucide-react"
 import { useSignIn } from "@clerk/nextjs"
+import { useRouter } from "next/navigation"
 import { formatUSPhone, isCompleteUSPhone, toE164Phone } from "@/components/front/courses/utils/phone"
 import {
   CODE_INPUT_ATTRIBUTES,
@@ -215,6 +216,7 @@ export default function EmbeddedSignIn({
   bare?: boolean
 }) {
   const { isLoaded, signIn, setActive } = useSignIn()
+  const router = useRouter()
 
   const [state, dispatch] = React.useReducer(signInReducer, undefined, (): SignInState => ({
     phone: formatUSPhone(phoneNumber || ""),
@@ -506,7 +508,7 @@ export default function EmbeddedSignIn({
         if (onSuccessAction) {
           await onSuccessAction()
         } else {
-          window.location.assign(redirectUrl)
+          router.replace(redirectUrl)
         }
         return
       }
@@ -517,7 +519,7 @@ export default function EmbeddedSignIn({
     } finally {
       dispatch({ type: "SET_BUSY", payload: false })
     }
-  }, [activateSessionOnSuccess, code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, setActive, signIn, verificationStrategy])
+  }, [activateSessionOnSuccess, code, isLoaded, onSessionCreated, onSuccessAction, redirectUrl, router, setActive, signIn, verificationStrategy])
 
   const resendCode = React.useCallback(async () => {
     if (!isLoaded || !signIn) return
