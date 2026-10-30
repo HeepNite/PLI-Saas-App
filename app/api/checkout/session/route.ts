@@ -13,6 +13,7 @@ import { resolveKioskEffectiveSessionDateTime } from "@/lib/checkout/kiosk-conte
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
 import { buildQrBookingUrl } from "@/lib/checkin/qr-booking-links"
+import { verifyKioskQrCashGrant } from "@/lib/checkin/kiosk-qr-cash-grant"
 import { resolveSpecialClassIdentity } from "@/lib/checkout/special-class-identity"
 import {
   admitSpecialClassReservation,
@@ -308,11 +309,28 @@ async function handleCheckoutSession(req: Request) {
   // same QR flow; for a new-student booking, force `newStudent=1` so the promo price
   // survives the Stripe round-trip. The server still re-verifies eligibility
   // (hasCompletedPurchase), so a genuine returning customer cannot abuse the flag.
+  // An in-studio kiosk QR carries a signed cash grant; without it the booking modal
+  // forces card-only, so Cash would vanish after a cancelled Stripe checkout. Re-verify
+  // it against this exact class and only then carry it back. Public booking never gets
+  // a grant (cash is in-studio only); the cash route re-verifies it on submit anyway.
+  const isPublicBookingRequest =
+    trustedChannel === "public_booking" || bodyRecord.bookingSource === "public_booking"
+  const cancelKioskQrCashGrant =
+    isMobileQrCheckInBooking &&
+    !isPublicBookingRequest &&
+    verifyKioskQrCashGrant(bodyRecord.kioskQrCashGrant, {
+      courseSlug: initialValidation.courseSlug,
+      date: initialEffectiveSession.date ?? "",
+      time: initialEffectiveSession.time ?? "",
+    }).ok
+      ? (bodyRecord.kioskQrCashGrant as string)
+      : undefined
   const cancel = isMobileQrCheckInBooking
     ? `${base}${buildQrBookingUrl({
         courseSlug: initialValidation.courseSlug,
         date: initialEffectiveSession.date ?? undefined,
         time: initialEffectiveSession.time ?? undefined,
+        kioskQrCashGrant: cancelKioskQrCashGrant,
       })}${initialValidation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel${bookingSource === "public_booking" && heritagePinCountryCode ? `&bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}` : ""}`
     : `${base}/courses/${initialValidation.courseSlug}?status=cancel`
 
