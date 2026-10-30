@@ -58,7 +58,10 @@ describe("raffle branding", () => {
           }
           expect(video?.getAttribute("aria-hidden")).toBe("true")
           expect(video?.parentElement?.classList.contains("pointer-events-none")).toBe(true)
-          expect(node.querySelector('[data-testid="raffle-background-shade"]')).not.toBeNull()
+          const shade = node.querySelector('[data-testid="raffle-background-shade"]')!
+          expect(shade).not.toBeNull()
+          expect(shade.classList.contains("bg-black/40")).toBe(true)
+          expect(shade.classList.contains("bg-black/70")).toBe(false)
           expect(node.textContent).toContain("3 entered")
           expect(node.textContent).toContain("Grand Prize")
           if (phase === "ready") expectPrimaryAction(markup, "Draw")

@@ -57,7 +57,7 @@ The existing generic raffle routes, domain logic, seed script, and token exchang
 17. `Start raffle` atomically saves the displayed order and changes every draft prize to an immutable live draw.
 18. Once started, no tablet request may add, edit, remove, or reorder prizes; the tablet proceeds through them in ascending order.
 19. Concurrent or stale prize-authoring requests fail without partially changing the saved list or lock state.
-20. Each October tablet uses its own silent, autoplaying, inline looping background only during `waiting` and `ready`: October 30 uses `INKA_HALLOWEEN_TABLET_1920x1080.mp4` (`/raffle/inka-halloween-background.mp4`), and October 31 keeps `TAPVILLE_HALLOWEEN_TABLET_1920x1080.mp4` (`/raffle/tapville-halloween-background.mp4`). QR, countdown, and controls stay legible above a dark overlay. Drawing and winner reveal keep their existing presentation; other events, public registration, and prize setup remain unchanged. The existing static backdrop remains the fallback.
+20. Each October tablet uses its own silent, autoplaying, inline looping background only during `waiting` and `ready`: October 30 uses `INKA_HALLOWEEN_TABLET_1920x1080.mp4` (`/raffle/inka-halloween-background.mp4`), and October 31 keeps `TAPVILLE_HALLOWEEN_TABLET_1920x1080.mp4` (`/raffle/tapville-halloween-background.mp4`). QR, countdown, and controls stay legible above a black overlay at 40% opacity on both videos. Drawing and winner reveal keep their existing presentation; other events, public registration, and prize setup remain unchanged. The existing static backdrop remains the fallback.
 
 ## Constraints
 
