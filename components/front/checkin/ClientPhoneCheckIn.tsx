@@ -360,7 +360,13 @@ export default function ClientPhoneCheckIn() {
 
   const [offerDismissed, setOfferDismissed] = React.useState(false)
 
-  const bookingUrl = buildQrBookingUrl({ courseSlug, date, time, durationMinutes })
+  const bookingUrl = buildQrBookingUrl({
+    courseSlug,
+    date,
+    time,
+    durationMinutes,
+    kioskQrCashGrant: searchParams.get("kioskQrCashGrant") || undefined,
+  })
 
   // Success terminals: already checked in, or checked_in (cash-pending, package-credit,
   // or standard Stripe-paid). Auto-redirect to the client profile 5s after the flow is

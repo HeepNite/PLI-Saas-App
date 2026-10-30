@@ -5,7 +5,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import EnrollModal from "./EnrollModal"
 import type { CourseEnrollmentData } from "./types"
 import GlassyCard from "./GlassyCard"
-import { isQrBookingAuthReady, shouldSkipQrBookingContactStep } from "@/lib/checkin/qr-booking-links"
+import {
+  isQrBookingAuthReady,
+  resolveQrFlowVariant,
+  shouldResolveQrExistingCustomer,
+  shouldSkipQrBookingContactStep,
+} from "@/lib/checkin/qr-booking-links"
 
 // Right sticky aside: inline booking form.
 export default function CourseAsideRight({ course }: { course: CourseEnrollmentData }) {
@@ -29,6 +34,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       durationMinutes: duration ? Number(duration) : undefined,
       bookingSource: searchParams.get("bookingSource") === "public_booking" ? "public_booking" as const : undefined,
       heritagePinCountryCode: searchParams.get("heritagePinCountryCode") || undefined,
+      kioskQrCashGrant: searchParams.get("kioskQrCashGrant") || undefined,
     }
   }, [isQrBooking, searchParams])
   const [qrBookingContext, setQrBookingContext] = React.useState(readQrBookingContext)
@@ -40,10 +46,6 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   const consumedQueryRef = React.useRef(false)
   const shouldUseDraft = shouldRestoreDraft && !qrBookingContext
   const shouldUseQrCompactBooking = Boolean(qrBookingContext)
-  // `newStudent=1` (set by the checkout cancel_url / the "I'm new" welcome choice)
-  // forces the new-student variant even when signed in.
-  const [forceNewStudentVariant] = React.useState(() => searchParams.get("newStudent") === "1")
-
   // Resolve the QR flow variant:
   //   - not signed in → "checkin-new" ($15 new-student pricing)
   //   - signed in → depends on whether they are an ESTABLISHED customer. A new
@@ -54,8 +56,11 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   // Captured ONCE, and only after the check resolves, so the modal never opens
   // with the wrong price. The server re-verifies at checkout, so a returning
   // customer can never claim the promo even if this signal were stale.
-  const needsExistingCustomerCheck =
-    shouldUseQrCompactBooking && isLoaded && Boolean(isSignedIn) && !forceNewStudentVariant
+  const needsExistingCustomerCheck = shouldResolveQrExistingCustomer({
+    hasQrBookingContext: shouldUseQrCompactBooking,
+    isLoaded,
+    isSignedIn: Boolean(isSignedIn),
+  })
   const [existingCustomer, setExistingCustomer] = React.useState<boolean | null>(null)
   React.useEffect(() => {
     if (!needsExistingCustomerCheck) return
@@ -78,8 +83,10 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
   })
   const capturedQrFlowVariantRef = React.useRef<"checkin-new" | "checkin-existing" | null>(null)
   if (shouldUseQrCompactBooking && isLoaded && existingCustomerResolved && capturedQrFlowVariantRef.current === null) {
-    const treatAsExisting = Boolean(isSignedIn) && !forceNewStudentVariant && existingCustomer === true
-    capturedQrFlowVariantRef.current = treatAsExisting ? "checkin-existing" : "checkin-new"
+    capturedQrFlowVariantRef.current = resolveQrFlowVariant({
+      isSignedIn: Boolean(isSignedIn),
+      isExistingCustomer: existingCustomer,
+    })
   }
   const qrAuthReady = isQrBookingAuthReady({
     hasQrBookingContext: shouldUseQrCompactBooking,
@@ -107,7 +114,7 @@ export default function CourseAsideRight({ course }: { course: CourseEnrollmentD
       params.delete("step")
       changed = true
     }
-    for (const key of ["qrBooking", "date", "time", "durationMinutes", "newStudent", "status", "bookingSource", "heritagePinCountryCode"]) {
+    for (const key of ["qrBooking", "date", "time", "durationMinutes", "newStudent", "status", "bookingSource", "heritagePinCountryCode", "kioskQrCashGrant"]) {
       if (params.has(key)) {
         params.delete(key)
         changed = true

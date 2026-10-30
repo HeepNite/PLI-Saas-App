@@ -180,6 +180,7 @@ export default function EnrollModal({
   const checkInContextDuration = normalizeDurationMinutes(checkInContext?.durationMinutes)
   const bookingSource = checkInContext?.bookingSource
   const heritagePinCountryCode = checkInContext?.heritagePinCountryCode
+  const kioskQrCashGrant = checkInContext?.kioskQrCashGrant
   const isCheckInNewFlow = flowVariant === "checkin-new"
   const isCheckInFlow = flowVariant === "checkin-new" || flowVariant === "checkin-existing"
   const isCheckInExistingFlow = flowVariant === "checkin-existing"
@@ -422,9 +423,10 @@ export default function EnrollModal({
       checkInContextTime && `time=${checkInContextTime}`,
       bookingSource === "public_booking" && "bookingSource=public_booking",
       heritagePinCountryCode && `heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}`,
+      kioskQrCashGrant && `kioskQrCashGrant=${encodeURIComponent(kioskQrCashGrant)}`,
     ].filter(Boolean).join("&")
     return extras ? `${base}&${extras}` : base
-  }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime, bookingSource, heritagePinCountryCode])
+  }, [course.slug, steps.length, step, isQrMobileCompactFlow, checkInContextDate, checkInContextTime, bookingSource, heritagePinCountryCode, kioskQrCashGrant])
   const draftKey = React.useMemo(() => `pli-enroll:${course.slug}`, [course.slug])
 
   const {
@@ -826,6 +828,7 @@ export default function EnrollModal({
     checkInContextDuration,
     bookingSource,
     heritagePinCountryCode,
+    kioskQrCashGrant,
     consecutiveAccepted,
     consecutiveAddedCents,
     effectiveConsecutiveOffer,
@@ -1502,7 +1505,8 @@ export default function EnrollModal({
                   isNewStudent={isNewStudent}
                   isCheckInExistingFlow={isCheckInExistingFlow}
                   isProfileBookingFlow={isProfileBookingFlow}
-                  isOrdinaryPublicBooking={isPublicQuoteBooking}
+                  isOrdinaryPublicBooking={bookingSource === "public_booking"}
+                  kioskQrCashGrant={kioskQrCashGrant}
                   skipContactStep={skipContactStep}
                   availableServices={availableServices}
                   hasNewStudentService={hasNewStudentService}
