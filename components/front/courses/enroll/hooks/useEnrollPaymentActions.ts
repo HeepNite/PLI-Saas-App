@@ -111,14 +111,23 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     isCheckInFlow, isCheckInExistingFlow, isKioskTerminalFlow, isProfileBookingFlow, isSignedIn, processing, step,
     paymentsStepIndex, regularServiceId, regularServicePrice,
     getToken,
-    setService, setStep, setSuccess, setSuccessMessage, setProcessing, setFormError,
+    setService, setStep, setSuccess, setSuccessMessage, setProcessing: setProcessingState, setFormError,
     setRequiresSignIn, setExistingAccountDetected, setResumeAfterSignInStep, setPendingAutoPay,
     setKioskQrCheckout, setStripeClientSecret, setShowStripeModal,
     setPreparedAccount, setNewStudentFallbackPhoneKey, setFlowPopup,
     onNativePaymentApproved, t,
   } = input
   const nativeAttemptRef = React.useRef(false)
+  const checkoutAttemptRef = React.useRef(false)
   const nativeResetTimeoutRef = React.useRef<number | null>(null)
+  const setProcessing = React.useCallback((value: boolean) => {
+    if (!value) checkoutAttemptRef.current = false
+    setProcessingState(value)
+  }, [setProcessingState])
+
+  React.useEffect(() => {
+    if (!processing) checkoutAttemptRef.current = false
+  }, [processing])
 
   React.useEffect(() => () => {
     if (nativeResetTimeoutRef.current !== null) window.clearTimeout(nativeResetTimeoutRef.current)
@@ -542,13 +551,15 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     }
   ) => {
     if (e) e.preventDefault()
-    if (processing || nativeAttemptRef.current) return
+    if (processing || nativeAttemptRef.current || checkoutAttemptRef.current) return
+    checkoutAttemptRef.current = true
     setFormError(null)
     if (deps) {
       const validationIssue = deps.validateBeforeSubmit()
       if (validationIssue) {
         setFormError(validationIssue.message)
         setStep(validationIssue.step)
+        checkoutAttemptRef.current = false
         return
       }
     }
@@ -560,6 +571,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       paymentMethod === "stripe"
     if (requiresPublicQuote && (publicQuoteLoading || !publicQuote || publicQuoteError)) {
       setFormError(publicQuoteError || "We're confirming the current price. Please try again.")
+      checkoutAttemptRef.current = false
       return
     }
     setProcessing(true)
