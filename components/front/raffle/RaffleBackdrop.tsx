@@ -21,7 +21,7 @@ export default function RaffleBackdrop({ children, className, backgroundVideoUrl
             muted
             playsInline
             aria-hidden="true"
-            className="h-full w-full object-cover"
+            className="h-full w-full object-fill"
           />
         </div>
       ) : null}
