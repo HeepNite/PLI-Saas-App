@@ -131,6 +131,8 @@ export default function RaffleScreenView({
         : undefined
     : undefined
 
+  const octoberTablet = slug === "october-30-raffle-2026" || slug === "october-31-raffle-2026"
+
   // waiting or ready
   return (
     <>
@@ -139,7 +141,7 @@ export default function RaffleScreenView({
         {prizeLabel ? <p className="text-xl font-semibold text-white/80">{prizeLabel}</p> : null}
         <p className="text-7xl font-bold tabular-nums">{formatCountdownMs(countdownMs)}</p>
         <p className="text-white/60">{entryCount} entered</p>
-        <RaffleQrPanel entryUrl={entryUrl} />
+        <RaffleQrPanel entryUrl={entryUrl} sizePx={octoberTablet ? 192 : 160} showEntryUrl={!octoberTablet} />
         {error ? (
           <p role="alert" className="text-sm text-[var(--brand,#b61616)]">
             {error}

@@ -150,8 +150,8 @@ const QR_IMAGE_SIZE_PX = 160
  * `StaffTerminalShell.tsx`'s `buildCheckInQrImageUrl` (not imported/
  * modified — that helper is kiosk check-in specific).
  */
-function buildRaffleQrImageUrl(entryUrl: string): string {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${QR_IMAGE_SIZE_PX}x${QR_IMAGE_SIZE_PX}&format=png&data=${encodeURIComponent(entryUrl)}`
+function buildRaffleQrImageUrl(entryUrl: string, sizePx: number): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=${sizePx}x${sizePx}&format=png&data=${encodeURIComponent(entryUrl)}`
 }
 
 /**
@@ -159,10 +159,14 @@ function buildRaffleQrImageUrl(entryUrl: string): string {
  * Primary render is the `api.qrserver.com` image endpoint; on its `onError`
  * it falls back to a locally generated QR drawn onto a `<canvas>` with the
  * `qrcode` package, imported lazily so that dependency is only loaded once
- * the remote image has actually failed. The URL is always shown as text
- * underneath so a phone can still reach it even if both render paths fail.
+ * the remote image has actually failed. By default the URL is also shown as
+ * text; October tablet surfaces hide only that label, not the encoded URL.
  */
-export function RaffleQrPanel({ entryUrl }: { entryUrl: string | null }) {
+export function RaffleQrPanel({ entryUrl, sizePx = QR_IMAGE_SIZE_PX, showEntryUrl = true }: {
+  entryUrl: string | null
+  sizePx?: 160 | 192
+  showEntryUrl?: boolean
+}) {
   const [remoteFailed, setRemoteFailed] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
 
@@ -176,19 +180,19 @@ export function RaffleQrPanel({ entryUrl }: { entryUrl: string | null }) {
     let cancelled = false
     import("qrcode").then((QRCode) => {
       if (cancelled) return
-      QRCode.toCanvas(canvas, entryUrl, { width: QR_IMAGE_SIZE_PX, margin: 1 }).catch(() => {})
+      QRCode.toCanvas(canvas, entryUrl, { width: sizePx, margin: 1 }).catch(() => {})
     })
     return () => {
       cancelled = true
     }
-  }, [remoteFailed, entryUrl])
+  }, [remoteFailed, entryUrl, sizePx])
 
   if (!entryUrl) {
     return (
       <div
         data-testid="raffle-qr-placeholder"
         aria-hidden="true"
-        className="flex h-40 w-40 items-center justify-center rounded-lg border border-dashed border-white/20 text-xs text-white/40"
+        className={`flex ${sizePx === 192 ? "h-48 w-48" : "h-40 w-40"} items-center justify-center rounded-lg border border-dashed border-white/20 text-xs text-white/40`}
       >
         QR
       </div>
@@ -200,22 +204,22 @@ export function RaffleQrPanel({ entryUrl }: { entryUrl: string | null }) {
       {remoteFailed ? (
         <canvas
           ref={canvasRef}
-          width={QR_IMAGE_SIZE_PX}
-          height={QR_IMAGE_SIZE_PX}
+          width={sizePx}
+          height={sizePx}
           data-testid="raffle-qr-canvas"
         />
       ) : (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={buildRaffleQrImageUrl(entryUrl)}
+          src={buildRaffleQrImageUrl(entryUrl, sizePx)}
           alt="Scan to enter the raffle"
-          width={QR_IMAGE_SIZE_PX}
-          height={QR_IMAGE_SIZE_PX}
+          width={sizePx}
+          height={sizePx}
           onError={() => setRemoteFailed(true)}
           data-testid="raffle-qr-image"
         />
       )}
-      <p className="max-w-[12rem] break-all text-xs text-white/50">{entryUrl}</p>
+      {showEntryUrl ? <p className="max-w-[12rem] break-all text-xs text-white/50">{entryUrl}</p> : null}
     </div>
   )
 }

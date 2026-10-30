@@ -58,10 +58,12 @@ describe("raffle branding", () => {
           }
           expect(video?.getAttribute("aria-hidden")).toBe("true")
           expect(video?.parentElement?.classList.contains("pointer-events-none")).toBe(true)
-          const shade = node.querySelector('[data-testid="raffle-background-shade"]')!
-          expect(shade).not.toBeNull()
-          expect(shade.classList.contains("bg-black/40")).toBe(true)
-          expect(shade.classList.contains("bg-black/70")).toBe(false)
+          expect(node.querySelector('[data-testid="raffle-background-shade"]')).toBeNull()
+          expect(video?.classList.contains("object-contain")).toBe(true)
+          expect(video?.classList.contains("object-cover")).toBe(false)
+          expect(video?.classList.contains("h-full")).toBe(true)
+          expect(video?.classList.contains("w-full")).toBe(true)
+          expect(node.querySelector('[data-testid="raffle-backdrop"]')?.classList.contains("min-h-dvh")).toBe(true)
           expect(node.textContent).toContain("3 entered")
           expect(node.textContent).toContain("Grand Prize")
           if (phase === "ready") expectPrimaryAction(markup, "Draw")
@@ -69,6 +71,26 @@ describe("raffle branding", () => {
       }
     },
   )
+
+  it.each(["waiting", "ready"] as const)("shows a larger encoded QR without a URL label on October %s screens only", (phase) => {
+    const entryUrl = "https://thepalladium.art/raffle/october-30-raffle-2026"
+    for (const slug of ["october-30-raffle-2026", "october-31-raffle-2026", "ple-launch"]) {
+      const markup = renderToStaticMarkup(<RaffleScreenView slug={slug} phase={phase} prizeLabel="Grand Prize"
+        countdownMs={1000} entryCount={3} entryUrl={entryUrl} videoUrl="" winner={null}
+        error={null} onDraw={() => {}} onNextDraw={() => {}} onVideoEnded={() => {}} />)
+      const node = document.createElement("div")
+      node.innerHTML = markup
+      const qr = node.querySelector('[data-testid="raffle-qr-image"]') as HTMLImageElement
+      const october = slug !== "ple-launch"
+      const size = october ? 192 : 160
+      expect(qr.getAttribute("width")).toBe(String(size))
+      expect(qr.getAttribute("height")).toBe(String(size))
+      expect(qr.src).toBe(`https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(entryUrl)}`)
+      const urlLabels = Array.from(node.querySelectorAll("p")).filter((label) => label.textContent === entryUrl)
+      expect(urlLabels).toHaveLength(october ? 0 : 1)
+      expect(node.querySelector('[data-testid="raffle-backdrop"]')?.classList.contains("min-h-dvh")).toBe(true)
+    }
+  })
 
   it("brands the public entry page without changing its form", async () => {
     const markup = renderToStaticMarkup(await RaffleEntryPage({ params: Promise.resolve({ slug: "ple-launch" }) }))

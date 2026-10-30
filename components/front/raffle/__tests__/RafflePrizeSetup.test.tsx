@@ -28,13 +28,14 @@ describe("RafflePrizeSetup", () => {
     vi.unstubAllGlobals()
   })
 
-  async function render() {
+  async function render(slug = "october-30-raffle-2026", entryUrl?: string) {
     container = document.createElement("div")
     document.body.appendChild(container)
     root = createRoot(container)
     await act(async () => root!.render(
       <RafflePrizeSetup
-        slug="october-30-raffle-2026"
+        slug={slug}
+        entryUrl={entryUrl}
         revision="revision_1"
         prizes={["First", "Grand Prize"]}
         entryCount={7}
@@ -47,6 +48,22 @@ describe("RafflePrizeSetup", () => {
 
   const button = (node: HTMLElement, label: string) =>
     [...node.querySelectorAll("button")].find((candidate) => candidate.textContent === label) as HTMLButtonElement
+
+  it.each(["october-30-raffle-2026", "october-31-raffle-2026", "ple-launch"])(
+    "keeps the entry QR encoded but hides only the October URL label in setup for %s", async (slug) => {
+      const entryUrl = `https://thepalladium.art/raffle/${slug}`
+      const node = await render(slug, entryUrl)
+      const qr = node.querySelector('[data-testid="raffle-qr-image"]') as HTMLImageElement
+      const october = slug !== "ple-launch"
+      const size = october ? 192 : 160
+      expect(qr.getAttribute("width")).toBe(String(size))
+      expect(qr.getAttribute("height")).toBe(String(size))
+      expect(qr.src).toBe(`https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&format=png&data=${encodeURIComponent(entryUrl)}`)
+      expect(node.textContent?.includes(entryUrl)).toBe(!october)
+      expect(node.querySelector('[data-testid="raffle-background-video"]')).toBeNull()
+      expect(node.querySelector('[data-testid="raffle-backdrop"]')?.classList.contains("min-h-dvh")).toBe(true)
+    },
+  )
 
   it("adds, renames, removes, and reorders prizes before start", async () => {
     const node = await render()
