@@ -23,9 +23,9 @@
 
 The active behavioral source is this folder. Existing event-raffle OpenSpec documents remain background for the generic raffle contracts; this spec owns only October 30–31 preparation.
 
-## October 31 Background Video
+## October Waiting/Ready Background Videos
 
-The approved background is separate from `videoUrl`, which continues to control the draw animation. Scope it exclusively to October 31 waiting/ready; preserve October 30, other events, public registration, setup, drawing, and winner reveal. Keep the existing background as a fallback. The user approved this implementation plan with “Sí dale, mételos.” The later “Dale, mételo entonces” authorizes publication to DEV so the video can be checked on the tablet; actual browser/tablet playback and legibility remain unverified until after publication. This does not authorize production changes or changes to the draw animation.
+The approved backgrounds are separate from `videoUrl`, which continues to control the draw animation. October 30 now uses `/raffle/inka-halloween-background.mp4` in waiting/ready; October 31 keeps `/raffle/tapville-halloween-background.mp4` in waiting/ready. Preserve other events, public registration, setup, drawing, and winner reveal. Keep the existing static background as a fallback. The earlier “Sí dale, mételos” and “Dale, mételo entonces” authorized the October 31 implementation and DEV publication; the October 30 request adds only its own background and does not authorize production changes or changes to the draw animation. Actual browser/tablet playback and legibility for October 30 remain unverified until after publication.
 
 ## Minimal Architectural Changes
 

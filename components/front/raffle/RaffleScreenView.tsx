@@ -123,10 +123,13 @@ export default function RaffleScreenView({
     )
   }
 
-  const backgroundVideoUrl =
-    slug === "october-31-raffle-2026" && (phase === "waiting" || phase === "ready")
+  const backgroundVideoUrl = phase === "waiting" || phase === "ready"
+    ? slug === "october-31-raffle-2026"
       ? "/raffle/tapville-halloween-background.mp4"
-      : undefined
+      : slug === "october-30-raffle-2026"
+        ? "/raffle/inka-halloween-background.mp4"
+        : undefined
+    : undefined
 
   // waiting or ready
   return (

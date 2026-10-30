@@ -62,7 +62,15 @@
 ### Supplied video replacement
 
 - User requested “hay que cambiar el video a este” and supplied the updated `TAPVILLE_HALLOWEEN_TABLET_1920x1080.mp4` at the same source path. Replace only the served media; retain waiting/ready-only behavior and DEV-only delivery.
-- The new source is H.264, 1920×1080, 30 fps, 32 seconds, no audio, 38,971,176 bytes; SHA-256 `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`. Pre-replacement byte comparison failed as expected (exit 1), proving the currently packaged file differs. Verify equality after copying and verify the new live media after publication; do not claim real-tablet playback proof.
+- The new source is H.264, 1920×1080, 30 fps, 32 seconds, no audio, 38,971,176 bytes; SHA-256 `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`. Pre-replacement byte comparison failed as expected (exit 1); after copying, equality passed (exit 0). Delivered through PR #760, merged as `1ef49b6c88b6f3046f25fb85ff918f93c6ddb6c8`. PR and merge CI/CodeQL passed. Preview `pli-saas-6yq1j7a12-heepnites-projects.vercel.app` is Ready and assigned to `dev.palladiumlatin.art`. Live checks passed: both tablet entrances return 200 with the correct access page; updated media returns 200 `video/mp4`, exactly 38,971,176 bytes and the new source SHA-256; range `0-1023` returns 206 with exactly 1024 bytes and the new total size. No production, authentication, or raffle-state mutations. Actual tablet playback/visual legibility remains unverified.
+
+## Phase 9 - October 30 Waiting/Ready Background Video
+
+- [x] User supplied `INKA_HALLOWEEN_TABLET_1920x1080.mp4` for October 30. Keep the October 31 background and the existing dark/gold draw animation; only the October 30 waiting/ready tablet uses `/raffle/inka-halloween-background.mp4`. No Excel, raffle-state, production, or public-page changes.
+- [x] Amend requirement 20 and the resolved design before implementation. Branding and container tests observed RED: four October 30 waiting/ready failures (32 passing); after implementation and one ready-phase test timing correction, focused GREEN: 2 files/36 tests. Existing public/generic, day-31, non-waiting/ready, and setup assertions remain covered.
+- [x] Copy the user-supplied MP4 without changing the original. Source and served copy share SHA-256 `e2a1b049cc38327b160a2a21102113da1e91f85b608d282be11b43b041723b3b` (27,110,094 bytes). The day-31 served MP4 retains SHA-256 `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`.
+- [x] Verify the relevant screen suite: 9 files/122 tests passed; scoped ESLint exited 0 with one existing unused-argument warning; `git diff --check` passed. Initial typecheck failed on stale local Prisma-client properties in unrelated payment modules; the parent regenerated only the local client from the unchanged repository schema, then typecheck passed (exit 0). No database access or migrations occurred. Twelve day-31/generic phase renders are byte-identical to the base implementation (differential passed, no stderr, exit 0).
+- [ ] Independent shared-view verification and DEV publication remain pending. Real-device playback and visual legibility are unverified.
 
 ## Phase 7 - Tablet Prize Authoring
 
