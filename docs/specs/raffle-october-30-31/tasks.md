@@ -121,12 +121,20 @@
 - [x] Verify both live entrances, successful 302 session exchanges, screen-state 200 and authenticated screen HTML 200. Both SSR pages contain the correct video with `object-contain`, no video shade, 192px QR placeholder, and no visible entry-URL label. Both events still have zero entries and open test prizes; no prizes, entries, draws, schedules or reset state were mutated. Two GitHub `/jobs` HTTP 502 errors interrupted monitoring, not CI execution; direct workflow metadata confirmed final success.
 - Deferred by the user's explicit sequence: inspect actual iPad presentation before any separate reset/deletion. This delivery does not authorize or perform that reset.
 
+## Phase 14 - Edited Inka Video And Return To Cover
+
+- Latest instruction: “si volve a cver y este es el video editado dale”; supplied `INKA_HALLOWEEN_TABLET_1620x1080.mp4`. Restore `object-cover` for both backgrounds and replace only October 30 media. No overlay, QR, app-shell, data or reset changes.
+- [x] Inspect the source: H.264,1620×1080,30fps,32seconds,no audio,27,267,598bytes; SHA-256 `df358a60d55237c2f0b0dfb5a9c533b715a9f28764a0818211f68ea0f9d8cbcf`. RED: original cover assertions fail before correction (2failed,13passed).
+- [x] Copy the edited October 30 file byte-for-byte: comparison exit 0 and exact new SHA-256 match; October 31 SHA-256 remains `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`, byte-unchanged against the base. GREEN: 15 branding/128 relevant tests; typecheck, scoped lint and diff check exit 0. Differential: 28 unaffected renders identical, eight change only fill→cover.
+- [ ] Publish DEV and verify cover plus the new Inka media hash/size; preserve October 31 and all data. No reset.
+
 ## Phase 13 - Apply User-Demonstrated Object Fill
 
 - Latest request: “listo usa en object cover usa fill”; the supplied DevTools screenshot shows `object-fit: fill` applied to the background video. Change only the video utility to `object-fill`, not the global `object-cover` rule.
 - [x] Observe RED: waiting/ready branding assertions fail before the fix (2 failed, 13 passed).
 - [x] Apply only `h-full w-full object-fill` to both videos, preserving absent overlay, shell dimensions, QR, MP4 files and data. GREEN: 15 branding and 128 relevant tests; typecheck/scoped lint/diff check exit 0. Differential: 28 unaffected renders identical, eight requested renders differ only in `object-cover`→`object-fill`. MP4 assets unchanged.
-- [ ] Publish DEV and verify both authenticated screens plus the generated `object-fit: fill` CSS. No reset or data changes.
+- [x] Publish through PR #772, merged into `codex/develop` as `4bfe66039418e669ea1d7d4a04d4931898ea090d`. All PR and merge CI (`41125977845`)/CodeQL (`41125977796`) checks succeeded. Preview `pli-saas-1d1nma58r-heepnites-projects.vercel.app` is Ready and assigned to `dev.palladiumlatin.art`.
+- [x] Both authenticated live screens/state return 200 after successful 302 session exchanges. Server HTML uses `h-full w-full object-fill`, neither cover nor contain, with no shade; fetched compiled stylesheets contain `.object-fill` with `object-fit: fill`. Original video paths, QR192 and hidden URL labels remain intact. Both events retain zero entries and open test prizes. No reset, data, QR, media, shell, schedule or production changes. Actual physical iPad appearance remains owner inspection.
 
 ## Phase 12 - Restore Original Edge-To-Edge Video Framing
 
