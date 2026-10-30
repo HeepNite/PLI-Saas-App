@@ -23,11 +23,44 @@ export { InternalPurchaseError } from "@/lib/stripe/internal-purchase"
 export const isInternalPurchaseEnabled = () =>
   process.env.NODE_ENV === "production" && process.env.INTERNAL_PURCHASE_LIVE_ENABLED === "true"
 
+const TERMINAL_ASSIGNMENT_ERROR = "LIVE terminal assignment is not configured"
+const LIVE_TERMINAL_ENTRY = /^([^\s=,]+)(?:=(tmr_[a-zA-Z0-9]+)?)?$/
+
+// Effective terminal -> reader assignment: INTERNAL_PURCHASE_LIVE_TERMINALS
+// ("terminalId=tmr_readerId" pairs, comma separated; a reader may be omitted) unioned
+// with the legacy INTERNAL_PURCHASE_LIVE_TERMINAL_ID/READER_ID pair. Any malformed,
+// duplicate or conflicting entry fails closed. A null reader blocks payment creation.
+const liveTerminalAssignments = () => {
+  const assignments = new Map<string, string | null>()
+  const list = process.env.INTERNAL_PURCHASE_LIVE_TERMINALS?.trim()
+  if (list) {
+    for (const entry of list.split(",").map((part) => part.trim())) {
+      const match = LIVE_TERMINAL_ENTRY.exec(entry)
+      if (!match || assignments.has(match[1])) throw new InternalPurchaseError(TERMINAL_ASSIGNMENT_ERROR)
+      assignments.set(match[1], match[2] ?? null)
+    }
+  }
+  const legacyTerminal = process.env.INTERNAL_PURCHASE_LIVE_TERMINAL_ID?.trim()
+  if (legacyTerminal) {
+    const legacyReader = process.env.INTERNAL_PURCHASE_LIVE_READER_ID?.trim() || null
+    if (assignments.has(legacyTerminal) && assignments.get(legacyTerminal) !== legacyReader) {
+      throw new InternalPurchaseError(TERMINAL_ASSIGNMENT_ERROR)
+    }
+    assignments.set(legacyTerminal, legacyReader)
+  }
+  if (assignments.size === 0) throw new InternalPurchaseError(TERMINAL_ASSIGNMENT_ERROR)
+  return assignments
+}
+
+const assignedReader = (terminalId: string) => {
+  const assignments = liveTerminalAssignments()
+  if (!assignments.has(terminalId)) throw new InternalPurchaseError("Terminal is not assigned to this flow", 403)
+  return assignments.get(terminalId) ?? null
+}
+
 const createLiveClient = (terminalId: string) => {
   if (!isInternalPurchaseEnabled()) throw new InternalPurchaseError("Internal purchase preparation is disabled")
-  const assignedTerminal = process.env.INTERNAL_PURCHASE_LIVE_TERMINAL_ID?.trim()
-  if (!assignedTerminal) throw new InternalPurchaseError("LIVE terminal assignment is not configured")
-  if (terminalId !== assignedTerminal) throw new InternalPurchaseError("Terminal is not assigned to this flow", 403)
+  assignedReader(terminalId)
   const secret = process.env.STRIPE_INTERNAL_PURCHASE_LIVE_SECRET_KEY?.trim()
   if (!secret || !/^(sk|rk)_live_[a-zA-Z0-9]+$/.test(secret)) {
     throw new InternalPurchaseError("Dedicated LIVE runtime credential is not configured")
@@ -61,10 +94,12 @@ const verifyLiveCatalog = async (stripe: Stripe) => {
   }
 }
 
-const paymentReaderId = () => {
+// The reader is always the calling terminal's own assignment, so an attempt (which signs
+// both terminalId and readerId) can never collect on another terminal's reader.
+const paymentReaderId = (terminalId: string) => {
   if (!internalPaymentEnabled()) throw new InternalPurchaseError("Internal payment creation is disabled")
   internalAttemptSigningKey()
-  const readerId = process.env.INTERNAL_PURCHASE_LIVE_READER_ID?.trim()
+  const readerId = assignedReader(terminalId)
   if (!readerId || !/^tmr_[a-zA-Z0-9]+$/.test(readerId)) throw new InternalPurchaseError("LIVE reader assignment is not configured")
   return readerId
 }
@@ -437,7 +472,7 @@ export const prepareInternalPurchase = async (
     try {
       const { purchaseId } = await consumePreparedNativePurchase(input.preparedPurchaseReference, caller)
       const purchase = await readPreparedPurchase(purchaseId, true)
-      const readerId = paymentReaderId()
+      const readerId = paymentReaderId(caller.terminalId)
       const stripe = createLiveClient(caller.terminalId)
       await verifyLiveMerchant(stripe)
       await verifyReader(stripe, readerId)
@@ -463,7 +498,7 @@ export const prepareInternalPurchase = async (
       const stripe = createLiveClient(caller.terminalId)
       await verifyLiveMerchant(stripe)
       if (input.action === "prepared-payment-intent") {
-        const readerId = paymentReaderId()
+        const readerId = paymentReaderId(caller.terminalId)
         if (context.attempt.readerId !== readerId) throw new InternalPurchaseError("Reader assignment changed; reconcile this attempt", 409)
         await verifyReader(stripe, readerId)
       }
@@ -477,7 +512,7 @@ export const prepareInternalPurchase = async (
   // canonical complete-phone resolution so no client-supplied user ID is trusted.
   const selectedStudent = input.action === "attempt" ? await lookupStudent(input.phone) : null
   const collects = input.action === "attempt" || input.action === "payment-intent"
-  const readerId = collects ? paymentReaderId() : null
+  const readerId = collects ? paymentReaderId(caller.terminalId) : null
   if (collects && attempt) {
     requireFreshInternalAttempt(attempt)
     if (attempt.readerId !== readerId) throw new InternalPurchaseError("Reader assignment changed; reconcile this attempt", 409)

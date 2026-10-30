@@ -497,7 +497,7 @@ describe("internal LIVE preflight and connection-token boundary", () => {
       const admit = async () => {
         const response = await request({ action: "prepared-attempt", preparedPurchaseReference: reference })
         expect(response.status).toBe(200)
-        const body = await response.json() as { ticket: string }
+        const body = await response.json() as { ticket: string; readerId: string }
         expect(Object.keys(body).sort()).toEqual(["expiresAt", "locationId", "readerId", "ticket"])
         return body
       }
@@ -923,6 +923,90 @@ describe("internal LIVE preflight and connection-token boundary", () => {
           mocks.cancel.mockResolvedValueOnce({ ...intent, status: "processing" })
           const response = await cancel(ticket)
           expect(await response.json()).toEqual({ id: "pi_fixture", status: "processing", paid: false })
+        })
+      })
+
+      describe("multi-terminal LIVE assignment", () => {
+        const ipad = { ok: true, sessionId: "session_ipad", terminal: { id: "terminal_ipad", slug: "ipad", name: "iPad", location: "Lobby", active: true } }
+        beforeEach(() => {
+          mocks.reader.mockImplementation(async (id: string) => ({ id, livemode: true, device_type: "stripe_m2", location: catalog.locationId }))
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINALS", " terminal_live=tmr_fixture , terminal_ipad=tmr_ipad ")
+        })
+        const prepareFor = (terminalId: string, sessionId: string) => {
+          preparePurchase()
+          preparedCapability = { ...preparedCapability!, terminalId, sessionId }
+        }
+
+        it("keeps the legacy single-terminal path unchanged when the list is unset", async () => {
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINALS", undefined)
+          expect((await request({ action: "connection-token" })).status).toBe(200)
+          preparePurchase()
+          const body = await admit()
+          expect(body.readerId).toBe("tmr_fixture")
+          expect((await request({ action: "prepared-payment-intent", ticket: body.ticket })).status).toBe(200)
+          mocks.auth.mockResolvedValue(ipad)
+          expect((await request({ action: "connection-token" })).status).toBe(403)
+        })
+
+        it("gives each listed terminal a token and binds attempts to its own reader", async () => {
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINAL_ID", undefined)
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_READER_ID", undefined)
+          expect((await request({ action: "connection-token" })).status).toBe(200)
+          mocks.auth.mockResolvedValue(ipad)
+          expect((await request({ action: "connection-token" })).status).toBe(200)
+          prepareFor("terminal_ipad", "session_ipad")
+          const body = await admit()
+          expect(body.readerId).toBe("tmr_ipad")
+          expect(mocks.reader).toHaveBeenLastCalledWith("tmr_ipad")
+          expect((await request({ action: "prepared-payment-intent", ticket: body.ticket })).status).toBe(200)
+          expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ metadata: expect.objectContaining({ terminalId: "terminal_ipad", readerId: "tmr_ipad" }) }), expect.anything())
+        })
+
+        it("unions the legacy pair with the list", async () => {
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINALS", "terminal_ipad=tmr_ipad")
+          expect((await request({ action: "connection-token" })).status).toBe(200)
+          preparePurchase()
+          expect((await admit()).readerId).toBe("tmr_fixture")
+          mocks.auth.mockResolvedValue(ipad)
+          expect((await request({ action: "connection-token" })).status).toBe(200)
+        })
+
+        it("denies a terminal that is not listed", async () => {
+          mocks.auth.mockResolvedValue({ ...ipad, terminal: { ...ipad.terminal, id: "terminal_other" } })
+          expect((await request({ action: "connection-token" })).status).toBe(403)
+          expectNoProvider()
+        })
+
+        it.each(["terminal_ipad=", "terminal_ipad"])("lets a terminal without a reader (%s) connect but fails payment creation closed", async (entry) => {
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINALS", entry)
+          mocks.auth.mockResolvedValue(ipad)
+          expect((await request({ action: "connection-token" })).status).toBe(200)
+          prepareFor("terminal_ipad", "session_ipad")
+          const response = await request({ action: "prepared-attempt", preparedPurchaseReference: reference })
+          expect(response.status).toBe(503)
+          expect(await response.text()).toContain("LIVE reader assignment is not configured")
+          expect((await request({ action: "attempt", phone: "+1 (555) 0101" })).status).toBe(503)
+          expect(mocks.create).not.toHaveBeenCalled()
+        })
+
+        it("never lets a terminal use another terminal's attempt or reader", async () => {
+          prepareFor("terminal_live", "session_live")
+          const { ticket } = await admit()
+          mocks.auth.mockResolvedValue(ipad)
+          expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(403)
+          const legacyTicket = (await (await request({ action: "attempt", phone: "+1 (555) 0101" })).json()) as { readerId: string }
+          expect(legacyTicket.readerId).toBe("tmr_ipad")
+          expect(mocks.create).not.toHaveBeenCalled()
+        })
+
+        it.each([
+          "terminal_ipad=tmr_ipad,terminal_ipad=tmr_other", "terminal_ipad=reader_bad", "=tmr_ipad", "terminal_ipad=tmr_ipad,,",
+          "terminal ipad=tmr_ipad", "terminal_ipad=tmr_ipad=x", "terminal_live=tmr_other",
+        ])("fails closed on malformed or conflicting list %s", async (list) => {
+          vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINALS", list)
+          mocks.auth.mockResolvedValue(ipad)
+          expect((await request({ action: "connection-token" })).status).toBe(503)
+          expectNoProvider()
         })
       })
     })
