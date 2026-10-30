@@ -873,4 +873,83 @@ describe("checkout session route", () => {
     expect(soldOut.status).toBe(409)
     await expect(soldOut.json()).resolves.toMatchObject({ code: "SOLD_OUT" })
   })
+
+  describe("mobile QR cancel_url kiosk cash grant", () => {
+    const SECRET = "test-terminal-secret"
+    const qrBody = (extra: Record<string, unknown> = {}) => ({
+      photoContext: "qr_phone",
+      checkInBooking: true,
+      ...extra,
+    })
+    const mintGrant = async (overrides: Partial<{ courseSlug: string; date: string; time: string; ttlSeconds: number; now: Date }> = {}) => {
+      const { createKioskQrCashGrant } = await import("@/lib/checkin/kiosk-qr-cash-grant")
+      return createKioskQrCashGrant(
+        {
+          terminalId: "terminal_1",
+          courseSlug: overrides.courseSlug ?? "salsa-femenina-matutina",
+          date: overrides.date ?? "2026-02-10",
+          time: overrides.time ?? "11:00",
+        },
+        { secret: SECRET, ttlSeconds: overrides.ttlSeconds, now: overrides.now },
+      )
+    }
+    const cancelUrlFor = async (body: Record<string, unknown>) => {
+      const { POST } = await import("@/app/api/checkout/session/route")
+      const response = await POST(new Request("http://localhost/api/checkout/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }))
+      expect(response.status).toBe(200)
+      const args = mockCreateCheckoutSession.mock.calls[0][0] as { cancel_url: string }
+      return new URL(args.cancel_url)
+    }
+
+    beforeEach(() => {
+      process.env.STAFF_TERMINAL_SECRET = SECRET
+    })
+
+    afterEach(() => {
+      delete process.env.STAFF_TERMINAL_SECRET
+    })
+
+    it("keeps a valid kiosk QR cash grant in the cancel_url", async () => {
+      const grant = await mintGrant()
+      const cancel = await cancelUrlFor(qrBody({ kioskQrCashGrant: grant }))
+
+      expect(cancel.pathname).toBe("/courses/salsa-femenina-matutina")
+      expect(cancel.searchParams.get("qrBooking")).toBe("1")
+      expect(cancel.searchParams.get("kioskQrCashGrant")).toBe(grant)
+      expect(cancel.searchParams.get("status")).toBe("cancel")
+    })
+
+    it("keeps the grant alongside newStudent for a new-student QR booking", async () => {
+      const defaultValidation = await mockValidate()
+      mockValidate.mockResolvedValue({ ...defaultValidation, serviceId: "new-student" })
+      const grant = await mintGrant()
+      const cancel = await cancelUrlFor(qrBody({ kioskQrCashGrant: grant }))
+
+      expect(cancel.searchParams.get("newStudent")).toBe("1")
+      expect(cancel.searchParams.get("kioskQrCashGrant")).toBe(grant)
+      expect(cancel.searchParams.get("status")).toBe("cancel")
+    })
+
+    it.each([
+      ["tampered", async () => "tampered.grant"],
+      ["expired", async () => mintGrant({ now: new Date(Date.now() - 2 * 60 * 60 * 1000) })],
+      ["for another class", async () => mintGrant({ time: "19:00" })],
+    ])("omits a %s grant from the cancel_url", async (_label, makeGrant) => {
+      const cancel = await cancelUrlFor(qrBody({ kioskQrCashGrant: await makeGrant() }))
+
+      expect(cancel.searchParams.get("qrBooking")).toBe("1")
+      expect(cancel.searchParams.has("kioskQrCashGrant")).toBe(false)
+    })
+
+    it("never carries a grant on a public booking", async () => {
+      const grant = await mintGrant()
+      const cancel = await cancelUrlFor(qrBody({ kioskQrCashGrant: grant, bookingSource: "public_booking" }))
+
+      expect(cancel.searchParams.has("kioskQrCashGrant")).toBe(false)
+    })
+  })
 })

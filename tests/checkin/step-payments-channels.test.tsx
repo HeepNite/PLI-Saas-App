@@ -145,6 +145,54 @@ describe("booking payment channels", () => {
     expect(setPaymentMethod).toHaveBeenCalledWith("stripe")
   })
 
+  it.each([
+    [true, false],
+    [false, true],
+  ])("mobile QR with kiosk cash grant=%s keeps a cash selection (forced to card: %s)", async (hasKioskQrCashGrant, forced) => {
+    const container = document.createElement("div")
+    const root = createRoot(container)
+    roots.push(root)
+    const setPaymentMethod = vi.fn()
+    await act(async () => {
+      root.render(
+        <StepPayments
+          isCheckInFlow
+          isKioskTerminalFlow={false}
+          hasKioskQrCashGrant={hasKioskQrCashGrant}
+          course={course}
+          pkg=""
+          service="dropin"
+          date="2026-10-04"
+          time="18:00"
+          participants={1}
+          contact={{ firstName: "Ada", lastName: "Lovelace", email: "ada@example.com", phone: "+12015550123", note: "" }}
+          addons={[]}
+          to12h={(value) => value}
+          consecutiveAccepted={false}
+          consecutiveAddedCents={0}
+          effectiveConsecutiveOffer={null}
+          kioskQrCheckoutLocked={false}
+          couponInput=""
+          setCouponInput={vi.fn()}
+          appliedCoupon={null}
+          setAppliedCoupon={vi.fn()}
+          subtotal={20}
+          total={20}
+          serviceOpt={course.enrollment.services[0]}
+          pkgOpt={null}
+          addonsOpts={[]}
+          paymentMethod="onsite"
+          setPaymentMethod={setPaymentMethod}
+          t={(key) => key}
+        />,
+      )
+    })
+
+    if (forced) expect(setPaymentMethod).toHaveBeenCalledWith("stripe")
+    else expect(setPaymentMethod).not.toHaveBeenCalled()
+    expect(container.innerHTML.includes("Pay cash at the front desk.")).toBe(hasKioskQrCashGrant)
+  })
+
   it("retains onsite cash for the trusted kiosk presentation", () => {
     const html = renderPayments({ isKioskTerminalFlow: true })
     expect(html).toContain("payments_onSite")
