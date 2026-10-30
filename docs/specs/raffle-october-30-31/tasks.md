@@ -70,7 +70,16 @@
 - [x] Amend requirement 20 and the resolved design before implementation. Branding and container tests observed RED: four October 30 waiting/ready failures (32 passing); after implementation and one ready-phase test timing correction, focused GREEN: 2 files/36 tests. Existing public/generic, day-31, non-waiting/ready, and setup assertions remain covered.
 - [x] Copy the user-supplied MP4 without changing the original. Source and served copy share SHA-256 `e2a1b049cc38327b160a2a21102113da1e91f85b608d282be11b43b041723b3b` (27,110,094 bytes). The day-31 served MP4 retains SHA-256 `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`.
 - [x] Verify the relevant screen suite: 9 files/122 tests passed; scoped ESLint exited 0 with one existing unused-argument warning; `git diff --check` passed. Initial typecheck failed on stale local Prisma-client properties in unrelated payment modules; the parent regenerated only the local client from the unchanged repository schema, then typecheck passed (exit 0). No database access or migrations occurred. Twelve day-31/generic phase renders are byte-identical to the base implementation (differential passed, no stderr, exit 0).
-- [ ] Independent shared-view verification and DEV publication remain pending. Real-device playback and visual legibility are unverified.
+- [x] Independent verification passed for source commit `1f43d6ee`: 36 focused tests, 98 component-suite tests, and 8 independent/differential tests; 52 unaffected renders preserved, typecheck/lint passed, both media hashes correct, October 31 byte-identical to base. Actual tablet playback and visual legibility are not claimed.
+- [x] Publish through PR #761, merged into `codex/develop` as `ad81c3c88987b362e30fb9324d66713464b25cd2`. All PR and merge CI/CodeQL checks passed. Automatic preview `pli-saas-elkjd0033-heepnites-projects.vercel.app` is Ready and assigned to `dev.palladiumlatin.art`.
+- [x] Live verification passed: both `/rifa/30` and `/rifa/31` return 200 with the matching access page. Inka returns 200 `video/mp4`, 27,110,094 bytes and SHA-256 `e2a1b049cc38327b160a2a21102113da1e91f85b608d282be11b43b041723b3b`; Tapville remains 38,971,176 bytes and SHA-256 `6f522fae73fd8d62784ebebd4c8e34d4c8abdaab5a145fd4fae9a6d0bbd79748`. Both 1024-byte range checks return 206 with exact total sizes. No authentication, raffle-state, or production mutations. Real-device playback remains the owner's tablet inspection.
+
+## Phase 10 - Lighter Video Overlay
+
+- [x] User accepted a 40% black overlay on both October tablet videos instead of the existing 70%; preserve the static backdrop and all event/phase behavior.
+- [x] Observe RED: branding waiting/ready tests fail on the missing `bg-black/40` class (2 failed, 11 passed).
+- [x] Replace only the decorative video shade class. GREEN: 13 branding tests and 122 relevant tests pass; typecheck, scoped lint, and diff check exit 0. Differential rendering preserves 14 unaffected surfaces and changes only the requested opacity class in the four October waiting/ready cases.
+- [ ] Publish the 40% shade to DEV. Real-tablet visual proof remains owner inspection.
 
 ## Phase 7 - Tablet Prize Authoring
 

@@ -23,7 +23,7 @@ export default function RaffleBackdrop({ children, className, backgroundVideoUrl
             aria-hidden="true"
             className="h-full w-full object-cover"
           />
-          <div data-testid="raffle-background-shade" className="absolute inset-0 bg-black/70" />
+          <div data-testid="raffle-background-shade" className="absolute inset-0 bg-black/40" />
         </div>
       ) : null}
       <div className="w-full max-w-[16rem] shrink-0 rounded-xl bg-white p-3 shadow-lg sm:max-w-[18rem]">
