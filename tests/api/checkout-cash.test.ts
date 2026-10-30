@@ -12,6 +12,29 @@ const mockPurchaseFindFirst = vi.fn()
 const mockPurchaseCreate = vi.fn()
 const mockFindHeritagePinEntitlement = vi.fn()
 const mockAuthorizeStaffTerminalSession = vi.fn()
+const mockListCheckoutSessions = vi.fn()
+const mockExpireCheckoutSession = vi.fn()
+
+const stripeList = (sessions: unknown[], failAfter?: Error) => ({
+  async *[Symbol.asyncIterator]() {
+    for (const session of sessions) yield session
+    if (failAfter) throw failAfter
+  },
+})
+
+process.env.STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "sk_test_cash_route"
+
+vi.mock("stripe", () => ({
+  default: class Stripe {
+    checkout = {
+      sessions: {
+        list: (...args: unknown[]) => mockListCheckoutSessions(...args),
+        expire: (...args: unknown[]) => mockExpireCheckoutSession(...args),
+      },
+    }
+    constructor() {}
+  },
+}))
 
 const mockDayOfWeekFindUnique = vi.fn()
 const mockDayOfWeekCreate = vi.fn()
@@ -81,6 +104,9 @@ describe("checkout cash route", () => {
     mockDayOfWeekUpsert.mockReset()
     mockDayOfWeekFindUnique.mockResolvedValue(null)
     mockClearPreparedCheckout.mockReset()
+    mockListCheckoutSessions.mockReset()
+    mockListCheckoutSessions.mockImplementation(() => stripeList([]))
+    mockExpireCheckoutSession.mockReset()
 
     mockValidate.mockResolvedValue({
       courseSlug: "salsa-feminine-morning",
@@ -789,5 +815,185 @@ describe("checkout cash route", () => {
 
     consoleInfo.mockRestore()
     dateNow.mockRestore()
+  })
+
+  describe("kiosk QR cash after a cancelled Stripe checkout", () => {
+    const grant = () => createKioskQrCashGrant({
+      terminalId: "terminal_1",
+      courseSlug: "salsa-feminine-morning",
+      date: "2026-02-10",
+      time: "11:00",
+    })
+    const stripeSession = (id: string, overrides: Record<string, unknown> = {}, metadata: Record<string, string> = {}) => ({
+      id,
+      status: "open",
+      payment_status: "unpaid",
+      customer_email: "test@example.com",
+      customer_details: null,
+      metadata: {
+        courseSlug: "salsa-feminine-morning",
+        date: "2026-02-10",
+        time: "11:00",
+        email: "test@example.com",
+        userId: "user_123",
+        flowContext: "qr_phone",
+        ...metadata,
+      },
+      ...overrides,
+    })
+    const postQrCash = async (extra: Record<string, unknown> = {}) => {
+      mockResolveCheckoutPreparation.mockResolvedValueOnce({
+        source: "fallback",
+        terminalAuth: null,
+        verification: { hasVerifiedPhone: true },
+        preparedAccount: {
+          userId: "user_123",
+          clerkUser: null,
+          resolvedUserId: "user_123",
+          identity: { resolvedEmail: "test@example.com", phoneRaw: "+1 9293876584", phoneNormalized: "9293876584" },
+          account: { clerkUserId: "user_123", created: false, requiresSignIn: false, hasAvatar: false },
+        },
+      })
+      const { POST } = await import("@/app/api/checkout/cash/route")
+      return POST(new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photoContext: "qr_phone",
+          courseSlug: "salsa-feminine-morning",
+          date: "2026-02-10",
+          time: "11:00",
+          kioskQrCashGrant: grant(),
+          ...extra,
+        }),
+      }))
+    }
+
+    beforeEach(() => {
+      mockExpireCheckoutSession.mockImplementation(async (id: string) => ({ id, status: "expired" }))
+    })
+
+    it("looks up the last 24h of checkout sessions and records cash when none match", async () => {
+      const response = await postQrCash()
+
+      expect(response.status).toBe(200)
+      const params = mockListCheckoutSessions.mock.calls[0]?.[0] as { created: { gte: number }; limit: number }
+      expect(params.limit).toBe(100)
+      expect(Math.floor(Date.now() / 1000) - params.created.gte).toBeGreaterThanOrEqual(24 * 60 * 60 - 5)
+      expect(mockExpireCheckoutSession).not.toHaveBeenCalled()
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it("expires every open session for this booking before recording cash", async () => {
+      mockListCheckoutSessions.mockImplementation(() => stripeList([
+        stripeSession("cs_test_open_1"),
+        stripeSession("cs_test_old", { status: "expired" }),
+        stripeSession("cs_test_open_2", { customer_email: null }, { email: "" }),
+      ]))
+      const response = await postQrCash()
+
+      expect(response.status).toBe(200)
+      expect(mockExpireCheckoutSession.mock.calls.map(([id]) => id)).toEqual(["cs_test_open_1", "cs_test_open_2"])
+      expect(mockExpireCheckoutSession.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        mockPrisma.purchase.create.mock.invocationCallOrder[0],
+      )
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it("matches a session by Stripe customer_details email when metadata identity differs", async () => {
+      mockListCheckoutSessions.mockImplementation(() => stripeList([
+        stripeSession("cs_test_paid", { status: "complete", payment_status: "paid", customer_email: null, customer_details: { email: "TEST@example.com" } }, { email: "", userId: "guest" }),
+      ]))
+      const response = await postQrCash()
+
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toMatchObject({ code: "ALREADY_PAID_BY_CARD" })
+    })
+
+    it.each([
+      ["complete", { status: "complete", payment_status: "paid" }],
+      ["paid but still marked open", { status: "open", payment_status: "paid" }],
+      ["complete without paid flag", { status: "complete", payment_status: "unpaid" }],
+    ])("refuses cash when a card checkout for this booking is %s", async (_label, overrides) => {
+      mockListCheckoutSessions.mockImplementation(() => stripeList([
+        stripeSession("cs_test_open"),
+        stripeSession("cs_test_paid", overrides),
+      ]))
+      const response = await postQrCash()
+
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toMatchObject({ code: "ALREADY_PAID_BY_CARD" })
+      expect(mockExpireCheckoutSession).not.toHaveBeenCalled()
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      ["another class", { courseSlug: "different-class" }],
+      ["another time", { time: "19:00" }],
+      ["another date", { date: "2026-02-11" }],
+      ["another student", { email: "other@example.com", userId: "user_other" }],
+      ["a non-QR flow", { flowContext: "kiosk_terminal" }],
+    ])("ignores a paid session that belongs to %s", async (_label, metadata) => {
+      mockListCheckoutSessions.mockImplementation(() => stripeList([
+        stripeSession("cs_test_other", { status: "complete", payment_status: "paid", customer_email: "other@example.com" }, metadata),
+      ]))
+      const response = await postQrCash()
+
+      expect(response.status).toBe(200)
+      expect(mockExpireCheckoutSession).not.toHaveBeenCalled()
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+      ["list throws", () => mockListCheckoutSessions.mockImplementation(() => { throw new Error("stripe down") })],
+      ["pagination fails", () => mockListCheckoutSessions.mockImplementation(() => stripeList([], new Error("stripe down")))],
+      ["expire fails", () => {
+        mockListCheckoutSessions.mockImplementation(() => stripeList([stripeSession("cs_test_open")]))
+        mockExpireCheckoutSession.mockRejectedValue(new Error("session already completed"))
+      }],
+      ["expire does not expire", () => {
+        mockListCheckoutSessions.mockImplementation(() => stripeList([stripeSession("cs_test_open")]))
+        mockExpireCheckoutSession.mockResolvedValue({ id: "cs_test_open", status: "complete" })
+      }],
+    ])("fails closed when Stripe %s", async (_label, arrange) => {
+      arrange()
+      const response = await postQrCash()
+
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toMatchObject({ code: "CARD_CHECKOUT_UNVERIFIED" })
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    })
+
+    it("does not query Stripe for trusted kiosk terminal cash", async () => {
+      const { POST } = await import("@/app/api/checkout/cash/route")
+      const response = await POST(new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoContext: "kiosk_terminal" }),
+      }))
+
+      expect(response.status).toBe(200)
+      expect(mockListCheckoutSessions).not.toHaveBeenCalled()
+    })
+
+    it("still refuses public booking cash before any Stripe lookup", async () => {
+      const { POST } = await import("@/app/api/checkout/cash/route")
+      const response = await POST(new Request("http://localhost/api/checkout/cash", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          photoContext: "qr_phone",
+          bookingSource: "public_booking",
+          courseSlug: "salsa-feminine-morning",
+          date: "2026-02-10",
+          time: "11:00",
+          kioskQrCashGrant: grant(),
+        }),
+      }))
+
+      expect(response.status).toBe(403)
+      expect(mockListCheckoutSessions).not.toHaveBeenCalled()
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+    })
   })
 })
