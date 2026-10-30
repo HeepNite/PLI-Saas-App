@@ -235,7 +235,7 @@ class PreparedBridgeOperationsTest {
         val denied = productionWorkflow(bootstrapPermissionGranted = false)
         val deniedResults = mutableListOf<PreparedRecoveryState>()
         denied.workflow.launch("denied", preparedReference(), deniedResults::add)
-        denied.queued.runAll(); denied.workflow.onBluetoothPermissionResult(false)
+        denied.queued.runAll(); denied.workflow.onBluetoothPermissionResult(false); denied.queued.runAll()
 
         listOf<(ProductionPreparedBridgeWorkflow) -> Unit>(
             { it.onApplicationBackgrounded() }, { it.onSessionInvalidated() }, { it.onReaderInvalidated() },
@@ -349,7 +349,7 @@ class PreparedBridgeOperationsTest {
     fun productionWorkflowRejectsAsyncCollectionStartFailureWithoutResurrection() {
         val fixture = productionWorkflow(failCollection = true, deferBootstrapConnection = true); val results = mutableListOf<PreparedRecoveryState>()
         fixture.workflow.launch("operation", preparedReference()) { results += it }; fixture.queued.runAll()
-        repeat(2) { fixture.bootstrap.completeConnection() }
+        repeat(2) { fixture.bootstrap.completeConnection() }; fixture.queued.runAll()
         assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
     }
 
@@ -392,7 +392,9 @@ class PreparedBridgeOperationsTest {
         }
         fixture.queued.runAll()
 
-        val failure = assertFailsWith<IllegalStateException> { fixture.runtime.onReaderDisconnected() }
+        fixture.runtime.onReaderDisconnected()
+        // REJECTED is published only after the ticket-only resolution on the background executor.
+        val failure = assertFailsWith<IllegalStateException> { fixture.queued.runAll() }
 
         assertTrue(failure === completionFailure)
         assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
@@ -751,6 +753,88 @@ class PreparedBridgeOperationsTest {
     }
 
     @Test
+    fun readerLostAfterTheTicketIsUncreatedClearedAndTheNextSaleIsAdmitted() {
+        var lost = true
+        val fixture = productionWorkflow(loseReader = { lost })
+        fixture.prepared.creationStatus = { PreparedCreationStatus.UNCREATED }
+        val first = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation-one", preparedReference(), first::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), first)
+        assertEquals(1, fixture.prepared.creationChecks)
+        assertEquals(emptyList(), fixture.prepared.paymentIds)
+        assertNull(fixture.store.state.attempt)
+
+        lost = false
+        val second = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-two", preparedReference('B'), second::add)
+        fixture.queued.runAll()
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.PAID), second)
+        assertEquals(2, fixture.prepared.references.size)
+    }
+
+    @Test
+    fun ticketOnlySaleWhosePaymentIntentWasCreatedButNotChargedIsCanceledAndCleared() {
+        var calls = 0
+        val fixture = productionWorkflow(
+            beforeCollection = { if (calls++ == 0) throw java.io.IOException("lost response") },
+            cancelResult = { PaymentResult(it, "canceled", false) },
+        )
+        fixture.prepared.creationStatus = { PreparedCreationStatus.CREATED }
+        val results = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
+        assertEquals(listOf<String?>(null), fixture.prepared.paymentIds)
+        assertEquals(listOf("pi_exact"), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+    }
+
+    @Test
+    fun ticketOnlySaleWhosePaymentIntentWasCreatedAndPaidPublishesPaid() {
+        var calls = 0
+        val fixture = productionWorkflow(
+            beforeCollection = { if (calls++ == 0) throw java.io.IOException("lost response") },
+            cancelResult = { error("a paid payment must never be canceled") },
+        )
+        fixture.prepared.creationStatus = { PreparedCreationStatus.CREATED }
+        fixture.prepared.paymentResult = PaymentResult("pi_exact", "succeeded", true)
+        val results = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation", preparedReference(), results::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.PAID), results)
+        assertEquals(emptyList(), fixture.prepared.cancels)
+        assertNull(fixture.store.state.attempt)
+    }
+
+    @Test
+    fun ticketOnlyCreationStatusErrorKeepsTheAttemptRetainedAndTheKioskLocked() {
+        val fixture = productionWorkflow(loseReader = { true })
+        fixture.prepared.creationStatus = { throw java.io.IOException("offline") }
+        val first = mutableListOf<PreparedRecoveryState>()
+
+        fixture.workflow.launch("operation-one", preparedReference(), first::add)
+        fixture.queued.runAll()
+
+        assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), first)
+        assertEquals(1, fixture.prepared.creationChecks)
+        val retained = requireNotNull(fixture.store.state.attempt)
+        assertEquals(fixture.ticket, retained.ticket)
+        assertNull(retained.paymentIntentId)
+        val second = mutableListOf<PreparedRecoveryState>()
+        fixture.workflow.launch("operation-two", preparedReference('B'), second::add)
+        fixture.queued.runAll()
+        assertEquals(PreparedRecoveryState.REJECTED, second.last())
+        assertEquals(1, fixture.prepared.references.size)
+    }
+
+    @Test
     fun bootstrapDeadlineRejectsAndClosesTheOrphanedRuntimeDiscovery() {
         val fixture = WorkflowFixture()
         val events = mutableListOf<String>()
@@ -786,6 +870,7 @@ class PreparedBridgeOperationsTest {
         assertEquals(NativeCollectionState.DISCOVERING, fixture.runtime.state)
 
         requireNotNull(deadline).invoke()
+        fixture.queued.runAll()
 
         assertEquals(listOf(PreparedRecoveryState.PENDING, PreparedRecoveryState.REJECTED), results)
         assertEquals(1, fixture.terminal.discoveryCancels)
@@ -813,6 +898,7 @@ class PreparedBridgeOperationsTest {
         onCollectionPrompt: (CollectionPrompt) -> Unit = {},
         cancelResult: ((String) -> PaymentResult)? = null,
         renewSession: () -> Boolean = { true },
+        loseReader: () -> Boolean = { false },
     ): WorkflowFixture {
         val fixture = WorkflowFixture(failCollection, beforeCollection, cancelResult)
         fixture.terminal.beforeConfirm = { beforeConfirm(fixture.runtime) }
@@ -837,7 +923,7 @@ class PreparedBridgeOperationsTest {
             PinnedReaderBootstrapRuntimeFactory { attempt, runtime ->
                 fixture.bootstrapAttempt = attempt
                 fixture.bootstrapRuntime = runtime
-                ReadyBootstrapRuntime(reader(fixture.ticket), deferBootstrapConnection, bootstrapPermissionGranted) {
+                ReadyBootstrapRuntime(reader(fixture.ticket), deferBootstrapConnection, bootstrapPermissionGranted, loseReader) {
                     fixture.runtime.discover()
                     fixture.terminal.readers?.invoke(listOf(reader(fixture.ticket)))
                     fixture.runtime.selectReader(reader(fixture.ticket))
@@ -923,10 +1009,17 @@ class PreparedBridgeOperationsTest {
         val cancels = mutableListOf<String>()
         val paymentIds = mutableListOf<String?>()
         val recoveries = mutableListOf<String>()
+        var creationChecks = 0
+        var creationStatus: (() -> PreparedCreationStatus)? = null
+        var paymentResult = PaymentResult("pi_exact", "requires_payment_method", false, "secret_exact")
+        override fun preparedCreationStatus(session: StaffSession, ticket: AttemptTicket): PreparedCreationStatus {
+            creationChecks++
+            return requireNotNull(creationStatus) { "creation status unsupported" }()
+        }
         override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket = ticket.also { references += preparedPurchaseReference }
         override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?) =
             beforeCollection().let {
-                if (failCollection) error("collection failed") else PaymentResult("pi_exact", "requires_payment_method", false, "secret_exact").also { paymentIds += paymentIntentId }
+                if (failCollection) error("collection failed") else paymentResult.also { paymentIds += paymentIntentId }
             }
         override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
             PaymentResult("pi_exact", "succeeded", true).also { recoveries += paymentIntentId }
@@ -943,6 +1036,7 @@ class PreparedBridgeOperationsTest {
         private val reader: ConnectedReader,
         private val deferConnection: Boolean = false,
         private val permissionGranted: Boolean = true,
+        private val loseReader: () -> Boolean = { false },
         private val beforeReady: () -> Unit,
     ) : PinnedReaderBootstrapRuntime {
         private var onConnected: (() -> Unit)? = null
@@ -955,6 +1049,7 @@ class PreparedBridgeOperationsTest {
             onReaders(listOf(reader))
         }
         override fun connect(reader: ConnectedReader, onConnected: (ConnectedReader) -> Unit, onDisconnected: () -> Unit, onFailure: () -> Unit) {
+            if (loseReader()) return onDisconnected()
             beforeReady(); if (deferConnection) this.onConnected = { onConnected(reader) } else onConnected(reader)
         }
     }

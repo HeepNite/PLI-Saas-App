@@ -97,9 +97,12 @@ class ProductionPreparedBridgeWorkflow(
                                     val start = coordinator.startCollection()
                                     if (active(handle)) runtime.start(start.attempt, start.clientSecret)
                                 }
-                            } catch (failure: Exception) { publication.rejectUnlessTerminalCompletionFailure(failure) }
+                            } catch (failure: Exception) {
+                                publication.rethrowIfTerminalCompletionFailure(failure)
+                                rejectRetainedSale(handle)
+                            }
                         },
-                        onRecoveryRequired = publication::reject,
+                        onRecoveryRequired = { rejectRetainedSale(handle) },
                         deadlineScheduler = bootstrapDeadlineScheduler,
                     )
                     attachBootstrap(handle, bootstrap)
@@ -183,7 +186,7 @@ class ProductionPreparedBridgeWorkflow(
             NativeCollectionState.UNRESOLVED,
             NativeCollectionState.RECONNECT_REQUIRED -> when {
                 // No PaymentIntent was ever collected by this runtime: nothing to cancel.
-                !runtime.hasActiveAttempt -> handle.publication.reject()
+                !runtime.hasActiveAttempt -> rejectRetainedSale(handle)
                 handle.publication.claimSettlement() -> settleNotPaid(handle)
             }
             else -> handle.publication.publish(PreparedRecoveryState.PENDING)
@@ -216,6 +219,52 @@ class ProductionPreparedBridgeWorkflow(
                     if (settled == PreparedCancelOutcome.CANCELED) PliM2Diagnostics.log("retained attempt cleared reason=canceled")
                     if (settled == PreparedCancelOutcome.PAID && active(handle)) handle.publication.publish(PreparedRecoveryState.PAID)
                     else handle.publication.reject()
+                } catch (failure: TerminalCompletionFailure) {
+                    throw failure.original
+                }
+            }
+        } catch (failure: Exception) { handle.publication.rejectUnlessTerminalCompletionFailure(failure) }
+    }
+
+    /**
+     * A sale that failed after ticket issuance but before its PaymentIntent was retained (reader not
+     * ready or lost, PaymentIntent request failure) resolves that ticket-only attempt in-session
+     * before the web hears REJECTED: UNCREATED clears, a recovered PaymentIntent settles through the
+     * existing paid or not-paid paths, and any error keeps the attempt retained (fail closed).
+     */
+    private fun rejectRetainedSale(handle: Handle) {
+        if (!handle.publication.claimSettlement()) return
+        try {
+            backgroundExecutor.execute {
+                try {
+                    if (!active(handle)) return@execute
+                    // A retained PaymentIntent keeps its existing fail-closed rejection unchanged.
+                    if (runCatching { coordinator.hasKnownPaymentIntent() }.getOrDefault(true)) {
+                        handle.publication.reject()
+                        return@execute
+                    }
+                    val resolution = try {
+                        withActive(handle) {
+                            coordinator.resolveTicketOnlyPreparedAttempt().also { resolution ->
+                                if (resolution == TicketOnlyResolution.RECOVERED_PAID) coordinator.clearResolvedPreparedAttempt()
+                            }
+                        }
+                    } catch (_: Exception) {
+                        null
+                    }
+                    PliM2Diagnostics.log("ticket-only attempt outcome=${resolution?.name ?: "ERROR"}")
+                    when (resolution) {
+                        TicketOnlyResolution.CLEARED -> {
+                            PliM2Diagnostics.log("retained attempt cleared reason=uncreated")
+                            handle.publication.reject()
+                        }
+                        TicketOnlyResolution.RECOVERED_PENDING -> settleNotPaid(handle)
+                        TicketOnlyResolution.RECOVERED_PAID -> {
+                            PliM2Diagnostics.log("retained attempt cleared reason=paid")
+                            if (active(handle)) handle.publication.publish(PreparedRecoveryState.PAID) else handle.publication.reject()
+                        }
+                        null -> handle.publication.reject()
+                    }
                 } catch (failure: TerminalCompletionFailure) {
                     throw failure.original
                 }
@@ -337,8 +386,11 @@ class ProductionPreparedBridgeWorkflow(
             synchronized(this) { terminalCompletionFailure }?.let { throw it }
         }
         fun rejectUnlessTerminalCompletionFailure(failure: Throwable) {
-            if (synchronized(this) { terminalCompletionFailure === failure }) throw failure
+            rethrowIfTerminalCompletionFailure(failure)
             reject()
+        }
+        fun rethrowIfTerminalCompletionFailure(failure: Throwable) {
+            if (synchronized(this) { terminalCompletionFailure === failure }) throw failure
         }
         fun reject() = publish(PreparedRecoveryState.REJECTED)
         @Synchronized fun claimSettlement(): Boolean {
