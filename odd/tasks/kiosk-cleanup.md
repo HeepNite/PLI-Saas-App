@@ -30,7 +30,21 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 - [x] S3 — Server legacy actions and USD 1 product/price check. Route: delegated single writer (4 files). Two commits on branch refactor/kiosk-server-s3: legacy actions removal (aa13240c; student-lookup, preflight, attempt, payment-intent, recover) then catalog check (connection-token verifies merchant + school location only; new test asserts no products/prices retrieval and fail-closed merchant/location). Callers verified: Android (main) and iPad (feat/ipad-native-m2 PurchaseServer.swift) use only connection-token + prepared-*; no web caller. Evidence: full vitest (only known DATABASE_URL integration failure), tsc, lint, build green.
 - [x] S4 — Naming: checkout file renamed to `lib/checkout/prepared-native-purchase-create.ts`; rejection log kept as operational telemetry (comment reworded).
 - [ ] S5 — Webhook legacy branch: deferred until 2027-02-01 (1 paid legacy USD 1 purchase from 2026-10-03 is still inside Stripe 120-day dispute window; 2 pending legacy rows exist).
-- [ ] I1 — iPad rebase and delivery.
+- [ ] I1 — iPad rebase and delivery. Route: delegated single writer (whole iPad tree). feat/ipad-native-m2 rebased cleanly onto origin/main (a5987352); `swift test` 71 pass, `xcodebuild` iOS Simulator build succeeded. History not replayed: the final tree is rebuilt as a local chain of one-commit slices, each based on the previous (ipad/slice-a1 on origin/main), each green on its own; `git diff feat/ipad-native-m2 ipad/slice-f` is empty. Changed lines (additions + deletions) and green evidence:
+  - a1 `refactor(ios-kiosk)` replace KioskNativeBridge with the KioskNative secure bridge core — 926 (339 added, 587 deleted old module). `size:exception`: the deletions are the superseded module. swift test 5 pass.
+  - a2 `feat` approved origin + shared bridge conformance vectors — 369. swift test 9 pass.
+  - a3 `feat` bridge shim, native web events, diagnostics — 376. swift test 22 pass.
+  - b1 `feat` device-only Keychain store + models — 266. swift test 25 pass.
+  - b2 `feat` internal-purchase server protocol + hardened HTTP client — 282. swift test 29 pass.
+  - c1 `feat` Stripe Terminal SDK seam + pinned reader policy — 249. swift test 30 pass.
+  - c2 `feat` pinned M2 connection owner — 430. `size:exception`: one reader state machine with its tests (182 test lines). swift test 41 pass.
+  - d1 `feat` purchase coordinator with durable recovery — 410. `size:exception` (marginal): coordinator plus its tests (167 test lines). swift test 51 pass.
+  - d2 `feat` sale controller — 466. `size:exception`: one sale state machine with its tests (185 test lines). swift test 65 pass.
+  - d3 `feat` kiosk bridge host — 260. swift test 71 pass.
+  - e1 `feat` iPad app target sources, Info.plist, xcconfig, project.yml, device-config script — 598. `size:exception`: the app target only builds as one unit. swift test 71 pass; `xcodegen generate` + `xcodebuild` (scratch copy) succeeded.
+  - e2 `build` generated PLIKiosk.xcodeproj (byte-identical `xcodegen generate` output) + workspace + Package.resolved — 456. `size:exception`: generated. swift test 71 pass; in-tree `xcodebuild` succeeded.
+  - f `docs` ipad-native-m2 spec, ODD feature document and this I1 entry. swift test 71 pass; `xcodebuild` succeeded.
+  Not pushed. Next: owner opens the chained PRs (push, PR and merge remain owner decisions).
 
 ## Progress
 
