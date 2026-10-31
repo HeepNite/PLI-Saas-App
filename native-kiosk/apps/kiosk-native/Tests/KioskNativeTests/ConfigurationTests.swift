@@ -41,6 +41,18 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertNil(OriginPolicy.serializedOrigin(scheme: "https", host: "", port: 0))
     }
 
+    func testConfigurationNeedsTheExactOriginAndValidPinsForTheReader() {
+        let pins = [KioskConfiguration.originKey: origin, KioskConfiguration.serialKey: Fixtures.serial, KioskConfiguration.locationKey: Fixtures.location]
+        XCTAssertEqual(KioskConfiguration(info: pins)?.readerPolicy, Fixtures.policy)
+        XCTAssertNil(KioskConfiguration(info: pins.merging([KioskConfiguration.originKey: origin + "/"]) { $1 }))
+        XCTAssertNil(KioskConfiguration(info: pins.merging([KioskConfiguration.originKey: "HTTPS://PLI.palladiumlatin.art"]) { $1 }))
+        for (key, placeholder) in [(KioskConfiguration.serialKey, "REPLACE_WITH_M2_SERIAL"), (KioskConfiguration.locationKey, "REPLACE_WITH_STRIPE_LOCATION")] {
+            let configuration = KioskConfiguration(info: pins.merging([key: placeholder]) { $1 })
+            XCTAssertNotNil(configuration, "the web kiosk still runs")
+            XCTAssertNil(configuration?.readerPolicy)
+        }
+    }
+
     func testOnlyOneSecureHttpOnlyHostOnlySessionCookieIsEverUsed() throws {
         func cookie(name: String = StaffSession.cookieName, value: String = "abc", domain: String = "pli.palladiumlatin.art", secure: Bool = true, httpOnly: Bool = true) -> HTTPCookie {
             var properties: [HTTPCookiePropertyKey: Any] = [.name: name, .value: value, .domain: domain, .path: "/"]

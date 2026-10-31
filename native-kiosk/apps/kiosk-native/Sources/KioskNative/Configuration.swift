@@ -45,3 +45,54 @@ public struct OriginPolicy: Equatable {
         }
     }
 }
+
+/// Per-device build inputs from Info.plist (xcconfig substitution). The origin is mandatory; without valid reader
+/// pins (a Debug build with placeholders) the app is a plain web kiosk with no native bridge.
+public struct KioskConfiguration: Equatable {
+    public static let originKey = "PLIApprovedOrigin"
+    public static let serialKey = "PLIM2Serial"
+    public static let locationKey = "PLIStripeLocation"
+
+    public let originPolicy: OriginPolicy
+    public let readerPolicy: ReaderPolicy?
+
+    public init?(info: [String: Any]) {
+        guard let origin = info[Self.originKey] as? String, let policy = OriginPolicy(approvedOrigin: origin), policy.origin == origin else { return nil }
+        originPolicy = policy
+        let serial = info[Self.serialKey] as? String ?? ""
+        let location = info[Self.locationKey] as? String ?? ""
+        readerPolicy = Self.matches(serial, #"^STRM2[A-Z0-9]+$"#) && Self.matches(location, #"^tml_[A-Za-z0-9]+$"#)
+            ? ReaderPolicy(serial: serial, locationId: location) : nil
+    }
+
+    private static func matches(_ value: String, _ pattern: String) -> Bool {
+        value.range(of: pattern, options: .regularExpression) != nil
+    }
+}
+
+/// The one M2 this tablet may use: serial and Stripe location come from the per-device xcconfig (Info.plist).
+public struct ReaderPolicy: Equatable {
+    public static let readerType = "stripe_m2"
+
+    public let serial: String
+    public let locationId: String
+
+    public init(serial: String, locationId: String) {
+        self.serial = serial
+        self.locationId = locationId
+    }
+
+    /// Serial, type and location must match, and the pinned reader id once one is known (`nil` only at first
+    /// pairing). A discovered reader that was never registered reports no id or location: connecting registers it
+    /// to the configured location. A connected reader must report both.
+    public func matches(_ reader: SDKReader, pinnedId: String?, connected: Bool) -> Bool {
+        guard reader.serialNumber == serial, reader.deviceType == Self.readerType else { return false }
+        if connected {
+            guard let id = reader.stripeId, reader.locationId == locationId else { return false }
+            return pinnedId == nil || id == pinnedId
+        }
+        let reported = reader.locationId.flatMap { $0.isEmpty ? nil : $0 }
+        let location = reported ?? (reader.stripeId == nil ? locationId : "")
+        return location == locationId && (pinnedId == nil || reader.stripeId == nil || reader.stripeId == pinnedId)
+    }
+}
