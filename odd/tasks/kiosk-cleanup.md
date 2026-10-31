@@ -22,7 +22,7 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 - [x] W2 — useEnrollPaymentActions helpers. (PRs #782, #783)
 - [x] W3 — bridgeRequest helper and runNativePreparedCheckout unit test. (PR #781)
 - [x] W4 — Merge QR pollers and checkout API helpers. Route: delegated writer (14 files). One core `lib/checkin/kiosk-qr-poller.ts` (moved from enroll/effects) used by both hooks; checkin hook poll loop deleted; checkout session/status/drop-in helpers live only in `lib/checkin/checkin-qr-api.ts` (check-in callers keep their no-credentials session request via `includeCredentials: false`). Drift resolved to trim-everywhere. Unchanged poll patches return `prev` (no re-render). Evidence: tests/checkin + enroll + cash-grant 923 pass; tsc, lint clean. Branch refactor/kiosk-web-w4.
-- [ ] W5 — pliNativeAttemptState removal: pending owner decision.
+- [x] W5 — pliNativeAttemptState removal: done (owner approved 2026-10-31); hook, route, lib and tests removed.
 - [x] S1 — /api/checkin/phone/identify (after log check). (PR #786)
 - [x] S2 — /api/kiosk/terminal/connection-token (after log check). (PR #787)
 - [x] A1 — Android legacy runtime / OperatorActivity; reader assignment. (PR #785)

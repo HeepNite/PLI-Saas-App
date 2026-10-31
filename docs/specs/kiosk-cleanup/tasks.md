@@ -12,7 +12,7 @@ Every task: tests alongside code, conventional commit, small PR to `main`, and *
 | W2 (done, PRs #782, #783) | `useEnrollPaymentActions` helpers: ACCOUNT_EXISTS retry, failure handling, sign-in reset | Medium: payment flow | existing enroll tests plus new helper unit tests | Split in 2 PRs if >400 |
 | W3 (done, PR #781) | `bridgeRequest` helper replacing 3 promises in `native-payment-bridge.ts`; unit test for `runNativePreparedCheckout` | Medium: money path | new test: paid, failed, timeout, no automatic fallback; 256 reply cache | Test first |
 | W4 (done) | Merge the two QR pollers and the two checkout API helper modules | Medium | poller tests: cadence, stop conditions, cash grant | Keep QR in-studio cash grant |
-| W5 | Remove `window.pliNativeAttemptState` and `/api/checkout/native-attempt-state` | Medium | route 404 test, bridge contract test | Pending owner decision |
+| W5 | Remove `window.pliNativeAttemptState` and `/api/checkout/native-attempt-state` | Medium | route 404 test, bridge contract test | Done (owner approved 2026-10-31) |
 | S1 (done, PR #786) | Remove `/api/checkin/phone/identify` | Low | route removal test | Only after 30-day log check = 0 hits |
 | S2 (done, PR #787) | Remove `/api/kiosk/terminal/connection-token` | Medium | route removal test | Only after 30-day log check = 0 hits |
 | A1 (done, PR #785) | Android: remove legacy runtime (`KioskApplication.kt:270-342`) and `OperatorActivity`; replace hard-coded reader id (`:510`) with terminal assignment | High | gradle tests, startup recovery tests | Multi-terminal assignment preserved |
@@ -25,7 +25,7 @@ Every task: tests alongside code, conventional commit, small PR to `main`, and *
 ## Order and gates
 
 1. P0a, P0b first (security), independent of each other.
-2. W1 -> W2 -> W3 -> W4 (web); W5 gated on owner.
+2. W1 -> W2 -> W3 -> W4 (web); W5 done.
 3. S1, S2 gated on log evidence.
 4. A1 -> A2 -> S3 (strict order: server legacy removal last).
 5. S4 anytime after W3. S5 gated on DB check. I1 last.
