@@ -124,29 +124,48 @@ function isDiagnosticResponse(value: unknown, id: string) {
     typeof payload.operationReference === "string" && operationReferencePattern.test(payload.operationReference) && payload.state === "accepted"
 }
 
-const diagnosticRoundTrip: NativeDiagnosticCallable = () => {
-  const target = bridge()
-  if (!target) return Promise.resolve({ success: false })
+/**
+ * Sends one request envelope and settles exactly once with the parsed reply, or with `failure`
+ * on timeout, a malformed reply, or a postMessage error. The listener is restored on settle.
+ * `skipForeign` ignores pushed events and replies addressed to other requests.
+ */
+function bridgeRequest<T>(
+  target: AndroidXBridge,
+  operation: string,
+  payload: Record<string, unknown>,
+  parse: (value: unknown, id: string) => T,
+  failure: T,
+  timeoutMs: number,
+  skipForeign = true
+): Promise<T> {
   const id = requestId()
-  const message = JSON.stringify({ version: 1, operation: "diagnosticRoundTrip", requestId: id, payload: {} })
+  const message = JSON.stringify({ version: 1, operation, requestId: id, payload })
   return new Promise((resolve) => {
     const previous = target.onmessage
     let settled = false
-    const finish = (success: boolean) => {
+    const finish = (result: T) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
-      try { if (target.onmessage === onmessage) target.onmessage = previous } catch { /* a diagnostic has no recovery path */ }
-      resolve({ success })
+      try { if (target.onmessage === onmessage) target.onmessage = previous } catch { /* the request outcome is already decided */ }
+      resolve(result)
     }
     const onmessage = (event: { data: unknown }) => {
-      try { finish(typeof event.data === "string" && isDiagnosticResponse(JSON.parse(event.data), id)) }
-      catch { finish(false) }
+      if (skipForeign && belongsElsewhere(event.data, id)) return
+      try { finish(typeof event.data === "string" ? parse(JSON.parse(event.data), id) : failure) }
+      catch { finish(failure) }
     }
     try { target.onmessage = onmessage } catch { /* postMessage may still be usable */ }
-    const timer = setTimeout(() => finish(false), diagnosticTimeoutMs)
-    try { target.postMessage(message) } catch { finish(false) }
+    const timer = setTimeout(() => finish(failure), timeoutMs)
+    try { target.postMessage(message) } catch { finish(failure) }
   })
+}
+
+const diagnosticRoundTrip: NativeDiagnosticCallable = () => {
+  const target = bridge()
+  if (!target) return Promise.resolve({ success: false })
+  // Any reply, including a foreign one, ends the diagnostic: it reports only an exact round trip.
+  return bridgeRequest(target, "diagnosticRoundTrip", {}, (value, id) => ({ success: isDiagnosticResponse(value, id) }), { success: false }, diagnosticTimeoutMs, false)
 }
 
 /** Installs the input-free, coarse-result CDP diagnostic only in browser documents. */
@@ -165,64 +184,23 @@ installPliNativeBridgeDiagnostic()
 export async function handOffPreparedPurchase(preparedPurchaseReference: string, timeoutMs = 5_000): Promise<{ admitted: boolean; state: NativeState; operationReference?: string }> {
   const target = bridge()
   if (!target || !referencePattern.test(preparedPurchaseReference)) return { admitted: false, state: "uncertain" }
-  const id = requestId()
-  const message = JSON.stringify({ version: 1, operation: "startPreparedPurchase", requestId: id, payload: { preparedPurchaseReference } })
-
-  return new Promise((resolve) => {
-    const previous = target.onmessage
-    let settled = false
-    const finish = (state: NativeState, operationReference?: string) => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      try { if (target.onmessage === onmessage) target.onmessage = previous } catch { /* native dispatch is already admitted */ }
-      resolve({ admitted: true, state, ...(operationReference ? { operationReference } : {}) })
-    }
-    const onmessage = (event: { data: unknown }) => {
-      if (belongsElsewhere(event.data, id)) return
-      try {
-        const parsed = typeof event.data === "string"
-          ? parseBridgeResponse(JSON.parse(event.data), id, "startPreparedPurchase", ["accepted", "pending", "rejected"])
-          : null
-        finish((parsed?.state as NativeState | undefined) ?? "uncertain", parsed?.operationReference)
-      } catch { finish("uncertain") }
-    }
-    try { target.onmessage = onmessage } catch { /* postMessage remains an admitted attempt */ }
-    const timer = setTimeout(() => finish("uncertain"), timeoutMs)
-    try { target.postMessage(message) } catch { finish("uncertain") }
-  })
+  // Once postMessage is attempted the request counts as admitted, whatever native replies.
+  return bridgeRequest(target, "startPreparedPurchase", { preparedPurchaseReference }, (value, id) => {
+    const parsed = parseBridgeResponse(value, id, "startPreparedPurchase", ["accepted", "pending", "rejected"])
+    return parsed
+      ? { admitted: true, state: parsed.state as NativeState, operationReference: parsed.operationReference }
+      : { admitted: true, state: "uncertain" as NativeState }
+  }, { admitted: true, state: "uncertain" }, timeoutMs)
 }
 
 /** Reads one coarse state for the exact operation already admitted by native. */
 export async function pollPreparedPurchaseState(operationReference: string, timeoutMs = 5_000): Promise<"pending" | "paid" | "rejected" | "uncertain"> {
   const target = bridge()
   if (!target || !operationReferencePattern.test(operationReference)) return "uncertain"
-  const id = requestId()
-  const message = JSON.stringify({ version: 1, operation: "getPreparedPurchaseState", requestId: id, payload: { operationReference } })
-
-  return new Promise((resolve) => {
-    const previous = target.onmessage
-    let settled = false
-    const finish = (state: "pending" | "paid" | "rejected" | "uncertain") => {
-      if (settled) return
-      settled = true
-      clearTimeout(timer)
-      try { if (target.onmessage === onmessage) target.onmessage = previous } catch { /* an admitted operation remains native-owned */ }
-      resolve(state)
-    }
-    const onmessage = (event: { data: unknown }) => {
-      if (belongsElsewhere(event.data, id)) return
-      try {
-        const parsed = typeof event.data === "string"
-          ? parseBridgeResponse(JSON.parse(event.data), id, "getPreparedPurchaseState", ["pending", "paid", "rejected"])
-          : null
-        finish(parsed?.operationReference === operationReference ? parsed.state as "pending" | "paid" | "rejected" : "uncertain")
-      } catch { finish("uncertain") }
-    }
-    try { target.onmessage = onmessage } catch { /* postMessage remains usable in some WebView implementations */ }
-    const timer = setTimeout(() => finish("uncertain"), timeoutMs)
-    try { target.postMessage(message) } catch { finish("uncertain") }
-  })
+  return bridgeRequest(target, "getPreparedPurchaseState", { operationReference }, (value, id) => {
+    const parsed = parseBridgeResponse(value, id, "getPreparedPurchaseState", ["pending", "paid", "rejected"])
+    return parsed?.operationReference === operationReference ? parsed.state as "pending" | "paid" | "rejected" : "uncertain"
+  }, "uncertain" as "pending" | "paid" | "rejected" | "uncertain", timeoutMs)
 }
 
 export type NativeReaderStatus = "connected" | "connecting" | "disconnected" | "unknown"
