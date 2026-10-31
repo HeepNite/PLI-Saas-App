@@ -1254,6 +1254,261 @@ describe("useEnrollPaymentActions", () => {
     })
   })
 
+  // ---------------------------------------------------------------------
+  // handleSubmit — per-branch failure handling characterization. These pin
+  // the deliberate differences between the hosted, profile, intent and cash
+  // copies so the shared helpers cannot merge semantics.
+  // ---------------------------------------------------------------------
+  describe("handleSubmit — failure handling characterization", () => {
+    const signInSetters = () => ({
+      setFormError: vi.fn(),
+      setRequiresSignIn: vi.fn(),
+      setExistingAccountDetected: vi.fn(),
+      setResumeAfterSignInStep: vi.fn(),
+      setPendingAutoPay: vi.fn(),
+      setProcessing: vi.fn(),
+      setFlowPopup: vi.fn(),
+    })
+
+    it("hosted check-in: phone-verification error falls back to the regular price", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "Phone verification is required" }, { status: 400, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFlowPopup).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("Phone verification was not completed") })
+      )
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(false)
+      expect(setters.setPendingAutoPay).toHaveBeenCalledWith(false)
+      expect(setters.setFormError).not.toHaveBeenCalledWith("Phone verification is required")
+      expect(setters.setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it("hosted check-in: NEW_STUDENT_ALREADY falls back to the regular price", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ code: "NEW_STUDENT_ALREADY" }, { status: 400, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFlowPopup).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("not eligible for the new-student price") })
+      )
+    })
+
+    it("hosted check-in: ACCOUNT_EXISTS never requires sign-in and shows the API error", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ code: "ACCOUNT_EXISTS", error: "exists" }, { status: 409, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFormError).toHaveBeenLastCalledWith("exists")
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(false)
+      expect(setters.setResumeAfterSignInStep).toHaveBeenCalledWith(null)
+    })
+
+    it("hosted check-in: ok response without a redirect URL alerts and releases processing", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ url: "   " })))
+      const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isCheckInFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(alertSpy).toHaveBeenCalledWith("We couldn't start the payment. Please try again.")
+      expect(setters.setRequiresSignIn).not.toHaveBeenCalled()
+      expect(setters.setProcessing).toHaveBeenLastCalledWith(false)
+      alertSpy.mockRestore()
+    })
+
+    it("profile: NEW_STUDENT_ALREADY falls back to the regular price", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ code: "NEW_STUDENT_ALREADY" }, { status: 400, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isProfileBookingFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFlowPopup).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("not eligible for the new-student price") })
+      )
+      expect(setters.setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it("profile: signed-in ACCOUNT_EXISTS after one retry shows the signed-in message", async () => {
+      const fetchMock = vi.fn(async () => jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false }))
+      vi.stubGlobal("fetch", fetchMock)
+      const getToken = vi.fn(async () => "tok")
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isProfileBookingFlow: true, isSignedIn: true, getToken, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/profile/checkout/session", expect.anything())
+      expect(setters.setFormError).toHaveBeenLastCalledWith("account_exists_signed_in")
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(false)
+      expect(setters.setResumeAfterSignInStep).toHaveBeenCalledWith(null)
+    })
+
+    it("profile: signed-out ACCOUNT_EXISTS requires sign-in and resumes at the payments step", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isProfileBookingFlow: true, paymentsStepIndex: -1, step: 4, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFormError).toHaveBeenLastCalledWith(null)
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(true)
+      expect(setters.setExistingAccountDetected).toHaveBeenCalledWith(true)
+      expect(setters.setResumeAfterSignInStep).toHaveBeenCalledWith(4)
+      expect(setters.setPendingAutoPay).toHaveBeenCalledWith(true)
+    })
+
+    it("profile: generic failure without an error string shows the card default message", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, { status: 500, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isProfileBookingFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFormError).toHaveBeenLastCalledWith("Error starting card payment.")
+      expect(setters.setFlowPopup).not.toHaveBeenCalled()
+    })
+
+    it("profile: success clears the sign-in prompt and keeps processing locked for the redirect", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ url: "https://checkout.stripe.test/profile" })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isProfileBookingFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(false)
+      expect(setters.setExistingAccountDetected).toHaveBeenCalledWith(false)
+      expect(setters.setResumeAfterSignInStep).toHaveBeenCalledWith(null)
+      expect(setters.setPendingAutoPay).toHaveBeenCalledWith(false)
+      expect(setters.setProcessing).not.toHaveBeenCalledWith(false)
+    })
+
+    it("intent: a whitespace-only error is shown verbatim (no trim) and a missing one uses the card default", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "  " }, { status: 400, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ ...setters }))
+      await getResult().handleSubmit()
+      expect(setters.setFormError).toHaveBeenLastCalledWith("  ")
+
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({}, { status: 400, ok: false })))
+      await getResult().handleSubmit()
+      expect(setters.setFormError).toHaveBeenLastCalledWith("Error starting card payment.")
+    })
+
+    it("intent: retried NEW_STUDENT_ALREADY uses the post-retry code and falls back", async () => {
+      let calls = 0
+      vi.stubGlobal("fetch", vi.fn(async () => {
+        calls += 1
+        return calls === 1
+          ? jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })
+          : jsonResponse({ code: "NEW_STUDENT_ALREADY" }, { status: 400, ok: false })
+      }))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ isSignedIn: true, getToken: vi.fn(async () => "tok"), ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFlowPopup).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("not eligible for the new-student price") })
+      )
+      expect(setters.setRequiresSignIn).not.toHaveBeenCalledWith(true)
+    })
+
+    it("cash: phone-verification error during check-in falls back to the regular price", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "Phone verification is required" }, { status: 400, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ paymentMethod: "onsite", isCheckInFlow: true, ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFlowPopup).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("Phone verification was not completed") })
+      )
+      expect(setters.setProcessing).toHaveBeenLastCalledWith(false)
+    })
+
+    it("cash: whitespace or missing error uses the cash default message", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: "  " }, { status: 400, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({ paymentMethod: "onsite", ...setters }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFormError).toHaveBeenLastCalledWith("Unable to register cash payment.")
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(false)
+    })
+
+    it("cash: signed-in ACCOUNT_EXISTS after retry requires sign-in (no signed-in message)", async () => {
+      vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({
+        paymentMethod: "onsite", isSignedIn: true, getToken: vi.fn(async () => "tok"), ...setters,
+      }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFormError).not.toHaveBeenCalledWith("account_exists_signed_in")
+      expect(setters.setFormError).toHaveBeenLastCalledWith(null)
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(true)
+    })
+
+    it("cash: decides on the pre-retry code even when the retry returns NEW_STUDENT_ALREADY", async () => {
+      let calls = 0
+      vi.stubGlobal("fetch", vi.fn(async () => {
+        calls += 1
+        return calls === 1
+          ? jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })
+          : jsonResponse({ code: "NEW_STUDENT_ALREADY" }, { status: 400, ok: false })
+      }))
+      const setters = signInSetters()
+      const { getResult } = await renderHook(defaultInput({
+        paymentMethod: "onsite", isSignedIn: true, getToken: vi.fn(async () => "tok"), ...setters,
+      }))
+
+      await getResult().handleSubmit()
+
+      expect(setters.setFlowPopup).not.toHaveBeenCalled()
+      expect(setters.setRequiresSignIn).toHaveBeenCalledWith(true)
+    })
+
+    it("cash: retries once with a refreshed token and reuses it for the automatic drop-in", async () => {
+      let cashCalls = 0
+      const fetchMock = vi.fn<(...args: [string, RequestInit]) => Promise<Response>>(async (url) => {
+        if (url === "/api/checkout/cash") {
+          cashCalls += 1
+          return cashCalls === 1
+            ? jsonResponse({ code: "ACCOUNT_EXISTS" }, { status: 409, ok: false })
+            : jsonResponse({ purchaseId: "pur_1", paymentStatus: "paid" })
+        }
+        return jsonResponse({})
+      })
+      vi.stubGlobal("fetch", fetchMock)
+      const getToken = vi.fn().mockResolvedValueOnce("first").mockResolvedValue("refreshed")
+      const setSuccessMessage = vi.fn()
+      const { getResult } = await renderHook(defaultInput({
+        paymentMethod: "onsite", isCheckInFlow: true, isSignedIn: true, getToken, setSuccessMessage,
+      }))
+
+      await getResult().handleSubmit()
+
+      expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/checkout/cash", "/api/checkout/cash", "/api/checkin/qr/dropin"])
+      const authOf = (index: number) => (fetchMock.mock.calls[index][1].headers as Record<string, string>).Authorization
+      expect(authOf(0)).toBe("Bearer first")
+      expect(authOf(1)).toBe("Bearer refreshed")
+      expect(authOf(2)).toBe("Bearer refreshed")
+      expect(setSuccessMessage).toHaveBeenCalledWith("Cash payment recorded and check-in completed successfully.")
+    })
+  })
+
   describe("native prepared kiosk handoff", () => {
     const reference = "A".repeat(43)
     const NATIVE_READER_UNRESPONSIVE = "The card reader did not respond. Please try again or choose another payment method."
