@@ -40,4 +40,18 @@ final class ConfigurationTests: XCTestCase {
         XCTAssertEqual(OriginPolicy.serializedOrigin(scheme: "http", host: "pli.palladiumlatin.art", port: 443), "http://pli.palladiumlatin.art:443")
         XCTAssertNil(OriginPolicy.serializedOrigin(scheme: "https", host: "", port: 0))
     }
+
+    func testOnlyOneSecureHttpOnlyHostOnlySessionCookieIsEverUsed() throws {
+        func cookie(name: String = StaffSession.cookieName, value: String = "abc", domain: String = "pli.palladiumlatin.art", secure: Bool = true, httpOnly: Bool = true) -> HTTPCookie {
+            var properties: [HTTPCookiePropertyKey: Any] = [.name: name, .value: value, .domain: domain, .path: "/"]
+            if secure { properties[.secure] = "TRUE" }
+            if httpOnly { properties[HTTPCookiePropertyKey("HttpOnly")] = "TRUE" }
+            return HTTPCookie(properties: properties)!
+        }
+        XCTAssertEqual(StaffSession.cookieValue(in: [cookie(), cookie(name: "other")], origin: origin), "abc")
+        for rejected in [[], [cookie(), cookie(value: "def")], [cookie(secure: false)], [cookie(httpOnly: false)], [cookie(domain: ".palladiumlatin.art")], [cookie(value: "a,b")]] {
+            XCTAssertNil(StaffSession.cookieValue(in: rejected, origin: origin))
+        }
+        XCTAssertFalse("\(StaffSession(origin: origin, cookie: "secret-cookie", expiresAt: 1))".contains("secret-cookie"))
+    }
 }
