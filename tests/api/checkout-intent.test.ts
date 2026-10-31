@@ -63,7 +63,7 @@ vi.mock("@/lib/campaigns/heritage-pin-entitlement", () => ({
   findHeritagePinEntitlementForIdentity: (...args: unknown[]) => mockFindHeritagePinEntitlement(...args),
 }))
 
-vi.mock("@/lib/checkout/native-prepared-purchase", () => ({
+vi.mock("@/lib/checkout/prepared-native-purchase-create", () => ({
   NativePreparedPurchaseError: MockNativePreparedPurchaseError,
   createOrReuseNativePreparedPurchase: (...args: unknown[]) => mockCreateOrReuseNativePreparedPurchase(...args),
 }))

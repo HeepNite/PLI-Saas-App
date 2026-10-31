@@ -136,7 +136,7 @@ describe("prepared native purchase capability", () => {
   })
 
   it("persists only the server-resolved selection and rejects a reused purchase with substituted metadata", async () => {
-    const { buildNativePreparedPurchaseIdempotencyKey, createOrReuseNativePreparedPurchase, NativePreparedPurchaseError } = await import("@/lib/checkout/native-prepared-purchase")
+    const { buildNativePreparedPurchaseIdempotencyKey, createOrReuseNativePreparedPurchase, NativePreparedPurchaseError } = await import("@/lib/checkout/prepared-native-purchase-create")
     const input = {
       preparedContextId: "prepared_ctx_1",
       recipient: { userId: "user_123", email: "student@example.com", name: "Student", phone: "9293876584" },
@@ -178,7 +178,7 @@ describe("prepared native purchase capability", () => {
     fulfillmentMetadata: { courseSlug: "salsa-femenina-matutina", date: "2026-02-10", time: "11:00", serviceId: "dropin" },
   }
   const storedPurchase = async () => {
-    const { buildNativePreparedPurchaseIdempotencyKey } = await import("@/lib/checkout/native-prepared-purchase")
+    const { buildNativePreparedPurchaseIdempotencyKey } = await import("@/lib/checkout/prepared-native-purchase-create")
     return {
       id: "purchase_1", userId: "user_123", courseSlug: "salsa-femenina-matutina", courseTitle: "Course booking", amount: 2000,
       currency: "usd", status: "pending", email: "student@example.com", name: "Student", phone: "9293876584", participants: 2,
@@ -190,7 +190,7 @@ describe("prepared native purchase capability", () => {
   const stripeFailure = { eventType: "payment_intent.payment_failed", occurredAt: "2026-02-10T15:00:00.000Z", error: { code: "card_declined" } }
 
   it("reuses a pending prepared purchase that already carries a recorded decline", async () => {
-    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/prepared-native-purchase-create")
     const existing = { ...(await storedPurchase()), metadata: { ...(await storedPurchase()).metadata, stripeFailure } }
     mockPurchaseFindUnique.mockResolvedValue(existing)
 
@@ -199,7 +199,7 @@ describe("prepared native purchase capability", () => {
   })
 
   it("reopens a declined (failed) prepared purchase as pending so the customer can retry the same attempt", async () => {
-    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/prepared-native-purchase-create")
     const base = await storedPurchase()
     const failed = { ...base, status: "failed", metadata: { ...base.metadata, stripeFailure } }
     mockPurchaseFindUnique.mockResolvedValueOnce(failed).mockResolvedValueOnce({ ...failed, status: "pending" })
@@ -210,7 +210,7 @@ describe("prepared native purchase capability", () => {
   })
 
   it("reopens a canceled prepared purchase as pending with a fresh PaymentIntent generation so the customer can retry", async () => {
-    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/prepared-native-purchase-create")
     const base = await storedPurchase()
     const canceled = {
       ...base, status: "canceled", stripePaymentIntentId: "pi_canceled",
@@ -228,7 +228,7 @@ describe("prepared native purchase capability", () => {
   })
 
   it("does not reopen a paid prepared purchase", async () => {
-    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/native-prepared-purchase")
+    const { createOrReuseNativePreparedPurchase } = await import("@/lib/checkout/prepared-native-purchase-create")
     mockPurchaseFindUnique.mockResolvedValue({ ...(await storedPurchase()), status: "paid" })
 
     await expect(createOrReuseNativePreparedPurchase(reuseInput)).rejects.toMatchObject({ code: "mismatch", status: 409 })
