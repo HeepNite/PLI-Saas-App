@@ -5,11 +5,135 @@ import Security
 enum Fixtures {
     static let origin = "https://pli.palladiumlatin.art"
     static let reference = String(repeating: "A", count: 42) + "A"
+    static let serial = "STRM2D533025667"
     static let location = "tml_GqQ6wPY5rSAhAt"
     static let readerId = "tmr_exact"
+    static let policy = ReaderPolicy(serial: serial, locationId: location)
+    static let exact = SDKReader(stripeId: readerId, serialNumber: serial, deviceType: "stripe_m2", locationId: location)
+    static let unregistered = SDKReader(stripeId: nil, serialNumber: serial, deviceType: "stripe_m2", locationId: nil)
+}
+
+/// Virtual clock: nothing fires until a test advances time or fires a pending task explicitly.
+final class FakeScheduler: DeadlineScheduler {
+    struct Entry { let id: Int; let delayMs: Int64; let dueAt: Int64; let task: () -> Void }
+    private(set) var now: Int64 = 0
+    private(set) var pending: [Entry] = []
+    private var nextId = 0
+
+    func schedule(delayMs: Int64, _ task: @escaping () -> Void) -> TerminalCancelable {
+        nextId += 1
+        let id = nextId
+        pending.append(Entry(id: id, delayMs: delayMs, dueAt: now + delayMs, task: task))
+        return TerminalCancelable { [self] in
+            pending.removeAll { $0.id == id }
+        }
+    }
+
+    func advance(byMs delta: Int64) {
+        let target = now + delta
+        while let next = pending.filter({ $0.dueAt <= target }).min(by: { $0.dueAt < $1.dueAt }) {
+            pending.removeAll { $0.id == next.id }
+            now = next.dueAt
+            next.task()
+        }
+        now = target
+    }
+
+    func pendingDelays(where predicate: (Int64) -> Bool = { _ in true }) -> [Int64] {
+        pending.map(\.delayMs).filter(predicate)
+    }
+}
+
+final class FakePermissions: BluetoothPermissions {
+    var granted: Bool
+    private(set) var requests = 0
+    init(granted: Bool) { self.granted = granted }
+    func hasBluetoothPermissions() -> Bool { granted }
+    func requestBluetoothPermissions() throws { requests += 1 }
 }
 
 struct FakeFailure: Error {}
+
+/// Records SDK calls; tests drive every callback explicitly. Cancels finish immediately.
+final class FakeSDK: TerminalSDKClient {
+    var connectedReader: SDKReader?
+    private(set) var setUps = 0, discoveries = 0, discoveryCancels = 0, connections = 0, disconnects = 0
+    private(set) var lastDiscoveryTimeout: Int?
+    private(set) var lastConnect: (locationId: String, autoReconnect: Bool)?
+    private(set) var paymentOperations = [String](), retrievedSecrets = [String](), cancelledOperations = [String]()
+    private(set) weak var events: TerminalSDKReaderEvents?
+    private var tokenFetcher: ((@escaping (Result<String, Error>) -> Void) -> Void)?
+    private var discoveryUpdate: (([SDKReader]) -> Void)?
+    private var discoveryFinished: ((Bool) -> Void)?
+    /// The live SDK reports a cancelled discovery through its completion with an error; tests opt in to mirror it.
+    var reportsCancelledDiscoveryAsFailure = false
+    private var connectCompletion: ((Result<SDKReader, Error>) -> Void)?
+    private var retrieveCompletion, collectCompletion, confirmCompletion: ((Result<String, Error>) -> Void)?
+
+    func setUp(connectionTokenFetcher: @escaping (@escaping (Result<String, Error>) -> Void) -> Void) {
+        setUps += 1
+        tokenFetcher = connectionTokenFetcher
+    }
+
+    func discoverReaders(timeoutSeconds: Int, simulated: Bool, onUpdate: @escaping ([SDKReader]) -> Void, onFinished: @escaping (Bool) -> Void) -> SDKCancel {
+        discoveries += 1
+        lastDiscoveryTimeout = timeoutSeconds
+        discoveryUpdate = onUpdate
+        discoveryFinished = onFinished
+        return { [self] done in
+            discoveryCancels += 1
+            let finished = discoveryFinished
+            discoveryUpdate = nil
+            discoveryFinished = nil
+            done()
+            if reportsCancelledDiscoveryAsFailure { finished?(true) }
+        }
+    }
+
+    func connect(_ reader: SDKReader, locationId: String, autoReconnect: Bool, events: TerminalSDKReaderEvents, completion: @escaping (Result<SDKReader, Error>) -> Void) {
+        connections += 1
+        lastConnect = (locationId, autoReconnect)
+        self.events = events
+        connectCompletion = completion
+    }
+
+    func disconnectReader() { disconnects += 1; connectedReader = nil }
+
+    func retrievePaymentIntent(clientSecret: String, completion: @escaping (Result<String, Error>) -> Void) {
+        paymentOperations.append("retrieve")
+        retrievedSecrets.append(clientSecret)
+        retrieveCompletion = completion
+    }
+
+    func collectPaymentMethod(intentId: String, completion: @escaping (Result<String, Error>) -> Void) -> SDKCancel {
+        paymentOperations.append("collect")
+        collectCompletion = completion
+        return { [self] done in cancelledOperations.append("collect"); done() }
+    }
+
+    func confirmPaymentIntent(intentId: String, completion: @escaping (Result<String, Error>) -> Void) -> SDKCancel {
+        paymentOperations.append("confirm")
+        confirmCompletion = completion
+        return { [self] done in cancelledOperations.append("confirm"); done() }
+    }
+
+    // MARK: Test drivers
+
+    func token() throws -> String? {
+        var result: Result<String, Error>?
+        tokenFetcher? { result = $0 }
+        return try result?.get()
+    }
+    func publish(_ readers: SDKReader...) { discoveryUpdate?(readers) }
+    func failDiscovery() { discoveryFinished?(true) }
+    func completeConnection(_ reader: SDKReader) { connectedReader = reader; connectCompletion?(.success(reader)) }
+    func failConnection() { connectCompletion?(.failure(FakeFailure())) }
+    func dropConnection() { connectedReader = nil; events?.sdkReaderDidDisconnect() }
+    func retrieved(_ id: String) { retrieveCompletion?(.success(id)) }
+    func collected(_ id: String) { collectCompletion?(.success(id)) }
+    func collectFailed() { collectCompletion?(.failure(FakeFailure())) }
+    func confirmed(_ id: String) { confirmCompletion?(.success(id)) }
+}
 
 /// In-memory Keychain keyed by service/account; records the attribute dictionaries it was sent.
 final class FakeKeychain: KeychainClient {
