@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "source": "Derived from androidApp/src/test/kotlin/com/pli/kiosk/android/SecureWebBridgeTest.kt (not modified). Handlers return the configured result; the operation reference factory always returns \"opaque\".",
+  "cases": [
+    {
+      "name": "valid dispatch returns only coarse data",
+      "operations": { "collect": { "schema": { "token": 12 }, "result": "accepted" } },
+      "steps": [
+        { "request": { "id": "one", "operation": "collect", "payload": "{\"token\":\"abc\"}" },
+          "expect": { "requestId": "one", "operationRef": "opaque", "state": "accepted", "operation": "collect" } }
+      ],
+      "handlerCalls": 1
+    },
+    {
+      "name": "malformed and extra envelope fields",
+      "operations": { "collect": { "schema": {}, "result": "accepted" } },
+      "steps": [
+        { "raw": "not-json", "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}", "suffix": ",\"extra\":true" }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}", "replace": [ { "from": "\"payload\":{}", "to": "\"payload\":[]" } ] }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}", "replace": [ { "from": "\"operation\":\"collect\"", "to": "\"operation\":\"\"" } ] }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}", "replace": [ { "from": "\"requestId\":\"one\"", "to": "\"requestId\":\"\"" } ] }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}", "replace": [ { "from": "\"version\":1", "to": "\"version\":\"1\"" } ] }, "expect": { "error": "MALFORMED_REQUEST" } }
+      ],
+      "handlerCalls": 0
+    },
+    {
+      "name": "oversize requests",
+      "operations": {},
+      "steps": [
+        { "raw": [ { "repeat": "x", "count": 16385 } ], "expect": { "error": "REQUEST_TOO_LARGE" } },
+        { "raw": [ { "repeat": "x", "count": 1048576 } ], "expect": { "error": "REQUEST_TOO_LARGE" } }
+      ],
+      "handlerCalls": 0
+    },
+    {
+      "name": "duplicate keys and trailing commas are rejected before handling",
+      "operations": { "collect": { "schema": { "token": 10 }, "result": "accepted" } },
+      "steps": [
+        { "raw": "{\"version\":1,\"operation\":\"collect\",\"operation\":\"collect\",\"requestId\":\"envelope\",\"payload\":{\"token\":\"ok\"}}", "expect": { "error": "MALFORMED_REQUEST" } },
+        { "raw": "{\"version\":1,\"operation\":\"collect\",\"requestId\":\"payload\",\"payload\":{\"token\":\"ok\",\"token\":\"ok\"}}", "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "trailing-envelope", "operation": "collect", "payload": "{\"token\":\"ok\"}", "suffix": "," }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "trailing-payload", "operation": "collect", "payload": "{\"token\":\"ok\",}" }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "trailing-object", "operation": "collect", "payload": "{\"token\":\"ok\"}", "suffix": ",\"extra\":{\"nested\":true,}" }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "unknown-deep", "operation": "collect", "payload": "{\"token\":\"ok\"}", "suffix": [ ",\"extra\":", { "repeat": "[", "count": 4000 }, { "repeat": "]", "count": 4000 } ] }, "expect": { "error": "MALFORMED_REQUEST" } }
+      ],
+      "handlerCalls": 0
+    },
+    {
+      "name": "unsupported version and unknown operation echo the operation",
+      "operations": { "collect": { "schema": {}, "result": "accepted" } },
+      "steps": [
+        { "request": { "id": "version-2", "operation": "collect", "payload": "{}", "replace": [ { "from": "\"version\":1", "to": "\"version\":2" } ] },
+          "expect": { "requestId": "version-2", "error": "UNSUPPORTED_VERSION", "operation": "collect" } },
+        { "request": { "id": "version-1.0", "operation": "collect", "payload": "{}", "replace": [ { "from": "\"version\":1", "to": "\"version\":1.0" } ] },
+          "expect": { "requestId": "version-1.0", "error": "UNSUPPORTED_VERSION", "operation": "collect" } },
+        { "request": { "id": "two", "operation": "missing", "payload": "{}" },
+          "expect": { "requestId": "two", "error": "UNKNOWN_OPERATION", "operation": "missing" } }
+      ],
+      "handlerCalls": 0
+    },
+    {
+      "name": "closed payload schema, types and lengths",
+      "operations": { "collect": { "schema": { "token": 3 }, "result": "accepted" } },
+      "steps": [
+        { "request": { "id": "payload-0", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "payload-0", "error": "INVALID_PAYLOAD", "operation": "collect" } },
+        { "request": { "id": "payload-1", "operation": "collect", "payload": "{\"token\":\"ok\",\"extra\":\"x\"}" }, "expect": { "requestId": "payload-1", "error": "INVALID_PAYLOAD", "operation": "collect" } },
+        { "request": { "id": "payload-2", "operation": "collect", "payload": "{\"token\":\"long\"}" }, "expect": { "requestId": "payload-2", "error": "INVALID_PAYLOAD", "operation": "collect" } },
+        { "request": { "id": "payload-3", "operation": "collect", "payload": "{\"token\":\"   \"}" }, "expect": { "requestId": "payload-3", "error": "INVALID_PAYLOAD", "operation": "collect" } },
+        { "request": { "id": "number", "operation": "collect", "payload": "{\"token\":1}" }, "expect": { "error": "MALFORMED_REQUEST" } },
+        { "request": { "id": "deep", "operation": "collect", "payload": [ "{\"token\":", { "repeat": "[", "count": 4000 }, { "repeat": "]", "count": 4000 }, "}" ] }, "expect": { "error": "MALFORMED_REQUEST" } }
+      ],
+      "handlerCalls": 0
+    },
+    {
+      "name": "response cache evicts the oldest entry at capacity and keeps answering",
+      "operations": { "collect": { "schema": {}, "result": "accepted" } },
+      "steps": [
+        { "range": { "idPrefix": "id-", "count": 300, "request": { "id": "x", "operation": "collect", "payload": "{}" } },
+          "expect": { "operationRef": "opaque", "state": "accepted", "operation": "collect" } },
+        { "request": { "id": "id-299", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "id-299", "operationRef": "opaque", "state": "accepted", "operation": "collect" } },
+        { "request": { "id": "overflow", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "overflow", "operationRef": "opaque", "state": "accepted", "operation": "collect" } },
+        { "request": { "id": "id-0", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "id-0", "operationRef": "opaque", "state": "accepted", "operation": "collect" } }
+      ],
+      "handlerCalls": 302
+    },
+    {
+      "name": "duplicate id is cached and different bytes conflict",
+      "operations": { "collect": { "schema": { "token": 10 }, "result": "pending" } },
+      "steps": [
+        { "request": { "id": "same", "operation": "collect", "payload": "{\"token\":\"a\"}" }, "expect": { "requestId": "same", "operationRef": "opaque", "state": "pending", "operation": "collect" } },
+        { "request": { "id": "same", "operation": "collect", "payload": "{\"token\":\"a\"}" }, "expect": { "requestId": "same", "operationRef": "opaque", "state": "pending", "operation": "collect" } },
+        { "request": { "id": "same", "operation": "collect", "payload": "{\"token\":\"b\"}" }, "expect": { "requestId": "same", "error": "REQUEST_ID_CONFLICT", "operation": "collect" } }
+      ],
+      "handlerCalls": 1
+    },
+    {
+      "name": "handler failure is redacted and cached",
+      "operations": { "collect": { "schema": {}, "result": "throw" } },
+      "steps": [
+        { "request": { "id": "one", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "one", "error": "INTERNAL_ERROR", "operation": "collect" } },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "one", "error": "INTERNAL_ERROR", "operation": "collect" } }
+      ],
+      "handlerCalls": 1
+    },
+    {
+      "name": "invalidation closes the context",
+      "operations": { "collect": { "schema": {}, "result": "accepted" } },
+      "steps": [
+        { "request": { "id": "one", "operation": "collect", "payload": "{}" }, "expect": { "requestId": "one", "operationRef": "opaque", "state": "accepted", "operation": "collect" } },
+        { "invalidate": true },
+        { "request": { "id": "one", "operation": "collect", "payload": "{}" }, "expect": { "error": "STALE_CONTEXT" } }
+      ],
+      "handlerCalls": 1
+    },
+    {
+      "name": "bounds count UTF-16 units and never trim",
+      "operations": { "collect": { "schema": { "token": 4 }, "result": "accepted" } },
+      "steps": [
+        { "request": { "id": "padded", "operation": "collect", "payload": "{\"token\":\" ab \"}" }, "expect": { "requestId": "padded", "operationRef": "opaque", "state": "accepted", "operation": "collect" } },
+        { "request": { "id": "padded-long", "operation": "collect", "payload": "{\"token\":\" abc \"}" }, "expect": { "requestId": "padded-long", "error": "INVALID_PAYLOAD", "operation": "collect" } },
+        { "request": { "id": "pairs", "operation": "collect", "payload": "{\"token\":\"😀😀\"}" }, "expect": { "requestId": "pairs", "operationRef": "opaque", "state": "accepted", "operation": "collect" } },
+        { "request": { "id": "pairs-long", "operation": "collect", "payload": "{\"token\":\"😀😀a\"}" }, "expect": { "requestId": "pairs-long", "error": "INVALID_PAYLOAD", "operation": "collect" } }
+      ],
+      "handlerCalls": 2
+    }
+  ]
+}
