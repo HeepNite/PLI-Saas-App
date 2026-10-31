@@ -1,17 +1,11 @@
 package com.pli.kiosk.android
 
-import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
 
 /** Values returned by the approved server preflight; they are not device configuration. */
 object Approved {
-    const val ACCOUNT = "acct_1PWRzcRtYdjwed35"
-    const val PRODUCT = "prod_VJV0rf6b1sjK9x"
-    const val PRICE = "price_1UIs02RtYdjwed35ZB3jho1F"
     const val LOCATION = "tml_GqQ6wPY5rSAhAt"
-    const val AMOUNT = 100L
-    const val CURRENCY = "usd"
     const val M2_SERIAL = "STRM2D533025669"
 }
 
@@ -83,30 +77,7 @@ data class PaymentResult(
 /** Provider-free server authority for one retained ticket-only prepared attempt. */
 enum class PreparedCreationStatus { UNCREATED, CREATED }
 
-/** The sole identity displayed for an existing student; IDs and phone numbers never leave this boundary. */
-data class MinimumStudentIdentity(val name: String?)
-
-/** Lookup failures are explicit and cannot be treated as a selection. */
-sealed interface StudentLookupResult {
-    data class Unique(val student: MinimumStudentIdentity) : StudentLookupResult
-    data object Missing : StudentLookupResult
-    data object Invalid : StudentLookupResult
-    data object Ambiguous : StudentLookupResult
-}
-
-interface PurchaseApi {
-    fun lookup(session: StaffSession, phone: String): StudentLookupResult
-    fun preflight(session: StaffSession)
-    /** The server re-resolves this confirmed phone and signs the recipient into the returned ticket. */
-    fun issue(session: StaffSession, phone: String): AttemptTicket
-    fun prepare(session: StaffSession, ticket: AttemptTicket): PaymentResult
-    /** Refreshes transient collection data for the one already-durable PaymentIntent identity. */
-    fun refreshCollection(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult =
-        throw UnsupportedOperationException("Collection refresh is unavailable")
-    fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult
-}
-
-/** Exact-total native admission is separate from the legacy phone/student purchase protocol. */
+/** Exact-total native admission: the only purchase protocol the kiosk speaks. */
 interface PreparedPurchaseApi {
     fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket
     fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String? = null): PaymentResult
@@ -478,35 +449,8 @@ object ReaderPolicy {
 }
 
 object Contract {
-    fun preflight(payload: JSONObject) {
-        string(payload, "accountId", Approved.ACCOUNT)
-        string(payload, "productId", Approved.PRODUCT)
-        string(payload, "priceId", Approved.PRICE)
-        string(payload, "locationId", Approved.LOCATION)
-        string(payload, "currency", Approved.CURRENCY)
-        require(payload.opt("amount") is Number && payload.getLong("amount") == Approved.AMOUNT) { "Invalid amount" }
-        require(payload.opt("paymentCreationEnabled") == true) { "Payment creation is disabled" }
-        require(payload.opt("livemode") == true) { "The server is not LIVE" }
-    }
-
     fun attemptTicket(ticket: AttemptTicket) {
         require(ticket.value.isNotBlank() && ticket.readerId.isNotBlank() && ticket.expiresAt > 0) { "Invalid attempt ticket" }
         require(ticket.locationId == Approved.LOCATION) { "Ticket location is not approved" }
-    }
-
-    /** `recovery` rejects a client secret even if the server accidentally sends one. */
-    fun payment(payload: JSONObject, recovery: Boolean): PaymentResult {
-        val id = payload.opt("id") as? String ?: throw IllegalArgumentException("Missing payment ID")
-        val status = payload.opt("status") as? String ?: throw IllegalArgumentException("Missing payment status")
-        val paid = payload.opt("paid") as? Boolean ?: throw IllegalArgumentException("Missing paid status")
-        require(id.isNotBlank() && status.isNotBlank() && (status == "succeeded") == paid) { "Inconsistent payment response" }
-        require(!payload.has("clientSecret") || payload.opt("clientSecret") is String) { "Invalid client secret" }
-        val secret = if (payload.has("clientSecret")) payload.opt("clientSecret") as? String else null
-        require(secret == null || (!recovery && secret.isNotBlank())) { "Client secret is not allowed for recovery" }
-        return PaymentResult(id, status, paid, secret)
-    }
-
-    private fun string(payload: JSONObject, key: String, expected: String) {
-        require(payload.opt(key) is String && payload.getString(key) == expected) { "Invalid $key" }
     }
 }

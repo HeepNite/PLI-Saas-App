@@ -136,70 +136,10 @@ class StaffSessionTransport private constructor(
     }
 }
 
-/**
- * Maps only the fixed internal-purchase protocol onto the durable coordinator. The lookup response
- * exposes only the display name: later attempt creation carries the confirmed phone, and the server
- * re-resolves and signs its own recipient binding without exposing its internal user ID.
- */
+/** Maps only the fixed prepared internal-purchase protocol onto the durable coordinator. */
 class StaffSessionPurchaseApi(
     private val transport: StaffSessionTransport,
-) : PurchaseApi, PreparedPurchaseApi {
-    override fun lookup(session: StaffSession, phone: String): StudentLookupResult {
-        val response = transport.postInternalPurchase(session, JSONObject().put("action", "student-lookup").put("phone", phone))
-        return when (response.status) {
-            200 -> {
-                val root = json(response)
-                val student = root.opt("student") as? JSONObject ?: throw IOException("Student lookup response is invalid")
-                val name = when (val value = student.opt("name")) {
-                    JSONObject.NULL -> null
-                    is String -> value
-                    else -> throw IOException("Student lookup response is invalid")
-                }
-                StudentLookupResult.Unique(MinimumStudentIdentity(name))
-            }
-            400 -> StudentLookupResult.Invalid
-            404 -> StudentLookupResult.Missing
-            409 -> StudentLookupResult.Ambiguous
-            else -> throw IOException("Student lookup is unavailable")
-        }
-    }
-
-    override fun preflight(session: StaffSession) {
-        val response = transport.postInternalPurchase(session, JSONObject().put("action", "preflight"))
-        require(response.status in 200..299) { "Internal purchase preflight failed" }
-        Contract.preflight(json(response))
-    }
-
-    override fun issue(session: StaffSession, phone: String): AttemptTicket {
-        val response = transport.postInternalPurchase(session, JSONObject().put("action", "attempt").put("phone", phone))
-        require(response.status in 200..299) { "Student attempt creation failed" }
-        val body = json(response)
-        return AttemptTicket(
-            value = requiredString(body, "ticket"),
-            expiresAt = requiredLong(body, "expiresAt"),
-            readerId = requiredString(body, "readerId"),
-            locationId = requiredString(body, "locationId"),
-        )
-    }
-
-    override fun prepare(session: StaffSession, ticket: AttemptTicket): PaymentResult = payment(
-        session,
-        JSONObject().put("action", "payment-intent").put("ticket", ticket.value),
-        recovery = false,
-    )
-
-    override fun refreshCollection(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult = payment(
-        session,
-        JSONObject().put("action", "payment-intent").put("ticket", ticket.value).put("paymentIntentId", id),
-        recovery = false,
-    )
-
-    override fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult = payment(
-        session,
-        JSONObject().put("action", "recover").put("ticket", ticket.value).put("paymentIntentId", id),
-        recovery = true,
-    )
-
+) : PreparedPurchaseApi {
     override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket {
         require(preparedPurchaseReference.isNotBlank()) { "Prepared purchase reference is required" }
         val response = transport.postInternalPurchase(
@@ -302,25 +242,6 @@ class StaffSessionPurchaseApi(
             paymentResult(requireNotNull(id), requireNotNull(status), requireNotNull(paid), secret, recovery)
         }
     }
-
-    private fun payment(session: StaffSession, action: JSONObject, recovery: Boolean): PaymentResult {
-        val response = transport.postInternalPurchase(session, action)
-        require(response.status in 200..299) { "Known payment recovery failed" }
-        return Contract.payment(json(response), recovery)
-    }
-
-    /** Legacy responses retain their original JSONObject behavior. */
-    private fun json(response: HttpResponse): JSONObject = try {
-        JSONObject(response.body.decodeToString())
-    } catch (error: Exception) {
-        throw IOException("Internal purchase response is invalid", error)
-    }
-
-    private fun requiredString(value: JSONObject, key: String): String = value.opt(key) as? String
-        ?: throw IOException("Internal purchase response is invalid")
-
-    private fun requiredLong(value: JSONObject, key: String): Long = (value.opt(key) as? Number)?.toLong()
-        ?: throw IOException("Internal purchase response is invalid")
 
     private fun <T> prepared(response: HttpResponse, parse: (JsonReader) -> T): T = try {
         strictUnicodeEscapes(response.body)

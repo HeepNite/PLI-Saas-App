@@ -1,6 +1,5 @@
 package com.pli.kiosk.android
 
-import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -310,24 +309,5 @@ class FoundationTest {
             assertFalse(ReaderPolicy.matches(it, ticket, "tmr_liveFixture"))
         }
         assertFalse(ReaderPolicy.matches(reader, ticket, null))
-    }
-
-    private fun config() = JSONObject().put("accountId", Approved.ACCOUNT)
-        .put("productId", Approved.PRODUCT).put("priceId", Approved.PRICE)
-        .put("locationId", Approved.LOCATION).put("amount", 100).put("currency", "usd")
-        .put("paymentCreationEnabled", true).put("livemode", true)
-
-    @Test fun parserRejectsCatalogAndModeOverridesAndInconsistentPaid() {
-        Contract.preflight(config())
-        listOf("accountId", "productId", "priceId", "locationId", "currency", "amount").forEach {
-            assertFails { Contract.preflight(config().put(it, "wrong")) }
-        }
-        assertFails { Contract.preflight(config().put("livemode", false)) }
-        assertFails { Contract.preflight(config().apply { remove("livemode") }) }
-        assertFails { Contract.preflight(config().put("paymentCreationEnabled", false)) }
-        assertFails { Contract.preflight(config().put("paymentCreationEnabled", "true")) }
-        assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"processing","paid":true}"""), false) }
-        assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"succeeded","paid":false}"""), false) }
-        assertFails { Contract.payment(JSONObject("""{"id":"pi_fixture","status":"succeeded","paid":true,"clientSecret":"secret"}"""), true) }
     }
 }

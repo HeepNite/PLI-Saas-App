@@ -23,10 +23,10 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 - [x] W3 — bridgeRequest helper and runNativePreparedCheckout unit test. (PR #781)
 - [x] W4 — Merge QR pollers and checkout API helpers. Route: delegated writer (14 files). One core `lib/checkin/kiosk-qr-poller.ts` (moved from enroll/effects) used by both hooks; checkin hook poll loop deleted; checkout session/status/drop-in helpers live only in `lib/checkin/checkin-qr-api.ts` (check-in callers keep their no-credentials session request via `includeCredentials: false`). Drift resolved to trim-everywhere. Unchanged poll patches return `prev` (no re-render). Evidence: tests/checkin + enroll + cash-grant 923 pass; tsc, lint clean. Branch refactor/kiosk-web-w4.
 - [ ] W5 — pliNativeAttemptState removal (only after owner confirms).
-- [ ] S1 — /api/checkin/phone/identify (after log check).
-- [ ] S2 — /api/kiosk/terminal/connection-token (after log check).
-- [ ] A1 — Android legacy runtime / OperatorActivity; reader assignment.
-- [ ] A2 — Android legacy PurchaseApi/coordinator (keep AttemptMode.LEGACY fail-closed; 2 PRs).
+- [x] S1 — /api/checkin/phone/identify (after log check). (PR #786)
+- [x] S2 — /api/kiosk/terminal/connection-token (after log check). (PR #787)
+- [x] A1 — Android legacy runtime / OperatorActivity; reader assignment. (PR #785)
+- [x] A2 — Android legacy PurchaseApi/coordinator (keep AttemptMode.LEGACY fail-closed). Route: delegated single writer (10+ files). Two commits on branch refactor/kiosk-android-a2: coordinator (legacy paths, student selection, Outcome.DISABLED) then API/transport (PurchaseApi, legacy StaffSessionPurchaseApi actions, PurchasePaymentRecovery, Contract.preflight/payment, USD 1 catalog constants). LEGACY attempts still decode and fail closed (new FoundationTest). Evidence: testDebugUnitTest, lintRelease, assembleRelease green.
 - [ ] S3 — Server legacy actions and USD 1 product/price check (only after A1/A2).
 - [ ] S4 — Naming and temporary diagnostics.
 - [ ] S5 — Webhook legacy branch (only after DB check).
@@ -34,4 +34,4 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 
 ## Progress
 
-P0b, W1-W4 done. Next step: P0a, then W5 (owner-gated).
+P0b, W1-W4, S1, S2, A1, A2 done. Next step: S3 once A1/A2 are deployed to every reader; P0a; W5 (owner-gated).

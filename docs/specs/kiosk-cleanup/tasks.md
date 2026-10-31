@@ -13,10 +13,10 @@ Every task: tests alongside code, conventional commit, small PR to `main`, and *
 | W3 (done, PR #781) | `bridgeRequest` helper replacing 3 promises in `native-payment-bridge.ts`; unit test for `runNativePreparedCheckout` | Medium: money path | new test: paid, failed, timeout, no automatic fallback; 256 reply cache | Test first |
 | W4 (done) | Merge the two QR pollers and the two checkout API helper modules | Medium | poller tests: cadence, stop conditions, cash grant | Keep QR in-studio cash grant |
 | W5 | Remove `window.pliNativeAttemptState` and `/api/checkout/native-attempt-state` | Medium | route 404 test, bridge contract test | Only after owner confirms |
-| S1 | Remove `/api/checkin/phone/identify` | Low | route removal test | Only after 30-day log check = 0 hits |
-| S2 | Remove `/api/kiosk/terminal/connection-token` | Medium | route removal test | Only after 30-day log check = 0 hits |
-| A1 | Android: remove legacy runtime (`KioskApplication.kt:270-342`) and `OperatorActivity`; replace hard-coded reader id (`:510`) with terminal assignment | High | gradle tests, startup recovery tests | Multi-terminal assignment preserved |
-| A2 | Android: remove legacy `PurchaseApi`/coordinator; keep decoding `AttemptMode.LEGACY` fail-closed | High | LEGACY decode fail-closed test | 2 PRs |
+| S1 (done, PR #786) | Remove `/api/checkin/phone/identify` | Low | route removal test | Only after 30-day log check = 0 hits |
+| S2 (done, PR #787) | Remove `/api/kiosk/terminal/connection-token` | Medium | route removal test | Only after 30-day log check = 0 hits |
+| A1 (done, PR #785) | Android: remove legacy runtime (`KioskApplication.kt:270-342`) and `OperatorActivity`; replace hard-coded reader id (`:510`) with terminal assignment | High | gradle tests, startup recovery tests | Multi-terminal assignment preserved |
+| A2 (done, branch `refactor/kiosk-android-a2`) | Android: remove legacy `PurchaseApi`/coordinator; keep decoding `AttemptMode.LEGACY` fail-closed | High | LEGACY decode fail-closed test | 2 PRs |
 | S3 | Server: remove legacy actions; drop product/price part of `verifyLiveCatalog` (`internal-purchase.service.ts:76-93,523,537-545`), keep merchant/location | High | service tests: connection-token works with price archived | Only after A1/A2 deployed |
 | S4 | Naming (`prepared-native-*` vs `native-prepared-purchase`) and remove temporary diagnostics (`internal-purchase/route.ts:19-26`) | Low | existing tests, import checks | Rename-only commit |
 | S5 | Remove webhook legacy branch | High | webhook tests for current branch | Only after DB check shows no legacy purchases |

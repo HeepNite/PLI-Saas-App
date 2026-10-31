@@ -111,9 +111,6 @@ class StaffSessionConnectionTokenSource(private val transport: StaffSessionTrans
 data class DurableAttempt(val ticket: AttemptTicket, val paymentIntentId: String)
 sealed interface RecoveryState { data class FromServer(val payment: PaymentResult) : RecoveryState; data object ManualReconciliation : RecoveryState }
 interface PaymentRecovery { fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): RecoveryState }
-class PurchasePaymentRecovery(private val api: PurchaseApi) : PaymentRecovery {
-    override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) = RecoveryState.FromServer(api.recover(session, ticket, paymentIntentId))
-}
 /** Prepared (exact-total) attempts carry prepared tickets and must confirm through `prepared-recover`. */
 class PreparedPurchasePaymentRecovery(private val api: PreparedPurchaseApi) : PaymentRecovery {
     override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
