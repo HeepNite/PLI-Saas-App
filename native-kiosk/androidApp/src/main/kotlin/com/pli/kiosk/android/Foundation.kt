@@ -1,17 +1,11 @@
 package com.pli.kiosk.android
 
-import org.json.JSONObject
 import java.io.IOException
 import java.util.concurrent.locks.ReentrantLock
 
 /** Values returned by the approved server preflight; they are not device configuration. */
 object Approved {
-    const val ACCOUNT = "acct_1PWRzcRtYdjwed35"
-    const val PRODUCT = "prod_VJV0rf6b1sjK9x"
-    const val PRICE = "price_1UIs02RtYdjwed35ZB3jho1F"
     const val LOCATION = "tml_GqQ6wPY5rSAhAt"
-    const val AMOUNT = 100L
-    const val CURRENCY = "usd"
     const val M2_SERIAL = "STRM2D533025669"
 }
 
@@ -83,30 +77,7 @@ data class PaymentResult(
 /** Provider-free server authority for one retained ticket-only prepared attempt. */
 enum class PreparedCreationStatus { UNCREATED, CREATED }
 
-/** The sole identity displayed for an existing student; IDs and phone numbers never leave this boundary. */
-data class MinimumStudentIdentity(val name: String?)
-
-/** Lookup failures are explicit and cannot be treated as a selection. */
-sealed interface StudentLookupResult {
-    data class Unique(val student: MinimumStudentIdentity) : StudentLookupResult
-    data object Missing : StudentLookupResult
-    data object Invalid : StudentLookupResult
-    data object Ambiguous : StudentLookupResult
-}
-
-interface PurchaseApi {
-    fun lookup(session: StaffSession, phone: String): StudentLookupResult
-    fun preflight(session: StaffSession)
-    /** The server re-resolves this confirmed phone and signs the recipient into the returned ticket. */
-    fun issue(session: StaffSession, phone: String): AttemptTicket
-    fun prepare(session: StaffSession, ticket: AttemptTicket): PaymentResult
-    /** Refreshes transient collection data for the one already-durable PaymentIntent identity. */
-    fun refreshCollection(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult =
-        throw UnsupportedOperationException("Collection refresh is unavailable")
-    fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult
-}
-
-/** Exact-total native admission is separate from the legacy phone/student purchase protocol. */
+/** Exact-total native admission: the only purchase protocol the kiosk speaks. */
 interface PreparedPurchaseApi {
     fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket
     fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String? = null): PaymentResult
@@ -122,7 +93,7 @@ interface PreparedPurchaseApi {
         throw UnsupportedOperationException("Prepared cancel is unavailable")
 }
 
-enum class Outcome { PENDING, PAID, DISABLED }
+enum class Outcome { PENDING, PAID }
 
 /** Server answer to a prepared cancel. Only [CANCELED] frees the kiosk; [PENDING] keeps it locked. */
 enum class PreparedCancelOutcome { CANCELED, PAID, PENDING }
@@ -130,58 +101,22 @@ enum class PreparedCancelOutcome { CANCELED, PAID, PENDING }
 /** In-session ticket-only resolution: only [CLEARED] frees the kiosk directly. */
 enum class TicketOnlyResolution { CLEARED, RECOVERED_PENDING, RECOVERED_PAID }
 
-/** UI seam: implementations may expose only lookup and explicit confirmation, never a student ID. */
-interface StudentSelectionActions {
-    fun lookupStudent(phone: String): StudentLookupResult
-    fun confirmSelectedStudent(): MinimumStudentIdentity
-}
-
 /**
- * Coordinates the one retained server-signed ticket. It has no SDK collection entry point;
- * hardware collection belongs to the later native unit.
+ * Coordinates the one retained server-signed prepared ticket. A retained [AttemptMode.LEGACY]
+ * attempt still decodes, but fails closed: it is never collected, recovered, or auto-cleared.
  */
-class PurchaseCoordinator private constructor(
+class PurchaseCoordinator(
     private val approvedOrigin: ApprovedOrigin,
     private val store: StateStore,
-    private val api: PurchaseApi,
-    private val preparedApi: PreparedPurchaseApi?,
+    private val preparedApi: PreparedPurchaseApi,
     private val clock: () -> Long,
-) : StudentSelectionActions {
-    constructor(approvedOrigin: ApprovedOrigin, store: StateStore, api: PurchaseApi, clock: () -> Long) :
-        this(approvedOrigin, store, api, null, clock)
-
-    constructor(
-        approvedOrigin: ApprovedOrigin,
-        store: StateStore,
-        api: PurchaseApi,
-        clock: () -> Long,
-        preparedApi: PreparedPurchaseApi?,
-    ) : this(approvedOrigin, store, api, preparedApi, clock)
-
+) {
     companion object {
         // One kiosk process must not issue/recover two attempts concurrently through separate controllers.
         private val operationLock = ReentrantLock()
     }
 
     private var poisoned = false
-    /** Ephemeral UI-only selection. Durable state retains only the server-signed attempt ticket. */
-    private var pendingPhone: String? = null
-    private var confirmedPhone: String? = null
-    var selectedStudent: MinimumStudentIdentity? = null
-        private set
-    val collectionEnabled: Boolean get() = false
-    /** UI may enable only explicit ticket issuance after a unique student confirmation. */
-    val canBeginAttempt: Boolean get() = confirmedPhone != null && selectedStudent != null
-
-    /** Internal composition seam; the opaque value is never returned through UI state. */
-    internal fun retainedTicketForNativeRuntime(): AttemptTicket = exclusive {
-        val state = load()
-        val session = originalSession(state)
-        val attempt = requireNotNull(state.attempt) { "No retained attempt exists" }
-        validateBinding(session, attempt)
-        require(!attempt.resolved) { "Resolved records remain retained without a reset operation" }
-        requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
-    }
 
     /** Internal composition only; this exposes no ticket beyond native code. */
     internal fun retainedPreparedAttemptForNativeRuntime(): AttemptState = exclusive {
@@ -198,53 +133,16 @@ class PurchaseCoordinator private constructor(
         load().attempt?.paymentIntentId != null
     }
 
-    /** UI eligibility only; all state is revalidated again when lookup executes. */
-    fun studentLookupEnabled(): Boolean = exclusive {
-        val state = load()
-        state.attempt == null && state.session?.let {
-            runCatching { validateSession(it) }.isSuccess
-        } == true
-    }
-
-    /** A later lookup always supersedes prior confirmation while no attempt exists. */
-    override fun lookupStudent(phone: String): StudentLookupResult = exclusive {
-        val state = load()
-        require(state.attempt == null) { "A recipient cannot change after attempt creation" }
-        originalSession(state)
-        confirmedPhone = null
-        pendingPhone = null
-        selectedStudent = null
-        val result = api.lookup(requireNotNull(state.session), phone)
-        when (result) {
-            is StudentLookupResult.Unique -> {
-                pendingPhone = phone
-                selectedStudent = result.student
-            }
-            else -> Unit
-        }
-        result
-    }
-
-    /** Requires an explicit operator acknowledgement of the minimum identity before a signed attempt. */
-    override fun confirmSelectedStudent(): MinimumStudentIdentity = exclusive {
-        require(pendingPhone != null && selectedStudent != null) { "A unique student must be selected first" }
-        confirmedPhone = pendingPhone
-        requireNotNull(selectedStudent)
-    }
-
-    fun start(): Outcome = exclusive { performStart() }
-
     /** Admits one opaque exact-total purchase without retaining its one-use reference. */
     fun startPrepared(preparedPurchaseReference: String): Outcome = exclusive {
         validatePreparedReference(preparedPurchaseReference)
         val state = load()
         val session = originalSession(state)
         require(state.attempt == null) { "A retained attempt requires reconciliation" }
-        val api = requireNotNull(preparedApi) { "Prepared purchase API is unavailable" }
         // Persist before the external issue request; a lost response must never be replayed.
         val marker = AttemptState(null, session.association, session.origin, mode = AttemptMode.PREPARED)
         persist(DurableState(session, marker))
-        val ticket = api.preparedAttempt(session, preparedPurchaseReference)
+        val ticket = preparedApi.preparedAttempt(session, preparedPurchaseReference)
         validateNewTicket(ticket)
         persist(DurableState(session, marker.copy(ticket = ticket)))
         Outcome.PENDING
@@ -255,8 +153,6 @@ class PurchaseCoordinator private constructor(
      * validated before return and is never copied into [DurableState].
      */
     fun startCollection(): TransientCollectionStart = exclusive { performCollectionStart() }
-
-    fun resume(): Outcome = exclusive { performResume() }
 
     /** Read-only known-attempt reconciliation; it never issues or prepares a replacement intent. */
     fun recoverKnownAttempt(): Outcome = exclusive {
@@ -296,9 +192,6 @@ class PurchaseCoordinator private constructor(
         require(attempt.mode == AttemptMode.PREPARED && attempt.resolved) {
             "Only a resolved prepared attempt may roll over"
         }
-        pendingPhone = null
-        confirmedPhone = null
-        selectedStudent = null
         persist(DurableState(session))
     }
 
@@ -316,7 +209,7 @@ class PurchaseCoordinator private constructor(
         require(attempt.mode == AttemptMode.PREPARED && !attempt.resolved) { "No unresolved prepared attempt exists" }
         val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
         val id = requireNotNull(attempt.paymentIntentId) { "No known PaymentIntent exists to cancel" }
-        val payment = preparedApiOrFail().preparedCancel(session, ticket, id)
+        val payment = preparedApi.preparedCancel(session, ticket, id)
         val next = validatedRecoveredAttempt(attempt, payment)
         when {
             next.resolved -> {
@@ -346,14 +239,13 @@ class PurchaseCoordinator private constructor(
             "No unresolved ticket-only prepared attempt exists"
         }
         val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
-        val api = preparedApiOrFail()
-        when (api.preparedCreationStatus(session, ticket)) {
+        when (preparedApi.preparedCreationStatus(session, ticket)) {
             PreparedCreationStatus.UNCREATED -> {
                 persistReadBackClear(session)
                 TicketOnlyResolution.CLEARED
             }
             PreparedCreationStatus.CREATED ->
-                if (accept(session, attempt, api.preparedPaymentIntent(session, ticket)) == Outcome.PAID) {
+                if (accept(session, attempt, preparedApi.preparedPaymentIntent(session, ticket)) == Outcome.PAID) {
                     TicketOnlyResolution.RECOVERED_PAID
                 } else {
                     TicketOnlyResolution.RECOVERED_PENDING
@@ -363,9 +255,6 @@ class PurchaseCoordinator private constructor(
 
     private fun persistReadBackClear(session: StaffSession) {
         val cleared = DurableState(session)
-        pendingPhone = null
-        confirmedPhone = null
-        selectedStudent = null
         persist(cleared)
         check(load() == cleared) { "Prepared rollover was not durable" }
     }
@@ -394,15 +283,9 @@ class PurchaseCoordinator private constructor(
         require(state.attempt == null) { "A retained attempt cannot be replaced by login" }
         val session = login()
         validateSession(session)
-        pendingPhone = null
-        confirmedPhone = null
-        selectedStudent = null
         persist(DurableState(session = session))
         session
     }
-
-    /** SDK callbacks are intentionally non-authoritative until native unit 2 obtains server recovery. */
-    fun sdkCompleted(paymentIntentId: String, succeeded: Boolean): Outcome = Outcome.DISABLED
 
     private inline fun <T> exclusive(block: () -> T): T {
         check(operationLock.tryLock()) { "A purchase action is already in progress" }
@@ -413,43 +296,6 @@ class PurchaseCoordinator private constructor(
         }
     }
 
-    private fun performStart(): Outcome {
-        val state = load()
-        val session = originalSession(state)
-        val attempt = state.attempt
-        if (attempt != null) {
-            require(!attempt.resolved) { "A resolved record has no reset operation" }
-            validateBinding(session, attempt)
-            require(attempt.mode == AttemptMode.LEGACY || attempt.ticket != null) {
-                "Prepared issuance outcome is unknown; reconcile with an operator"
-            }
-            if (attempt.mode == AttemptMode.PREPARED) preparedApiOrFail()
-            // Issuing a ticket is the last legal action before explicit reader binding.
-            // A retained ticket or ID is resumed/recovered by its dedicated paths, never reissued.
-            return Outcome.PENDING
-        }
-
-        val phone = requireNotNull(confirmedPhone) { "Explicit student confirmation is required before attempt creation" }
-        api.preflight(session)
-        // Persist an issuance marker first. Losing the issue response requires reconciliation, not reissue.
-        // It intentionally holds no phone or displayed identity; the returned ticket is the signed recipient binding.
-        val marker = AttemptState(null, session.association, session.origin)
-        persist(DurableState(session, marker))
-        val ticket = try {
-            api.issue(session, phone)
-        } finally {
-            pendingPhone = null
-            confirmedPhone = null
-            selectedStudent = null
-        }
-        validateNewTicket(ticket)
-        val retained = marker.copy(ticket = ticket)
-        persist(DurableState(session, retained))
-        // PaymentIntent creation is intentionally deferred until a compliant reader is connected
-        // and startCollection obtains fresh server collection context.
-        return Outcome.PENDING
-    }
-
     private fun performCollectionStart(): TransientCollectionStart {
         val state = load()
         val session = originalSession(state)
@@ -457,23 +303,12 @@ class PurchaseCoordinator private constructor(
         if (attempt != null) {
             require(!attempt.resolved) { "A paid attempt cannot be collected" }
             validateBinding(session, attempt)
+            requirePrepared(attempt)
             val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
             val id = attempt.paymentIntentId
-            if (id != null) {
-                val payment = if (attempt.mode == AttemptMode.PREPARED) {
-                    preparedApiOrFail().preparedPaymentIntent(session, ticket, id)
-                } else {
-                    api.refreshCollection(session, ticket, id)
-                }
-                return collectionStart(session, attempt, payment)
-            }
+            if (id != null) return collectionStart(session, attempt, preparedApi.preparedPaymentIntent(session, ticket, id))
             require(ticket.expiresAt > clock()) { "The unknown ticket expired; reconcile with an operator" }
-            val payment = if (attempt.mode == AttemptMode.PREPARED) {
-                preparedApiOrFail().preparedPaymentIntent(session, ticket)
-            } else {
-                api.prepare(session, ticket)
-            }
-            return collectionStart(session, attempt, payment)
+            return collectionStart(session, attempt, preparedApi.preparedPaymentIntent(session, ticket))
         }
 
         throw IllegalStateException("A durable signed ticket and validated reader are required before collection")
@@ -492,35 +327,14 @@ class PurchaseCoordinator private constructor(
         return TransientCollectionStart(DurableAttempt(requireNotNull(attempt.ticket), payment.id), secret)
     }
 
-    private fun performResume(): Outcome {
-        val state = load()
-        val session = originalSession(state)
-        val attempt = state.attempt ?: throw IllegalStateException("No retained attempt exists")
-        validateBinding(session, attempt)
-        require(!attempt.resolved) { "Resolved records remain retained without a reset operation" }
-        requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
-        if (attempt.mode == AttemptMode.PREPARED) preparedApiOrFail()
-        return if (attempt.paymentIntentId != null) {
-            continueAttempt(session, attempt)
-        } else {
-            // Ticket-only restart must wait for a new explicit reader connection before creation.
-            Outcome.PENDING
-        }
+    private fun recover(session: StaffSession, attempt: AttemptState, ticket: AttemptTicket, id: String): PaymentResult {
+        requirePrepared(attempt)
+        return preparedApi.preparedRecover(session, ticket, id)
     }
 
-    private fun continueAttempt(session: StaffSession, attempt: AttemptState): Outcome {
-        val ticket = requireNotNull(attempt.ticket) { "Ticket issuance outcome is unknown; reconcile with an operator" }
-        val id = requireNotNull(attempt.paymentIntentId) { "No known PaymentIntent exists to recover" }
-        return accept(session, attempt, recover(session, attempt, ticket, id))
-    }
-
-    private fun recover(session: StaffSession, attempt: AttemptState, ticket: AttemptTicket, id: String): PaymentResult =
-        if (attempt.mode == AttemptMode.PREPARED) preparedApiOrFail().preparedRecover(session, ticket, id)
-        else api.recover(session, ticket, id)
-
-    private fun preparedApiOrFail(): PreparedPurchaseApi = requireNotNull(preparedApi) {
-        "Prepared purchase API is unavailable"
-    }
+    /** A decoded legacy attempt is retained for operator reconciliation and never sent to the server. */
+    private fun requirePrepared(attempt: AttemptState) =
+        require(attempt.mode == AttemptMode.PREPARED) { "Legacy attempts are not supported; reconcile with an operator" }
 
     private fun accept(session: StaffSession, attempt: AttemptState, payment: PaymentResult): Outcome {
         val next = validatedRecoveredAttempt(attempt, payment)
@@ -635,35 +449,8 @@ object ReaderPolicy {
 }
 
 object Contract {
-    fun preflight(payload: JSONObject) {
-        string(payload, "accountId", Approved.ACCOUNT)
-        string(payload, "productId", Approved.PRODUCT)
-        string(payload, "priceId", Approved.PRICE)
-        string(payload, "locationId", Approved.LOCATION)
-        string(payload, "currency", Approved.CURRENCY)
-        require(payload.opt("amount") is Number && payload.getLong("amount") == Approved.AMOUNT) { "Invalid amount" }
-        require(payload.opt("paymentCreationEnabled") == true) { "Payment creation is disabled" }
-        require(payload.opt("livemode") == true) { "The server is not LIVE" }
-    }
-
     fun attemptTicket(ticket: AttemptTicket) {
         require(ticket.value.isNotBlank() && ticket.readerId.isNotBlank() && ticket.expiresAt > 0) { "Invalid attempt ticket" }
         require(ticket.locationId == Approved.LOCATION) { "Ticket location is not approved" }
-    }
-
-    /** `recovery` rejects a client secret even if the server accidentally sends one. */
-    fun payment(payload: JSONObject, recovery: Boolean): PaymentResult {
-        val id = payload.opt("id") as? String ?: throw IllegalArgumentException("Missing payment ID")
-        val status = payload.opt("status") as? String ?: throw IllegalArgumentException("Missing payment status")
-        val paid = payload.opt("paid") as? Boolean ?: throw IllegalArgumentException("Missing paid status")
-        require(id.isNotBlank() && status.isNotBlank() && (status == "succeeded") == paid) { "Inconsistent payment response" }
-        require(!payload.has("clientSecret") || payload.opt("clientSecret") is String) { "Invalid client secret" }
-        val secret = if (payload.has("clientSecret")) payload.opt("clientSecret") as? String else null
-        require(secret == null || (!recovery && secret.isNotBlank())) { "Client secret is not allowed for recovery" }
-        return PaymentResult(id, status, paid, secret)
-    }
-
-    private fun string(payload: JSONObject, key: String, expected: String) {
-        require(payload.opt(key) is String && payload.getString(key) == expected) { "Invalid $key" }
     }
 }

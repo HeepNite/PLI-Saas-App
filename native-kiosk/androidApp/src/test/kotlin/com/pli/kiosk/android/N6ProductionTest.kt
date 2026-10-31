@@ -12,13 +12,14 @@ class N6ProductionTest {
     private val session = StaffSession(origin.value, "session", "cookie", now + 100_000)
     private val ticket = AttemptTicket("ticket", now + 60_000, "tmr_fixture", Approved.LOCATION)
 
+    private fun known(id: String) =
+        AttemptState(ticket, session.association, origin.value, id, mode = AttemptMode.PREPARED)
+
     @Test fun newCollectionStartPersistsIdBeforeReturningTransientSecret() {
         val store = MemoryStore(DurableState(session))
         val api = Api().apply { prepared = PaymentResult("pi_new", "requires_payment_method", false, "secret_new") }
         val coordinator = PurchaseCoordinator(origin, store, api, { now })
-        coordinator.lookupStudent("+15550000000")
-        coordinator.confirmSelectedStudent()
-        coordinator.start()
+        coordinator.startPrepared("A".repeat(43))
 
         val start = coordinator.startCollection()
 
@@ -30,7 +31,7 @@ class N6ProductionTest {
     }
 
     @Test fun retainedKnownIdRefreshesSameTicketAndIdWithoutReplacement() {
-        val store = MemoryStore(DurableState(session, AttemptState(ticket, session.association, origin.value, "pi_known")))
+        val store = MemoryStore(DurableState(session, known("pi_known")))
         val api = Api().apply { refreshed = PaymentResult("pi_known", "requires_payment_method", false, "secret_refresh") }
         val coordinator = PurchaseCoordinator(origin, store, api, { now })
 
@@ -49,7 +50,7 @@ class N6ProductionTest {
             PaymentResult("pi_known", "succeeded", true, "secret"),
             PaymentResult("pi_known", "requires_payment_method", false, null),
         ).forEach { payment ->
-            val store = MemoryStore(DurableState(session, AttemptState(ticket, session.association, origin.value, "pi_known")))
+            val store = MemoryStore(DurableState(session, known("pi_known")))
             val api = Api().apply { refreshed = payment }
 
             assertFailsWith<IllegalArgumentException> { PurchaseCoordinator(origin, store, api, { now }).startCollection() }
@@ -68,24 +69,25 @@ class N6ProductionTest {
         }
     }
 
-    private class Api : PurchaseApi {
+    private class Api : PreparedPurchaseApi {
         var issued = 0
         var prepares = 0
         var recoveries = 0
         val refreshes = mutableListOf<Pair<String, String>>()
         var prepared = PaymentResult("pi_new", "requires_payment_method", false, "secret_new")
         var refreshed = PaymentResult("pi_known", "requires_payment_method", false, "secret_refresh")
-        override fun lookup(session: StaffSession, phone: String) = StudentLookupResult.Unique(MinimumStudentIdentity("Fixture"))
-        override fun preflight(session: StaffSession) = Unit
-        override fun issue(session: StaffSession, phone: String): AttemptTicket {
+        override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket {
             issued++
             return AttemptTicket("ticket", 1_060_000L, "tmr_fixture", Approved.LOCATION)
         }
-        override fun prepare(session: StaffSession, ticket: AttemptTicket): PaymentResult { prepares++; return prepared }
-        override fun refreshCollection(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult {
-            refreshes += ticket.value to id
+        override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?): PaymentResult {
+            if (paymentIntentId == null) { prepares++; return prepared }
+            refreshes += ticket.value to paymentIntentId
             return refreshed
         }
-        override fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult { recoveries++; return refreshed }
+        override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+            recoveries++
+            return refreshed
+        }
     }
 }

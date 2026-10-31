@@ -26,9 +26,8 @@ class WebSessionReadiness(
     private val onRecoveryReady: () -> Boolean = { true },
     private val onRecoveryStage: (RetainedRecoveryStage) -> Unit = {},
 ) {
-    private val purchaseApi = StaffSessionPurchaseApi(transport)
-    private val preparedApi = preparedApi ?: purchaseApi
-    private val coordinator = PurchaseCoordinator(origin, store, purchaseApi, clock, this.preparedApi)
+    private val preparedApi: PreparedPurchaseApi = preparedApi ?: StaffSessionPurchaseApi(transport)
+    private val coordinator = PurchaseCoordinator(origin, store, this.preparedApi, clock)
     private val terminalUrl = "${origin.value}/staff/terminal"
 
     var ready: Boolean = false
@@ -151,7 +150,7 @@ class WebSessionReadiness(
                         if (committed) report(RetainedRecoveryStage.PAID_COMMITTED)
                     }
                 }
-                Outcome.PENDING, Outcome.DISABLED -> {
+                Outcome.PENDING -> {
                     report(RetainedRecoveryStage.SERVER_PENDING)
                     rollOverConfirmedNotChargedAttempt(imported)
                 }

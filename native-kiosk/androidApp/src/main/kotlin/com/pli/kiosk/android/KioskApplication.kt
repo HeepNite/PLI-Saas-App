@@ -87,7 +87,7 @@ class KioskApplication : Application() {
             val store = EncryptedStateStore(this)
             val transport = StaffSessionTransport(origin, clock)
             val purchaseApi = StaffSessionPurchaseApi(transport)
-            val coordinator = PurchaseCoordinator(origin, store, purchaseApi, clock, purchaseApi)
+            val coordinator = PurchaseCoordinator(origin, store, purchaseApi, clock)
             val executor = AndroidOperatorBackgroundExecutor()
             val permissions = AndroidBluetoothPermissions()
             val connectionTokens = StaffSessionConnectionTokenSource(transport)
