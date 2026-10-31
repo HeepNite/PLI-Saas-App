@@ -12,8 +12,7 @@ const respond = (body: unknown, status = 200, headers: Record<string, string> = 
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } })
 
 const KNOWN_ACTIONS = new Set([
-  "preflight", "connection-token", "student-lookup", "attempt", "payment-intent", "recover",
-  "prepared-attempt", "prepared-creation-status", "prepared-payment-intent", "prepared-recover",
+  "connection-token", "prepared-attempt", "prepared-creation-status", "prepared-payment-intent", "prepared-recover",
   "prepared-cancel",
 ])
 

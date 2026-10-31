@@ -27,11 +27,11 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 - [x] S2 — /api/kiosk/terminal/connection-token (after log check). (PR #787)
 - [x] A1 — Android legacy runtime / OperatorActivity; reader assignment. (PR #785)
 - [x] A2 — Android legacy PurchaseApi/coordinator (keep AttemptMode.LEGACY fail-closed). Route: delegated single writer (10+ files). Two commits on branch refactor/kiosk-android-a2: coordinator (legacy paths, student selection, Outcome.DISABLED) then API/transport (PurchaseApi, legacy StaffSessionPurchaseApi actions, PurchasePaymentRecovery, Contract.preflight/payment, USD 1 catalog constants). LEGACY attempts still decode and fail closed (new FoundationTest). Evidence: testDebugUnitTest, lintRelease, assembleRelease green.
-- [ ] S3 — Server legacy actions and USD 1 product/price check (only after A1/A2).
+- [x] S3 — Server legacy actions and USD 1 product/price check. Route: delegated single writer (4 files). Two commits on branch refactor/kiosk-server-s3: legacy actions removal (aa13240c; student-lookup, preflight, attempt, payment-intent, recover) then catalog check (connection-token verifies merchant + school location only; new test asserts no products/prices retrieval and fail-closed merchant/location). Callers verified: Android (main) and iPad (feat/ipad-native-m2 PurchaseServer.swift) use only connection-token + prepared-*; no web caller. Evidence: full vitest (only known DATABASE_URL integration failure), tsc, lint, build green.
 - [ ] S4 — Naming and temporary diagnostics.
 - [ ] S5 — Webhook legacy branch (only after DB check).
 - [ ] I1 — iPad rebase and delivery.
 
 ## Progress
 
-P0b, W1-W4, S1, S2, A1, A2 done. Next step: S3 once A1/A2 are deployed to every reader; P0a; W5 (owner-gated).
+P0b, W1-W4, S1, S2, A1, A2, S3 done. Next step: deploy S3 only after A1/A2 builds are on every reader; P0a; S4; S5 (DB-gated); W5 (owner-gated).
