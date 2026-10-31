@@ -18,7 +18,7 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 
 - [ ] P0a — Non-major npm audit fix; patched next, @clerk/nextjs, @sentry/nextjs.
 - [ ] P0b — Android MissingPermission, WebViewFeature guards, Stripe Terminal and androidx.webkit bumps.
-- [ ] W1 — Dead ternaries, shared useNowTick, stale comment.
+- [x] W1 — Dead ternaries, shared useNowTick, stale comment. (branch refactor/kiosk-web-w1; vitest 1386 pass, tsc + lint clean)
 - [ ] W2 — useEnrollPaymentActions helpers.
 - [ ] W3 — bridgeRequest helper and runNativePreparedCheckout unit test.
 - [ ] W4 — Merge QR pollers and checkout API helpers.

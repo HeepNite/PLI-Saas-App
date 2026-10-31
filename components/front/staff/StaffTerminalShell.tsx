@@ -4,6 +4,7 @@ import React, { useEffect, useState, useMemo } from "react"
 import { useSearchParams } from "next/navigation"
 import CheckInQrClient from "@/components/front/checkin/CheckInQrClient"
 import { useKioskDeployRefresh } from "@/components/front/checkin/hooks/useKioskDeployRefresh"
+import { useNowTick } from "@/components/front/checkin/hooks/useNowTick"
 import { getEtHourMinute } from "@/lib/checkin/et-time"
 import { areAllClassesEnded } from "@/components/front/staff/CompletedClassesSelector"
 
@@ -233,15 +234,11 @@ export default function StaffTerminalShell({
     }
   }, [fetchTodayClasses])
 
-  // Auto-rotation: re-evaluate every 30 seconds
+  // Auto-rotation: re-evaluate every 30 seconds (test mode has its own interval)
   const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (testModeEnabled) return // test mode has its own interval
-    const interval = setInterval(() => setTick((t) => t + 1), 30_000)
-    return () => clearInterval(interval)
-  }, [testModeEnabled])
+  useNowTick(30_000, () => setTick((t) => t + 1), { enabled: !testModeEnabled })
 
-  // Test mode: simulated time advances 5 min every 10 seconds
+  // Test mode: simulated time advances 10 min every 5 seconds
   const simulatedNow = useTestMode(todayClasses, testModeEnabled)
   const effectiveNow = useMemo(() => {
     void tick
