@@ -4,7 +4,6 @@ const ROUTE_FLAG_ENV_NAMES = {
   "internal-health": "NEST_GATEWAY_ROUTE_INTERNAL_HEALTH_ENABLED",
   "today-classes": "NEST_GATEWAY_ROUTE_TODAY_CLASSES_ENABLED",
   "qr-decision": "NEST_GATEWAY_ROUTE_QR_DECISION_ENABLED",
-  "terminal-connection-token": "NEST_GATEWAY_ROUTE_TERMINAL_CONNECTION_TOKEN_ENABLED",
   "terminal-payment-intents": "NEST_GATEWAY_ROUTE_TERMINAL_PAYMENT_INTENTS_ENABLED",
 } as const
 
@@ -31,7 +30,6 @@ const DEFAULT_ROUTE_FLAGS: Record<NestGatewayRoute, boolean> = {
   "internal-health": true,
   "today-classes": false,
   "qr-decision": false,
-  "terminal-connection-token": false,
   "terminal-payment-intents": false,
 }
 
