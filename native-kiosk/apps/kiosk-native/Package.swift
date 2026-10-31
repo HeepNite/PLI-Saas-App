@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "KioskNativeBridge",
-    platforms: [.iOS(.v15), .macOS(.v13)],
+    name: "KioskNative",
+    platforms: [.iOS(.v16), .macOS(.v13)],
     products: [
-        .library(name: "KioskNativeBridge", targets: ["KioskNativeBridge"]),
+        .library(name: "KioskNative", targets: ["KioskNative"]),
     ],
     targets: [
-        .target(name: "KioskNativeBridge"),
-        .testTarget(name: "KioskNativeBridgeTests", dependencies: ["KioskNativeBridge"]),
+        .target(name: "KioskNative"),
+        .testTarget(name: "KioskNativeTests", dependencies: ["KioskNative"]),
     ]
 )
