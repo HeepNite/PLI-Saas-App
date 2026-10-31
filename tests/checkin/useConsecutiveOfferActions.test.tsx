@@ -287,6 +287,7 @@ describe("useConsecutiveOfferActions", () => {
         consecutiveCourseTitle: "Bachata",
         consecutiveLinkedCourseTime: "21:00",
       }),
+      includeCredentials: false,
     })
     expect(params.setConsecutiveQrCheckout).toHaveBeenCalledWith(expect.objectContaining({ phase: "creating" }))
     expect(params.setConsecutiveQrCheckout).toHaveBeenCalledWith(expect.objectContaining({ phase: "qr_ready", sessionId: "cs_1", url: "https://pay.test/qr" }))

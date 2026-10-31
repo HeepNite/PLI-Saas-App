@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
+import { createEmptyKioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
+import { applyKioskQrStatePatch, createKioskQrPoller } from "@/lib/checkin/kiosk-qr-poller"
 
 const createStatusResponse = (ok: boolean, data: Record<string, unknown>) => ({
   res: { ok } as Response,
@@ -142,5 +143,35 @@ describe("createKioskQrPoller", () => {
       error: thrown,
       message: "Unable to refresh checkout status.",
     })
+  })
+
+  it("normalises padded status fields to one trimmed shape", async () => {
+    vi.useFakeTimers()
+    const fetchStatus = vi
+      .fn()
+      .mockResolvedValue(createStatusResponse(true, { status: " Complete ", purchaseId: " p-1 ", paymentStatus: "  " }))
+    const onOutcome = vi.fn()
+
+    createKioskQrPoller({ sessionId: "session-6", fetchStatus, onOutcome })
+    await vi.runAllTimersAsync()
+
+    expect(onOutcome).toHaveBeenCalledWith({ type: "complete", purchaseId: "p-1", paymentStatus: null })
+  })
+})
+
+describe("applyKioskQrStatePatch", () => {
+  it("returns the previous state object when the poll patch changes nothing", () => {
+    const prev = { ...createEmptyKioskQrCheckoutState(), phase: "waiting_for_payment" as const, sessionId: "s1" }
+
+    expect(applyKioskQrStatePatch(prev, { phase: "waiting_for_payment", awaitingWebhook: false, error: null })).toBe(prev)
+  })
+
+  it("returns a new merged state when a field changes", () => {
+    const prev = { ...createEmptyKioskQrCheckoutState(), phase: "waiting_for_payment" as const, sessionId: "s1" }
+
+    const next = applyKioskQrStatePatch(prev, { phase: "waiting_for_payment", awaitingWebhook: true, error: null })
+
+    expect(next).not.toBe(prev)
+    expect(next).toMatchObject({ sessionId: "s1", awaitingWebhook: true })
   })
 })

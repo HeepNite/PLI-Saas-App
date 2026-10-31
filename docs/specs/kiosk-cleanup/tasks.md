@@ -9,9 +9,9 @@ Every task: tests alongside code, conventional commit, small PR to `main`, and *
 | P0a | `npm audit fix` (non-major) plus patched `next`, `@clerk/nextjs`, `@sentry/nextjs` | High: auth middleware | `tsc`, lint, vitest, build; sign-in + staff route smoke | Prisma 7 excluded |
 | P0b | Android: fix `MissingPermission` (`StripeTerminalSdkAdapter.kt:186`), add `WebViewFeature` guards (`SecureWebMessageHost.kt:114,133,146`), bump Stripe Terminal 5.8.2 and androidx.webkit 1.18.0 | High: payment SDK | gradle unit tests, lint, APK build | Done (branch `fix/kiosk-android-p0b`); reader smoke is owner-gated |
 | W1 (done) | Remove dead ternaries (`:727`, `:738`), shared `useNowTick`, fix stale comment | Low | existing vitest | ~100 lines |
-| W2 | `useEnrollPaymentActions` helpers: ACCOUNT_EXISTS retry, failure handling, sign-in reset | Medium: payment flow | existing enroll tests plus new helper unit tests | Split in 2 PRs if >400 |
-| W3 | `bridgeRequest` helper replacing 3 promises in `native-payment-bridge.ts`; unit test for `runNativePreparedCheckout` | Medium: money path | new test: paid, failed, timeout, no automatic fallback; 256 reply cache | Test first |
-| W4 | Merge the two QR pollers and the two checkout API helper modules | Medium | poller tests: cadence, stop conditions, cash grant | Keep QR in-studio cash grant |
+| W2 (done, PRs #782, #783) | `useEnrollPaymentActions` helpers: ACCOUNT_EXISTS retry, failure handling, sign-in reset | Medium: payment flow | existing enroll tests plus new helper unit tests | Split in 2 PRs if >400 |
+| W3 (done, PR #781) | `bridgeRequest` helper replacing 3 promises in `native-payment-bridge.ts`; unit test for `runNativePreparedCheckout` | Medium: money path | new test: paid, failed, timeout, no automatic fallback; 256 reply cache | Test first |
+| W4 (done) | Merge the two QR pollers and the two checkout API helper modules | Medium | poller tests: cadence, stop conditions, cash grant | Keep QR in-studio cash grant |
 | W5 | Remove `window.pliNativeAttemptState` and `/api/checkout/native-attempt-state` | Medium | route 404 test, bridge contract test | Only after owner confirms |
 | S1 | Remove `/api/checkin/phone/identify` | Low | route removal test | Only after 30-day log check = 0 hits |
 | S2 | Remove `/api/kiosk/terminal/connection-token` | Medium | route removal test | Only after 30-day log check = 0 hits |

@@ -4,11 +4,13 @@ import {
   requestCheckoutFinalizeApi,
   requestCheckoutIntentApi,
   requestCheckoutQuoteApi,
+  requestNewStudentOutcomeApi,
+} from "@/components/front/courses/enroll/effects/checkout-api"
+import {
   requestCheckoutSessionApi,
   requestCheckoutSessionStatusApi,
   requestDropInCheckInApi,
-  requestNewStudentOutcomeApi,
-} from "@/components/front/courses/enroll/effects/checkout-api"
+} from "@/lib/checkin/checkin-qr-api"
 
 const getSingleFetchCall = (fetchImpl: ReturnType<typeof vi.fn>) => {
   expect(fetchImpl).toHaveBeenCalledTimes(1)

@@ -381,6 +381,7 @@ export function useConsecutiveOfferActions({
           consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
           consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? activeTime,
         },
+        includeCredentials: false,
       })
 
       if (!res.ok || typeof data?.url !== "string" || typeof data?.sessionId !== "string") {

@@ -4,12 +4,12 @@ import {
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
 
-import { requestCheckoutSessionStatusApi } from "./checkout-api"
+import { requestCheckoutSessionStatusApi } from "./checkin-qr-api"
 
-type KioskQrPollerStatePatch = Pick<KioskQrCheckoutState, "phase" | "awaitingWebhook" | "error"> &
+export type KioskQrPollerStatePatch = Pick<KioskQrCheckoutState, "phase" | "awaitingWebhook" | "error"> &
   Partial<Pick<KioskQrCheckoutState, "purchaseId" | "paymentStatus">>
 
-type KioskQrPollerOutcome =
+export type KioskQrPollerOutcome =
   | { type: "complete"; purchaseId: string | null; paymentStatus: string | null }
   | { type: "state"; state: KioskQrPollerStatePatch }
   | { type: "error"; error: unknown; message: string }
@@ -31,6 +31,7 @@ type KioskQrStatusData = {
   error?: unknown
 }
 
+// Single normalisation for every status field: trim, and treat blank strings as absent.
 const readNonEmptyString = (value: unknown) => {
   if (typeof value !== "string") return null
   const trimmed = value.trim()
@@ -46,6 +47,15 @@ const resolveRefreshErrorMessage = (data: KioskQrStatusData) =>
 const toStatusData = (data: unknown): KioskQrStatusData => {
   if (!data || typeof data !== "object") return {}
   return data as KioskQrStatusData
+}
+
+/** Applies a poll patch, returning `prev` itself when nothing changed so React skips the re-render. */
+export const applyKioskQrStatePatch = (
+  prev: KioskQrCheckoutState,
+  patch: Partial<KioskQrCheckoutState>
+): KioskQrCheckoutState => {
+  const keys = Object.keys(patch) as (keyof KioskQrCheckoutState)[]
+  return keys.every((key) => prev[key] === patch[key]) ? prev : { ...prev, ...patch }
 }
 
 export const createKioskQrPoller = ({
@@ -75,9 +85,7 @@ export const createKioskQrPoller = ({
       if (cancelled) return
 
       const statusData = toStatusData(data)
-      const nextPhase = resolveKioskQrPhaseFromStatus(
-        typeof statusData.status === "string" ? statusData.status : null
-      )
+      const nextPhase = resolveKioskQrPhaseFromStatus(readNonEmptyString(statusData.status))
 
       if (nextPhase === "complete") {
         await emit({

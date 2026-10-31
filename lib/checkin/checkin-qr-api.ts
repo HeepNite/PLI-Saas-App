@@ -64,16 +64,24 @@ export const requestDropInCheckInApi = async ({
   payload: Record<string, unknown>
 }) => postJson("/api/checkin/qr/dropin", payload, { token, fetchImpl })
 
+export type CheckoutSessionEndpoint = "/api/checkout/session" | "/api/profile/checkout/session" | "/api/public/checkout/session"
+
 export const requestCheckoutSessionApi = async ({
+  token,
   payload,
   fetchImpl,
-}: {
+  endpoint = "/api/checkout/session",
+  includeCredentials = true,
+}: JsonRequestOptions & {
   payload: Record<string, unknown>
-  fetchImpl?: FetchImpl
+  endpoint?: CheckoutSessionEndpoint
+  /** The check-in kiosk QR flow historically sends no explicit `credentials`; keep that request shape. */
+  includeCredentials?: boolean
 }) => {
-  const res = await resolveFetch(fetchImpl)("/api/checkout/session", {
+  const res = await resolveFetch(fetchImpl)(endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: buildJsonHeaders(token),
+    ...(includeCredentials ? { credentials: "include" as const } : {}),
     body: JSON.stringify(payload),
   })
   const data = await readJsonOrNull(res)

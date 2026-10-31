@@ -1,5 +1,5 @@
 import React from "react"
-import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
+import { applyKioskQrStatePatch, createKioskQrPoller } from "@/lib/checkin/kiosk-qr-poller"
 import { createEmptyKioskQrCheckoutState, type KioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 
 type UseKioskQrPollerProps = {
@@ -69,10 +69,7 @@ export function useKioskQrPoller({
           return
         }
 
-        setKioskQrCheckout((prev) => ({
-          ...prev,
-          ...outcome.state,
-        }))
+        setKioskQrCheckout((prev) => applyKioskQrStatePatch(prev, outcome.state))
       },
     })
   }, [

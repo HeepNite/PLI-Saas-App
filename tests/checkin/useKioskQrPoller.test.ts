@@ -9,11 +9,12 @@ import { createEmptyKioskQrCheckoutState } from "@/lib/checkin/kiosk-qr-payment"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock("@/components/front/courses/enroll/effects/kiosk-qr-poller", () => ({
+vi.mock("@/lib/checkin/kiosk-qr-poller", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/checkin/kiosk-qr-poller")>()),
   createKioskQrPoller: vi.fn(),
 }))
 
-import { createKioskQrPoller } from "@/components/front/courses/enroll/effects/kiosk-qr-poller"
+import { createKioskQrPoller } from "@/lib/checkin/kiosk-qr-poller"
 
 const mockCreateKioskQrPoller = vi.mocked(createKioskQrPoller)
 

@@ -4,17 +4,9 @@ import { requestCheckoutSessionStatusApi } from "@/lib/checkin/checkin-qr-api"
 import {
   KIOSK_QR_POLL_INTERVAL_MS,
   isKioskQrPendingPhase,
-  resolveKioskQrPhaseFromStatus,
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
-
-type KioskQrStatusData = {
-  status?: unknown
-  awaitingWebhook?: unknown
-  purchaseId?: unknown
-  paymentStatus?: unknown
-  error?: unknown
-}
+import { applyKioskQrStatePatch, createKioskQrPoller } from "@/lib/checkin/kiosk-qr-poller"
 
 type UseKioskQrCheckoutPollerOptions = {
   checkoutState: KioskQrCheckoutState
@@ -24,25 +16,6 @@ type UseKioskQrCheckoutPollerOptions = {
   pollIntervalMs?: number
   completionDelayMs?: number
 }
-
-const readNonEmptyString = (value: unknown) => {
-  if (typeof value !== "string") return null
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-const readStringOrNull = (value: unknown) => (typeof value === "string" ? value : null)
-
-const toStatusData = (data: unknown): KioskQrStatusData => {
-  if (!data || typeof data !== "object") return {}
-  return data as KioskQrStatusData
-}
-
-const resolveExpiredMessage = (data: KioskQrStatusData) =>
-  readNonEmptyString(data.error) ?? "The hosted checkout session expired before payment completed."
-
-const resolveRefreshErrorMessage = (data: KioskQrStatusData) =>
-  readNonEmptyString(data.error) ?? "Unable to refresh checkout status."
 
 export function useKioskQrCheckoutPoller({
   checkoutState,
@@ -69,82 +42,25 @@ export function useKioskQrCheckoutPoller({
       return
     }
 
-    let cancelled = false
-    let pollTimeoutId: number | null = null
-
-    const scheduleNextPoll = () => {
-      if (cancelled) return
-      pollTimeoutId = window.setTimeout(poll, pollIntervalMs)
-    }
-
-    const poll = async () => {
-      try {
-        const { res, data } = await fetchStatus({ sessionId })
-        if (cancelled) return
-
-        const statusData = toStatusData(data)
-        const nextPhase = resolveKioskQrPhaseFromStatus(readNonEmptyString(statusData.status))
-
-        if (nextPhase === "complete") {
-          setCheckoutState((prev) => ({
-            ...prev,
-            phase: "complete",
-            purchaseId: readStringOrNull(statusData.purchaseId),
-            paymentStatus: readStringOrNull(statusData.paymentStatus),
-          }))
+    return createKioskQrPoller({
+      sessionId,
+      fetchStatus,
+      pollIntervalMs,
+      onOutcome: (outcome) => {
+        if (outcome.type === "complete") {
+          const { purchaseId, paymentStatus } = outcome
+          setCheckoutState((prev) => ({ ...prev, phase: "complete", purchaseId, paymentStatus }))
           return
         }
 
-        if (nextPhase === "expired") {
-          setCheckoutState((prev) => ({
-            ...prev,
-            phase: "expired",
-            awaitingWebhook: false,
-            error: resolveExpiredMessage(statusData),
-          }))
+        if (outcome.type === "error") {
+          console.warn("Unable to poll consecutive checkout session status", outcome.error)
+          setCheckoutState((prev) => ({ ...prev, phase: "error", awaitingWebhook: false, error: outcome.message }))
           return
         }
 
-        if (!res.ok) {
-          setCheckoutState((prev) => ({
-            ...prev,
-            phase: "error",
-            awaitingWebhook: false,
-            error: resolveRefreshErrorMessage(statusData),
-          }))
-          return
-        }
-
-        setCheckoutState((prev) => ({
-          ...prev,
-          phase: nextPhase,
-          awaitingWebhook: Boolean(statusData.awaitingWebhook),
-          purchaseId: readStringOrNull(statusData.purchaseId),
-          paymentStatus: readStringOrNull(statusData.paymentStatus),
-          error: null,
-        }))
-      } catch (error) {
-        if (cancelled) return
-        console.warn("Unable to poll consecutive checkout session status", error)
-        setCheckoutState((prev) => ({
-          ...prev,
-          phase: "error",
-          awaitingWebhook: false,
-          error: "Unable to refresh checkout status.",
-        }))
-        return
-      }
-
-      scheduleNextPoll()
-    }
-
-    void poll()
-
-    return () => {
-      cancelled = true
-      if (pollTimeoutId !== null) {
-        window.clearTimeout(pollTimeoutId)
-      }
-    }
+        setCheckoutState((prev) => applyKioskQrStatePatch(prev, outcome.state))
+      },
+    })
   }, [fetchStatus, pendingPhase, pollIntervalMs, sessionId, setCheckoutState])
 }

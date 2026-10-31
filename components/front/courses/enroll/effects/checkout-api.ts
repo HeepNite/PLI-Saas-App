@@ -16,10 +16,6 @@ type CheckoutIntentRequestOptions = RequestOptions & {
   endpoint?: "/api/checkout/intent" | "/api/public/checkout/intent"
 }
 
-type CheckoutSessionRequestOptions = RequestOptions & {
-  endpoint?: "/api/checkout/session" | "/api/profile/checkout/session" | "/api/public/checkout/session"
-}
-
 const resolveFetch = (fetchImpl?: FetchImpl) => fetchImpl ?? fetch
 
 const createJsonHeaders = (token?: string | null) => ({
@@ -104,22 +100,6 @@ export const requestCheckoutIntentApi = async ({
   return { res, data }
 }
 
-export const requestCheckoutSessionApi = async ({
-  token,
-  payload,
-  fetchImpl,
-  endpoint = "/api/checkout/session",
-}: CheckoutSessionRequestOptions) => {
-  const res = await resolveFetch(fetchImpl)(endpoint, {
-    method: "POST",
-    headers: createJsonHeaders(token),
-    credentials: "include",
-    body: JSON.stringify(payload),
-  })
-  const data = await res.json().catch(() => null)
-  return { res, data }
-}
-
 export const requestCheckoutCashApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
   const res = await resolveFetch(fetchImpl)("/api/checkout/cash", {
     method: "POST",
@@ -133,17 +113,6 @@ export const requestCheckoutCashApi = async ({ token, payload, fetchImpl }: Requ
 
 export const requestPublicPackageReservationApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
   const res = await resolveFetch(fetchImpl)("/api/profile/bookings/reserve-package", {
-    method: "POST",
-    headers: createJsonHeaders(token),
-    credentials: "include",
-    body: JSON.stringify(payload),
-  })
-  const data = await res.json().catch(() => null)
-  return { res, data }
-}
-
-export const requestDropInCheckInApi = async ({ token, payload, fetchImpl }: RequestOptions) => {
-  const res = await resolveFetch(fetchImpl)("/api/checkin/qr/dropin", {
     method: "POST",
     headers: createJsonHeaders(token),
     credentials: "include",
@@ -168,23 +137,6 @@ export const requestCheckoutFinalizeApi = async ({
     credentials: "include",
     body: JSON.stringify({ paymentIntentId }),
   })
-  const data = await res.json().catch(() => null)
-  return { res, data }
-}
-
-export const requestCheckoutSessionStatusApi = async ({
-  sessionId,
-  fetchImpl,
-}: {
-  sessionId: string
-  fetchImpl?: FetchImpl
-}) => {
-  const res = await resolveFetch(fetchImpl)(
-    `/api/checkout/session/status?sessionId=${encodeURIComponent(sessionId)}`,
-    {
-      credentials: "include",
-    }
-  )
   const data = await res.json().catch(() => null)
   return { res, data }
 }
