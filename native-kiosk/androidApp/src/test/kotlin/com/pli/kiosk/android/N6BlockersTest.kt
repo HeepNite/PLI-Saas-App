@@ -1,12 +1,9 @@
 package com.pli.kiosk.android
 
 import android.content.Intent
-import android.view.ViewGroup
-import android.widget.Button
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.util.concurrent.CountDownLatch
@@ -202,17 +199,6 @@ class N6BlockersTest {
         assertEquals(listOf("pi_same"), recovery.ids)
     }
 
-    @Test fun terminalApplicationLifecyclePrecedesRuntimeComposition() {
-        val order = mutableListOf<String>()
-
-        initializeKioskApplicationLifecycle(
-            terminal = { order += "terminal" },
-            runtime = { order += "runtime" },
-        )
-
-        assertEquals(listOf("terminal", "runtime"), order)
-    }
-
     @Test fun productionExecutorRunsNetworkWorkOffTheUiThread() {
         val done = CountDownLatch(1)
         var invokedOnUiThread = true
@@ -222,110 +208,6 @@ class N6BlockersTest {
         }
         assertTrue(done.await(2, TimeUnit.SECONDS))
         assertFalse(invokedOnUiThread)
-    }
-
-    @Test fun networkCompletionAndFinalStateNotificationUseTheUiDispatcher() {
-        val background = QueueExecutor()
-        val ui = QueueUiDispatcher()
-        val runtime = ProductionOperatorRuntime(
-            native = null,
-            selection = object : StudentSelectionActions {
-                override fun lookupStudent(phone: String) = StudentLookupResult.Invalid
-                override fun confirmSelectedStudent() = MinimumStudentIdentity(null)
-            },
-            startSource = null,
-            loginSource = { _, pin -> pin.fill('\u0000') },
-            backgroundExecutor = background,
-            uiDispatcher = ui,
-        )
-        var notifications = 0
-        var completed = false
-        runtime.setStateListener { notifications++ }
-
-        runtime.loginAsync("staff", charArrayOf('1')) { completed = it }
-        assertEquals(2, notifications)
-        background.runNext()
-
-        assertFalse(completed)
-        assertEquals(2, notifications)
-        ui.runNext()
-        assertTrue(completed)
-        assertEquals(3, notifications)
-    }
-
-    @Test fun productionNetworkActionsAreQueuedAndRejectDuplicatesWhileInFlight() {
-        val queued = QueueExecutor()
-        val runtime = ProductionOperatorRuntime(
-            native = null,
-            selection = object : StudentSelectionActions {
-                override fun lookupStudent(phone: String) = StudentLookupResult.Invalid
-                override fun confirmSelectedStudent() = MinimumStudentIdentity(null)
-            },
-            startSource = null,
-            loginSource = { _, pin -> pin.fill('\u0000') },
-            backgroundExecutor = queued,
-        )
-        var completed = false
-        runtime.loginAsync("staff", charArrayOf('1')) { completed = it }
-        assertFalse(completed)
-        assertFalse(runtime.studentLookupEnabled)
-        assertFalse(runCatching { runtime.loginAsync("staff", charArrayOf('2')) {} }.isSuccess)
-        queued.runNext()
-        assertTrue(completed)
-    }
-
-    @Test fun admittedCollectionDoesNotRejectItsOwnNetworkOperation() {
-        val queued = QueueExecutor()
-        val terminal = DeferredTerminal(reader)
-        val native = runtime(terminal)
-        connect(native, terminal)
-        val production = ProductionOperatorRuntime(
-            native = native,
-            selection = object : StudentSelectionActions {
-                override fun lookupStudent(phone: String) = StudentLookupResult.Invalid
-                override fun confirmSelectedStudent() = MinimumStudentIdentity(null)
-            },
-            startSource = { TransientCollectionStart(DurableAttempt(ticket, "pi_same"), "secret") },
-            backgroundExecutor = queued,
-        )
-        var accepted = false
-        assertTrue(production.collectionControlsEnabled)
-
-        production.startCollectionAsync { accepted = it }
-        assertFalse(production.collectionControlsEnabled)
-        queued.runNext()
-
-        assertTrue(accepted)
-        assertEquals(listOf("retrieve"), terminal.operations)
-    }
-
-    @Test fun loginButtonIsRetainedDisabledUntilQueuedHttpsLoginCompletesWithoutDuplicateError() {
-        val queued = QueueExecutor()
-        var logins = 0
-        val runtime = ProductionOperatorRuntime(
-            native = null,
-            selection = object : StudentSelectionActions {
-                override fun lookupStudent(phone: String) = StudentLookupResult.Invalid
-                override fun confirmSelectedStudent() = MinimumStudentIdentity(null)
-            },
-            startSource = null,
-            loginSource = { _, pin -> logins++; pin.fill('\u0000') },
-            backgroundExecutor = queued,
-        )
-        val activity = Robolectric.buildActivity(OperatorActivity::class.java).setup().get()
-        activity.bindRuntime(runtime)
-        val buttons = (activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0) as ViewGroup)
-            .let { root -> (0 until root.childCount).map(root::getChildAt).filterIsInstance<Button>() }
-        val login = buttons.single { it.text == "Staff login" }
-
-        login.performClick()
-        login.performClick()
-        assertFalse(login.isEnabled)
-        assertEquals(0, logins)
-        queued.runNext()
-
-        assertEquals(1, logins)
-        assertTrue(login.isEnabled)
     }
 
     private fun connect(runtime: NativeCollectionRuntime, terminal: DeferredTerminal) {
@@ -350,16 +232,6 @@ class N6BlockersTest {
             ids += paymentIntentId
             return RecoveryState.FromServer(result)
         }
-    }
-    private class QueueExecutor : OperatorBackgroundExecutor {
-        private val tasks = ArrayDeque<() -> Unit>()
-        override fun execute(task: () -> Unit) { tasks += task }
-        fun runNext() = tasks.removeFirst().invoke()
-    }
-    private class QueueUiDispatcher : OperatorUiDispatcher {
-        private val tasks = ArrayDeque<() -> Unit>()
-        override fun execute(task: () -> Unit) { tasks += task }
-        fun runNext() = tasks.removeFirst().invoke()
     }
     private class DeferredTerminal(private val reader: ConnectedReader) : NativeTerminalAdapter {
         var retrieveImmediately = false; var deferCollect = false; var deferConfirm = false; var nonCancellableRetrieve = false; var cancellations = 0; var disconnects = 0

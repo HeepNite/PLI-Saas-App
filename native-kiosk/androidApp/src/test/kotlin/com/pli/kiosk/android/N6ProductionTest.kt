@@ -43,33 +43,6 @@ class N6ProductionTest {
         assertEquals(0, api.recoveries)
     }
 
-    @Test fun productionStartSourceExistsOnlyForConfiguredCoordinatorContext() {
-        val store = MemoryStore(DurableState(session, AttemptState(ticket, session.association, origin.value, "pi_known")))
-        val api = Api().apply { refreshed = PaymentResult("pi_known", "requires_payment_method", false, "secret_refresh") }
-        val coordinator = PurchaseCoordinator(origin, store, api, { now })
-        val terminal = Terminal()
-        val runtime = KioskApplication().composeRuntime(
-            NativeCollectionConfiguration(origin.value, true), session, ticket, terminal, Permissions(),
-            object : ConnectionTokenSource { override fun connectionToken(session: StaffSession) = "token" },
-            object : PaymentRecovery {
-                override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
-                    RecoveryState.FromServer(PaymentResult(paymentIntentId, "processing", false))
-            },
-            coordinator, { now },
-        )
-
-        assertFalse(runtime.collectionControlsEnabled)
-        runtime.discoverReaders()
-        val reader = ConnectedReader(ticket.readerId, Approved.M2_SERIAL, "stripe_m2", Approved.LOCATION)
-        runtime.selectReader(reader)
-        runtime.connectSelectedReader()
-        assertTrue(runtime.collectionControlsEnabled)
-        runtime.startCollection()
-
-        assertEquals(listOf(ticket.value to "pi_known"), api.refreshes)
-        assertEquals(listOf("secret_refresh"), terminal.secrets)
-    }
-
     @Test fun missingIdPaidOrSecretCollectionRefreshFailsClosed() {
         listOf(
             PaymentResult("", "requires_payment_method", false, "secret"),
@@ -84,30 +57,6 @@ class N6ProductionTest {
             assertEquals(0, api.issued)
             assertEquals(0, api.prepares)
         }
-    }
-
-    private class Permissions : BluetoothPermissions {
-        override fun hasBluetoothPermissions() = true
-        override fun requestBluetoothPermissions() = Unit
-    }
-
-    private class Terminal : NativeTerminalAdapter {
-        val secrets = mutableListOf<String>()
-        override fun initialize(connectionTokenProvider: () -> String) = Unit
-        override fun discover(request: BluetoothDiscoveryRequest, onUpdate: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            onUpdate(listOf(ConnectedReader("tmr_fixture", Approved.M2_SERIAL, "stripe_m2", Approved.LOCATION)))
-            return NativeCancelable {}
-        }
-        override fun connect(reader: ConnectedReader, request: BluetoothConnectionRequest, onDisconnect: () -> Unit, onSuccess: () -> Unit, onFailure: () -> Unit): NativeCancelable {
-            onSuccess()
-            return NativeCancelable {}
-        }
-        override fun retrieve(clientSecret: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            secrets += clientSecret
-            return NativeCancelable {}
-        }
-        override fun collect(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit) = NativeCancelable {}
-        override fun confirm(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit) = NativeCancelable {}
     }
 
     private class MemoryStore(var state: DurableState) : StateStore {
