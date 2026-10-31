@@ -11,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   price: vi.fn(),
   location: vi.fn(),
   reader: vi.fn(), create: vi.fn(), retrieve: vi.fn(), cancel: vi.fn(),
-  usersQueryRaw: vi.fn(), usersFindUnique: vi.fn(),
   purchaseFindUnique: vi.fn(), purchaseCreate: vi.fn(), purchaseUpdateMany: vi.fn(),
   preparedFindUnique: vi.fn(), preparedUpdateMany: vi.fn(),
 }))
@@ -23,10 +22,6 @@ vi.mock("@/lib/security/rate-limit", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    user: {
-      findUnique: (...args: unknown[]) => mocks.usersFindUnique(...args),
-    },
-    $queryRaw: (...args: unknown[]) => mocks.usersQueryRaw(...args),
     purchase: {
       findUnique: (...args: unknown[]) => mocks.purchaseFindUnique(...args),
       create: (...args: unknown[]) => mocks.purchaseCreate(...args),
@@ -84,7 +79,7 @@ const fixtures = {
     address: { line1: "54 Coles St", city: "Jersey City", state: "NJ", postal_code: "07302", country: "US" },
   },
 }
-const request = async (body: unknown = { action: "preflight" }, query = "") => {
+const request = async (body: unknown = { action: "connection-token" }, query = "") => {
   const { POST } = await import("@/app/api/kiosk/terminal/internal-purchase/route")
   return POST(new Request(`http://localhost/api/kiosk/terminal/internal-purchase${query}`, {
     method: "POST", body: typeof body === "string" ? body : JSON.stringify(body),
@@ -98,7 +93,7 @@ const expectNoProvider = () => {
   }
 }
 
-describe("internal LIVE preflight and connection-token boundary", () => {
+describe("internal LIVE connection-token and prepared purchase boundary", () => {
   beforeEach(() => {
     vi.resetModules()
     vi.clearAllMocks()
@@ -123,8 +118,6 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     mocks.reader.mockResolvedValue({ id: "tmr_fixture", livemode: true, device_type: "stripe_m2", location: catalog.locationId })
     mocks.retrieve.mockReset()
     mocks.cancel.mockReset()
-    mocks.usersQueryRaw.mockReset()
-    mocks.usersFindUnique.mockReset()
     mocks.purchaseFindUnique.mockReset()
     mocks.purchaseCreate.mockReset()
     mocks.purchaseUpdateMany.mockReset()
@@ -132,8 +125,6 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     mocks.preparedUpdateMany.mockReset()
     boundPurchase = null
     preparedCapability = null
-    mocks.usersQueryRaw.mockResolvedValue([{ id: "student_1", name: "Test Student" }])
-    mocks.usersFindUnique.mockResolvedValue({ id: "student_1", email: "student@example.test", name: "Test Student", phone: "+15550101" })
     mocks.purchaseFindUnique.mockImplementation(async ({ where }) => {
       if (!boundPurchase) return null
       if (where.id && where.id === boundPurchase.id) return boundPurchase
@@ -197,28 +188,6 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     expect(mocks.auth).not.toHaveBeenCalled()
     expectNoProvider()
   })
-  it("finds a stored phone format outside the former finite variants through the canonical production query", async () => {
-    mocks.usersQueryRaw.mockResolvedValue([{ id: "student_1", name: "Test Student" }])
-    const response = await request({ action: "student-lookup", phone: "+1 (555) 0101" })
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({ student: { name: "Test Student" } })
-    expect(mocks.usersQueryRaw).toHaveBeenCalledOnce()
-    const [sql, canonicalPhone] = mocks.usersQueryRaw.mock.calls[0] as [TemplateStringsArray, string]
-    expect(sql.join(" ")).toContain(`regexp_replace("phone", '[^0-9]', '', 'g')`)
-    expect(canonicalPhone).toBe("15550101")
-  })
-  it.each([
-    ["missing", [], 404],
-    ["ambiguous", [{ id: "student_1", name: "One" }, { id: "student_2", name: "Two" }], 409],
-  ])("rejects a %s student lookup without provider access", async (_name, matches, status) => {
-    mocks.usersQueryRaw.mockResolvedValue(matches)
-    expect((await request({ action: "student-lookup", phone: "+1 (555) 0101" })).status).toBe(status)
-    expectNoProvider()
-  })
-  it("does not accept a student selection after attempt creation begins", async () => {
-    expect((await request({ action: "payment-intent", ticket: "ticket", studentId: "student_2" })).status).toBe(400)
-    expectNoProvider()
-  })
   it.each([undefined, "another_terminal"])("fails closed for terminal assignment %s", async (id) => {
     vi.stubEnv("INTERNAL_PURCHASE_LIVE_TERMINAL_ID", id)
     expect((await request()).status).toBe(id ? 403 : 503)
@@ -235,26 +204,18 @@ describe("internal LIVE preflight and connection-token boundary", () => {
       expectNoProvider()
     },
   )
-  it.each([null, [], {}, "{", { action: "payment-intent" }, { action: ["attempt"] }].map((body) => ({ body })))("rejects invalid payload $body", async ({ body }) => {
+  it.each([
+    null, [], {}, "{", { action: ["connection-token"] }, { action: "prepared-payment-intent" },
+    // Legacy USD 1 actions are no longer part of the closed protocol.
+    { action: "preflight" }, { action: "student-lookup", phone: "+15550101" }, { action: "attempt", phone: "+15550101" },
+    { action: "payment-intent", ticket: "ticket" }, { action: "recover", ticket: "ticket", paymentIntentId: "pi_known" },
+  ].map((body) => ({ body })))("rejects invalid payload $body", async ({ body }) => {
     expect((await request(body)).status).toBe(400)
     expectNoProvider()
   })
   it("rejects query-string overrides", async () => {
-    expect((await request({ action: "preflight" }, "?amount=1")).status).toBe(400)
+    expect((await request({ action: "connection-token" }, "?amount=1")).status).toBe(400)
     expectNoProvider()
-  })
-  it("verifies server-selected resources without creating a token or payment", async () => {
-    const response = await request()
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual(catalog)
-    expect(response.headers.get("Cache-Control")).toBe("no-store")
-    expect(mocks.construct).toHaveBeenCalledExactlyOnceWith("rk_live_fixture", expect.objectContaining({ maxNetworkRetries: 0 }))
-    expect(mocks.account).toHaveBeenCalledWith()
-    expect(mocks.product).toHaveBeenCalledWith(catalog.productId)
-    expect(mocks.price).toHaveBeenCalledWith(catalog.priceId)
-    expect(mocks.location).toHaveBeenCalledWith(catalog.locationId)
-    expect(mocks.token).not.toHaveBeenCalled()
-    expect(mocks.auth).toHaveBeenCalledWith({ touchLastSeen: false })
   })
   it.each([
     ["account", { id: "acct_wrong" }], ["account", { charges_enabled: false }],
@@ -271,7 +232,7 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     expect((await request({ action: "connection-token" })).status).toBe(503)
     expect(mocks.token).not.toHaveBeenCalled()
   })
-  it("creates a location-scoped token only after fresh preflight on every acquisition", async () => {
+  it("creates a location-scoped token only after fresh catalog verification on every acquisition", async () => {
     const response = await request({ action: "connection-token" })
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ...catalog, secret: "pst_fixture" })
@@ -315,163 +276,13 @@ describe("internal LIVE preflight and connection-token boundary", () => {
     expect(mocks.token).toHaveBeenCalledExactlyOnceWith()
   })
 
-  describe("signed internal payment attempts", () => {
+  describe("LIVE payment collection", () => {
     beforeEach(() => {
       vi.useFakeTimers({ toFake: ["Date"] })
       vi.setSystemTime(new Date("2026-09-23T12:00:00Z"))
       vi.stubEnv("INTERNAL_PURCHASE_LIVE_PAYMENT_ENABLED", "true")
       vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", "fixture-signing-secret-at-least-32-bytes")
       vi.stubEnv("INTERNAL_PURCHASE_LIVE_READER_ID", "tmr_fixture")
-    })
-    const issue = async () => {
-      const response = await request({ action: "attempt", phone: "+1 (555) 0101" })
-      expect(response.status).toBe(200)
-      return (await response.json()).ticket as string
-    }
-    it("rejects a client-supplied student ID rather than trusting recipient selection", async () => {
-      expect((await request({ action: "attempt", studentId: "student_2" })).status).toBe(400)
-      expect(mocks.usersFindUnique).not.toHaveBeenCalled()
-    })
-    it("fails closed when an attempt phone resolves to format-equivalent students", async () => {
-      mocks.usersQueryRaw.mockResolvedValue([
-        { id: "student_1", name: "One" },
-        { id: "student_2", name: "Two" },
-      ])
-      expect((await request({ action: "attempt", phone: "+1 (555) 0101" })).status).toBe(409)
-      expectNoProvider()
-    })
-    it("reuses the winning pending purchase after a concurrent idempotency-key create conflict", async () => {
-      const { Prisma } = await import("@prisma/client")
-      mocks.purchaseCreate.mockImplementationOnce(async ({ data }) => {
-        boundPurchase = { id: "purchase_internal_1", stripePaymentIntentId: null, ...data }
-        throw new Prisma.PrismaClientKnownRequestError("Unique constraint", { code: "P2002", clientVersion: "test" })
-      })
-      const ticket = await issue()
-      expect(ticket).toBeTruthy()
-      expect(mocks.purchaseCreate).toHaveBeenCalledOnce()
-      expect(mocks.purchaseFindUnique).toHaveBeenCalledTimes(2)
-    })
-    it.each(["INTERNAL_PURCHASE_LIVE_PAYMENT_ENABLED", "INTERNAL_PURCHASE_ATTEMPT_SECRET", "INTERNAL_PURCHASE_LIVE_READER_ID"])(
-      "fails before provider calls when %s is unset", async (key) => {
-        vi.stubEnv(key, undefined)
-        expect((await request({ action: "attempt", phone: "+1 (555) 0101" })).status).toBe(503)
-        expectNoProvider()
-      },
-    )
-    it.each([{ livemode: false }, { device_type: "simulated_wisepos_e" }, { location: "tml_other" }, { deleted: true }, { id: "tmr_other" }])(
-      "denies mismatched reader %j before creating a payment", async (override) => {
-        mocks.reader.mockResolvedValue({ id: "tmr_fixture", livemode: true, device_type: "stripe_m2", location: catalog.locationId, ...override })
-        expect((await request({ action: "attempt", phone: "+1 (555) 0101" })).status).toBe(503)
-        expect(mocks.create).not.toHaveBeenCalled()
-      },
-    )
-    it.each(["actor", "terminal"])("issues a ticket without a payment and rejects tampering/other %s before provider access", async (owner) => {
-      const ticket = await issue()
-      expect(mocks.create).not.toHaveBeenCalled()
-      expect(ticket.length).toBeLessThanOrEqual(500)
-      const claims = JSON.parse(Buffer.from(ticket.split(".")[0], "base64url").toString("utf8"))
-      expect(claims.expiresAt).toBe(Date.now() + 3600_000)
-      mocks.construct.mockClear()
-      expect((await request({ action: "payment-intent", ticket: `${ticket}x` })).status).toBe(400)
-      const extendedPayload = Buffer.from(JSON.stringify({ ...claims, expiresAt: claims.expiresAt + 86400_000 })).toString("base64url")
-      expect((await request({ action: "payment-intent", ticket: `${extendedPayload}.${ticket.split(".")[1]}` })).status).toBe(400)
-      mocks.auth.mockResolvedValue({ ok: true, sessionId: owner === "actor" ? "other_actor" : "session_live",
-        terminal: { id: owner === "terminal" ? "other_terminal" : "terminal_live" } })
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(403)
-      expect(mocks.construct).not.toHaveBeenCalled()
-    })
-    it("creates card-present only, records honest ownership, retrieves current state and recovers a known ID without creating", async () => {
-      const ticket = await issue()
-      const response = await request({ action: "payment-intent", ticket })
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ id: "pi_fixture", status: "requires_payment_method", paid: false, clientSecret: "pi_fixture_secret" })
-      expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, currency: "usd", payment_method_types: ["card_present"],
-        metadata: expect.objectContaining({ flowContext: "pli_internal_purchase_v1", terminalId: "terminal_live", actorSessionId: "session_live", recipientUserId: "student_1", purchaseId: "purchase_internal_1", priceId: catalog.priceId, pliInternalAttempt: ticket }) }),
-      { idempotencyKey: expect.stringMatching(/^internal-purchase:v1:/) })
-      expect(mocks.retrieve).toHaveBeenCalledWith("pi_fixture")
-      expect((await request({ action: "payment-intent", ticket, paymentIntentId: "pi_fixture" })).status).toBe(200)
-      expect(mocks.create).toHaveBeenCalledTimes(1)
-    })
-    it("replays exactly the same create after timeout across module restart, never silently replacing the attempt", async () => {
-      const ticket = await issue()
-      mocks.create.mockRejectedValueOnce(new Error("unknown outcome"))
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(502)
-      vi.resetModules()
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(200)
-      expect(mocks.create.mock.calls[1]).toEqual(mocks.create.mock.calls[0])
-    })
-    it("uses one stable idempotency key for concurrent requests", async () => {
-      const ticket = await issue()
-      const responses = await Promise.all([request({ action: "payment-intent", ticket }), request({ action: "payment-intent", ticket })])
-      expect(responses.map((response) => response.status)).toEqual([200, 200])
-      expect(mocks.create.mock.calls[1]).toEqual(mocks.create.mock.calls[0])
-    })
-    it("never recreates an expired unknown attempt or an attempt under a changed reader assignment", async () => {
-      const ticket = await issue()
-      mocks.create.mockRejectedValueOnce(new Error("unknown outcome"))
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(502)
-      vi.stubEnv("INTERNAL_PURCHASE_LIVE_READER_ID", "tmr_changed")
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(409)
-      vi.stubEnv("INTERNAL_PURCHASE_LIVE_READER_ID", "tmr_fixture")
-      vi.setSystemTime(new Date("2026-09-24T13:00:00Z"))
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(409)
-      expect(mocks.create).toHaveBeenCalledTimes(1)
-    })
-    it.each(["INTERNAL_PURCHASE_LIVE_ENABLED", "INTERNAL_PURCHASE_LIVE_PAYMENT_ENABLED"])("blocks collection when %s is turned off", async (flag) => {
-      const ticket = await issue()
-      vi.stubEnv(flag, "false")
-      mocks.construct.mockClear()
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(503)
-      expect(mocks.construct).not.toHaveBeenCalled()
-      expect(mocks.create).not.toHaveBeenCalled()
-    })
-    it("fails closed after one hour but permits signed read-only known-ID recovery with the payment gate off", async () => {
-      const ticket = await issue()
-      await request({ action: "payment-intent", ticket })
-      vi.setSystemTime(new Date("2026-09-23T13:00:00Z"))
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(409)
-      vi.stubEnv("INTERNAL_PURCHASE_LIVE_PAYMENT_ENABLED", undefined)
-      const response = await request({ action: "recover", ticket, paymentIntentId: "pi_fixture" })
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ id: "pi_fixture", status: "requires_payment_method", paid: false })
-      expect(mocks.create).toHaveBeenCalledTimes(1)
-    })
-    it("uses retrieved succeeded state, not cached create state or a client completion claim", async () => {
-      const ticket = await issue()
-      await request({ action: "payment-intent", ticket })
-      const intent = await mocks.retrieve("pi_fixture")
-      mocks.create.mockResolvedValue(intent) // Stripe can replay the original pre-payment creation response.
-      mocks.retrieve.mockResolvedValue({ ...intent, status: "succeeded", amount_received: 100 })
-      const response = await request({ action: "payment-intent", ticket })
-      expect(await response.json()).toEqual({ id: "pi_fixture", status: "succeeded", paid: true })
-      expect((await request({ action: "recover", ticket, paymentIntentId: "pi_fixture", status: "succeeded" })).status).toBe(400)
-    })
-    it.each([{ livemode: false }, { amount: 101 }, { currency: "eur" }, { customer: "cus_other" }, { metadata: {} }, { id: "pi_other" }])(
-      "rejects unrelated/mismatched recovered payment %j", async (override) => {
-        const ticket = await issue()
-        await request({ action: "payment-intent", ticket })
-        const intent = await mocks.retrieve("pi_fixture")
-        mocks.retrieve.mockResolvedValue({ ...intent, ...override })
-        expect((await request({ action: "recover", ticket, paymentIntentId: "pi_fixture" })).status).toBe(409)
-        expect(mocks.create).toHaveBeenCalledTimes(1)
-      },
-    )
-    it.each(["accountId", "productId", "priceId", "locationId", "terminalId", "actorSessionId", "readerId", "recipientUserId", "purchaseId"])("rejects altered %s ownership metadata", async (field) => {
-      const ticket = await issue()
-      await request({ action: "payment-intent", ticket })
-      const intent = await mocks.retrieve("pi_fixture")
-      mocks.retrieve.mockResolvedValue({ ...intent, metadata: { ...intent.metadata, [field]: "unrelated" } })
-      expect((await request({ action: "recover", ticket, paymentIntentId: "pi_fixture" })).status).toBe(409)
-    })
-    it("rejects an immutable recipient change before creating a replacement payment", async () => {
-      const ticket = await issue()
-      boundPurchase = { ...boundPurchase!, userId: "student_2" }
-      expect((await request({ action: "payment-intent", ticket })).status).toBe(409)
-      expect(mocks.create).not.toHaveBeenCalled()
-    })
-    it("does not query arbitrary payment IDs without a signed attempt", async () => {
-      expect((await request({ action: "recover", ticket: "forged", paymentIntentId: "pi_any" })).status).toBe(400)
-      expect(mocks.retrieve).not.toHaveBeenCalled()
     })
 
     describe("prepared native dynamic Purchase flow", () => {
@@ -985,7 +796,6 @@ describe("internal LIVE preflight and connection-token boundary", () => {
           const response = await request({ action: "prepared-attempt", preparedPurchaseReference: reference })
           expect(response.status).toBe(503)
           expect(await response.text()).toContain("LIVE reader assignment is not configured")
-          expect((await request({ action: "attempt", phone: "+1 (555) 0101" })).status).toBe(503)
           expect(mocks.create).not.toHaveBeenCalled()
         })
 
@@ -994,8 +804,6 @@ describe("internal LIVE preflight and connection-token boundary", () => {
           const { ticket } = await admit()
           mocks.auth.mockResolvedValue(ipad)
           expect((await request({ action: "prepared-payment-intent", ticket })).status).toBe(403)
-          const legacyTicket = (await (await request({ action: "attempt", phone: "+1 (555) 0101" })).json()) as { readerId: string }
-          expect(legacyTicket.readerId).toBe("tmr_ipad")
           expect(mocks.create).not.toHaveBeenCalled()
         })
 

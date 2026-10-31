@@ -12,11 +12,7 @@ const WINDOW_MS = 60 * 60 * 1000 // Never replay creates near Stripe's minimum 2
 type Caller = { terminalId: string; sessionId: string }
 type Attempt = Caller & { v: 2; id: string; issuedAt: number; expiresAt: number; readerId: string; userId: string }
 export type InternalPurchaseRequest =
-  | { action: "preflight" | "connection-token" }
-  | { action: "student-lookup"; phone: string }
-  | { action: "attempt"; phone: string }
-  | { action: "payment-intent"; ticket: string; paymentIntentId?: string }
-  | { action: "recover"; ticket: string; paymentIntentId: string }
+  | { action: "connection-token" }
   | { action: "prepared-attempt"; preparedPurchaseReference: string }
   | { action: "prepared-creation-status"; ticket: string }
   | { action: "prepared-payment-intent"; ticket: string; paymentIntentId?: string }
@@ -75,10 +71,6 @@ export const readInternalAttempt = (ticket: string, caller?: Caller): Attempt =>
   }
   return attempt
 }
-export const internalAttemptExpiry = (attempt: Attempt) => attempt.expiresAt
-export const requireFreshInternalAttempt = (attempt: Attempt) => {
-  if (Date.now() >= internalAttemptExpiry(attempt)) throw new InternalPurchaseError("Attempt expired; reconcile the existing payment, never replace it", 409)
-}
 export const internalAttemptKey = (ticket: string) => `internal-purchase:v1:${createHash("sha256").update(ticket).digest("hex")}`
 export const internalIntentMetadata = (ticket: string, purchaseId?: string): Record<string, string> => {
   const attempt = readInternalAttempt(ticket)
@@ -121,16 +113,8 @@ export const parseInternalPurchaseRequest = (body: unknown): InternalPurchaseReq
   const input = body as Record<string, unknown>
   const { action, ticket, paymentIntentId } = input
   if (typeof action !== "string") return null
-  if (["preflight", "connection-token"].includes(action)) {
+  if (action === "connection-token") {
     return Object.keys(input).length === 1 ? input as InternalPurchaseRequest : null
-  }
-  if (action === "student-lookup") {
-    return Object.keys(input).length === 2 && typeof input.phone === "string" && input.phone.trim().length >= 6 && input.phone.length <= 32
-      ? input as InternalPurchaseRequest : null
-  }
-  if (action === "attempt") {
-    return Object.keys(input).length === 2 && typeof input.phone === "string" && input.phone.trim().length >= 6 && input.phone.length <= 32
-      ? input as InternalPurchaseRequest : null
   }
   if (action === "prepared-attempt") {
     return Object.keys(input).length === 2 && typeof input.preparedPurchaseReference === "string" &&
@@ -141,10 +125,10 @@ export const parseInternalPurchaseRequest = (body: unknown): InternalPurchaseReq
       ? input as InternalPurchaseRequest : null
   }
   const prepared = action === "prepared-payment-intent" || action === "prepared-recover" || action === "prepared-cancel"
-  if (!prepared && action !== "payment-intent" && action !== "recover") return null
+  if (!prepared) return null
   if (Object.keys(input).some((key) => !["action", "ticket", "paymentIntentId"].includes(key))) return null
-  if (typeof ticket !== "string" || !ticket || ticket.length > (prepared ? 2000 : 500)) return null
-  if (action === "recover" || action === "prepared-recover" || action === "prepared-cancel" || Object.hasOwn(input, "paymentIntentId")) {
+  if (typeof ticket !== "string" || !ticket || ticket.length > 2000) return null
+  if (action === "prepared-recover" || action === "prepared-cancel" || Object.hasOwn(input, "paymentIntentId")) {
     if (typeof paymentIntentId !== "string" || paymentIntentId.length > 128 || !/^pi_[a-zA-Z0-9]+$/.test(paymentIntentId)) return null
   }
   return input as InternalPurchaseRequest
