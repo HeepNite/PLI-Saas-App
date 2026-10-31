@@ -1,0 +1,43 @@
+import XCTest
+@testable import KioskNative
+
+/// Origin lock, per-device configuration and the native-only session cookie selection.
+final class ConfigurationTests: XCTestCase {
+    private let origin = Fixtures.origin
+    private var terminal: String { origin + "/staff/terminal" }
+    private func policy() throws -> OriginPolicy { try XCTUnwrap(OriginPolicy(approvedOrigin: origin)) }
+
+    func testApprovedOriginRequiresOneExactHttpsHostWithDefaultPort() throws {
+        XCTAssertEqual(try policy().terminalURL, terminal)
+        XCTAssertEqual(OriginPolicy(approvedOrigin: "HTTPS://PLI.PalladiumLatin.ART")?.origin, origin)
+        let invalid = [
+            "", " https://pli.palladiumlatin.art", "http://pli.palladiumlatin.art", "pli.palladiumlatin.art", origin + "/", origin + "/x",
+            origin + "?q", origin + "#f", "https://user@pli.palladiumlatin.art", "https://pli.palladiumlatin.art:443", "https://a..b",
+            "https://-a.example", "https://pli_palladiumlatin.art", "https://pli.palladiumlatin.art@evil.example", "https://[::1]", "https://pliñ.example",
+        ]
+        invalid.forEach { XCTAssertNil(OriginPolicy(approvedOrigin: $0), $0) }
+    }
+
+    func testMainFramesMayLoadOnlyTheExactTerminalURL() throws {
+        let policy = try policy()
+        XCTAssertFalse(policy.shouldCancelNavigation(terminal, isMainFrame: true))
+        XCTAssertFalse(policy.shouldCancelNavigation("https://js.stripe.com/frame", isMainFrame: false))
+        let denied = [nil, terminal + "/", terminal + "?next=1", terminal + "#pay", origin, origin + "/Staff/Terminal", "http://pli.palladiumlatin.art/staff/terminal",
+                      "https://evil.pli.palladiumlatin.art/staff/terminal", "https://pli.palladiumlatin.art:443/staff/terminal", "about:blank"]
+        denied.forEach { XCTAssertTrue(policy.shouldCancelNavigation($0, isMainFrame: true), $0 ?? "nil") }
+    }
+
+    func testMessagesRequireExactOriginMainFrameAndTerminalDocument() throws {
+        let policy = try policy()
+        XCTAssertTrue(policy.acceptsMessage(sourceOrigin: origin, isMainFrame: true, currentURL: terminal))
+        XCTAssertFalse(policy.acceptsMessage(sourceOrigin: origin, isMainFrame: false, currentURL: terminal))
+        XCTAssertFalse(policy.acceptsMessage(sourceOrigin: origin, isMainFrame: true, currentURL: terminal + "#payment"))
+        for source in [nil, "null", "http://pli.palladiumlatin.art", "https://pli.palladiumlatin.art:444", "https://sub.pli.palladiumlatin.art", origin + "/"] {
+            XCTAssertFalse(policy.acceptsMessage(sourceOrigin: source, isMainFrame: true, currentURL: terminal), source ?? "nil")
+        }
+        XCTAssertEqual(OriginPolicy.serializedOrigin(scheme: "HTTPS", host: "PLI.palladiumlatin.art", port: 443), origin)
+        XCTAssertEqual(OriginPolicy.serializedOrigin(scheme: "https", host: "pli.palladiumlatin.art", port: 0), origin)
+        XCTAssertEqual(OriginPolicy.serializedOrigin(scheme: "http", host: "pli.palladiumlatin.art", port: 443), "http://pli.palladiumlatin.art:443")
+        XCTAssertNil(OriginPolicy.serializedOrigin(scheme: "https", host: "", port: 0))
+    }
+}
