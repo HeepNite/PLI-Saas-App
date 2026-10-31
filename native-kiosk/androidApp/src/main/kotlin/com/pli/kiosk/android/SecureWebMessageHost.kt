@@ -111,6 +111,7 @@ class SecureWebMessageHost(
 
     fun attach(): Boolean {
         if (!enabled || invalidated || attached) return false
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return false
         WebViewCompat.addWebMessageListener(webView, OBJECT_NAME, setOf(admission.origin), listener)
         attached = true
         return true
@@ -130,7 +131,9 @@ class SecureWebMessageHost(
         pushTarget?.retireDocument()
         adapter?.invalidate()
         pushTarget?.invalidate()
-        if (attached && featureAvailable) WebViewCompat.removeWebMessageListener(webView, OBJECT_NAME)
+        if (attached && featureAvailable && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.removeWebMessageListener(webView, OBJECT_NAME)
+        }
         attached = false
     }
 
@@ -143,7 +146,10 @@ class SecureWebMessageHost(
         pushTarget?.bindProxy(replyProxy)
     }
 
-    private fun reply(proxy: JavaScriptReplyProxy, value: String) = proxy.postMessage(value)
+    /** Replies exist only behind an attached listener; the live feature check keeps every path guarded. */
+    private fun reply(proxy: JavaScriptReplyProxy, value: String) {
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) proxy.postMessage(value)
+    }
 
     companion object {
         const val OBJECT_NAME = "pliNativeBridge"

@@ -1,6 +1,8 @@
 package com.pli.kiosk.android
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import com.stripe.stripeterminal.Terminal
 import com.stripe.stripeterminal.external.callable.Callback
 import com.stripe.stripeterminal.external.callable.Cancelable
@@ -97,7 +99,7 @@ internal class RotatingConnectionTokenProvider {
 }
 
 /**
- * The sole production mapping to the locally verified Terminal 5.6.0 APIs. It makes no reader
+ * The sole production mapping to the locally verified Terminal 5.x APIs. It makes no reader
  * selection, payment decision, or server-authority decision; NativeCollectionRuntime owns those.
  */
 class StripeTerminalSdkAdapter(
@@ -117,6 +119,10 @@ class StripeTerminalSdkAdapter(
     @Volatile private var readerEvents: NativeReaderEvents? = null
 
     override fun setReaderEvents(listener: NativeReaderEvents?) { readerEvents = listener }
+
+    private fun hasDiscoveryPermissions(): Boolean = bluetoothDiscoveryPermitted(Build.VERSION.SDK_INT) {
+        context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+    }
 
     override fun observedReaderId(): String? = observedConnectedReaderId
 
@@ -166,6 +172,17 @@ class StripeTerminalSdkAdapter(
         onUpdate: (List<ConnectedReader>) -> Unit,
         onFailure: () -> Unit,
     ): NativeCancelable {
+        // Fail closed before touching the SDK: callers gate on permission too, but discovery must
+        // never start (or crash) when Bluetooth permission is missing.
+        if (!hasDiscoveryPermissions()) {
+            synchronized(readers) {
+                discoveryGeneration++
+                readers.clear()
+            }
+            System.err.println("PLI provisioning discovery blocked: Bluetooth permission is missing")
+            onFailure()
+            return NativeCancelable {}
+        }
         val terminal = Terminal.getInstance()
         val generation = synchronized(readers) {
             discoveryGeneration++
@@ -183,7 +200,7 @@ class StripeTerminalSdkAdapter(
                 }
             }
         }
-        val cancelable = terminal.discoverReaders(
+        val cancelable = try { terminal.discoverReaders(
             bluetoothDiscoveryConfiguration(request),
             object : DiscoveryListener {
                 override fun onUpdateDiscoveredReaders(readers: List<Reader>) {
@@ -209,7 +226,17 @@ class StripeTerminalSdkAdapter(
                     onFailure()
                 }
             },
-        )
+        ) } catch (error: SecurityException) {
+            // Permission revoked between the check and the SDK call: same fail-closed discovery failure.
+            val claim = synchronized(readers) {
+                claimDiscoveryFailure(generation, discoveryGeneration).also {
+                    discoveryGeneration = it.nextGeneration
+                }
+            }
+            System.err.println("PLI provisioning discovery blocked: ${error.message}")
+            if (claim.report) onFailure()
+            return NativeCancelable {}
+        }
         return NativeCancelable {
             synchronized(readers) {
                 if (generation == discoveryGeneration) {
