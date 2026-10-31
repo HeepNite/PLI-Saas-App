@@ -16,7 +16,7 @@ const KNOWN_ACTIONS = new Set([
   "prepared-cancel",
 ])
 
-// Temporary diagnostics: fixed action names, key names, status, and fixed error messages only.
+// Operational rejection telemetry (kept deliberately): fixed action names, key names, status, and fixed error messages only.
 const logRejection = (body: unknown, status: number, reason: string, extra: Record<string, unknown> = {}) => {
   const record = body && typeof body === "object" && !Array.isArray(body) ? body as Record<string, unknown> : null
   const action = typeof record?.action === "string" && KNOWN_ACTIONS.has(record.action) ? record.action : "unknown"
