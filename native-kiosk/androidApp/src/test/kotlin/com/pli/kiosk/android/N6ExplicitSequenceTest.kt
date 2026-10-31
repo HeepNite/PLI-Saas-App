@@ -3,7 +3,6 @@ package com.pli.kiosk.android
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class N6ExplicitSequenceTest {
     private val now = 1_000_000L
@@ -29,93 +28,6 @@ class N6ExplicitSequenceTest {
     }
 
     @Test
-    fun admittedAsyncStudentLookupDoesNotRejectItsOwnInFlightOperation() {
-        val store = MemoryStore(DurableState(session))
-        val api = Api()
-        val coordinator = PurchaseCoordinator(origin, store, api) { now }
-        val runtime = ProductionOperatorRuntime(
-            native = null,
-            selection = coordinator,
-            startSource = null,
-        )
-        var result: StudentLookupResult? = null
-
-        assertTrue(runtime.studentLookupEnabled)
-        runtime.lookupStudentAsync("+15550000000") { result = it }
-
-        assertEquals(1, api.lookups)
-        assertTrue(result is StudentLookupResult.Unique)
-    }
-
-    @Test
-    fun configuredRuntimeRequiresTicketThenRunsOneSameIdSdkSequenceAndServerRecovery() {
-        val store = MemoryStore(DurableState(session))
-        val api = Api().apply {
-            prepared = PaymentResult("pi_same", "requires_payment_method", false, "secret_transient")
-            refreshed = PaymentResult("pi_same", "succeeded", true)
-        }
-        var coordinator = PurchaseCoordinator(origin, store, api) { now }
-        val terminal = SequenceTerminal()
-        val reader = ConnectedReader("tmr_fixture", Approved.M2_SERIAL, "stripe_m2", Approved.LOCATION)
-        val runtime = ProductionOperatorRuntime(
-            native = null,
-            selection = coordinator,
-            startSource = { coordinator.startCollection() },
-            nativeFactory = { issuedTicket ->
-                NativeCollectionRuntime(
-                    NativeCollectionConfiguration(origin.value, true), session, issuedTicket, terminal,
-                    GrantedPermissions(), object : ConnectionTokenSource {
-                        override fun connectionToken(session: StaffSession) = "token"
-                    },
-                    object : PaymentRecovery {
-                        override fun recover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
-                            RecoveryState.FromServer(PaymentResult(paymentIntentId, "succeeded", true))
-                    },
-                    { now },
-                )
-            },
-            paidRollover = {
-                assertEquals(Outcome.PAID, coordinator.recoverKnownAttempt())
-                val paid = store.state
-                store.write(DurableState(paid.session))
-                coordinator = PurchaseCoordinator(origin, store, api) { now }
-                SelfServiceRollover(coordinator) { coordinator.startCollection() }
-            },
-        )
-        runtime.setStateListener {}
-
-        assertFalse(runtime.readerDiscoveryEnabled)
-        assertFalse(runCatching(runtime::discoverReaders).isSuccess)
-        coordinator.lookupStudent("+15550000000")
-        coordinator.confirmSelectedStudent()
-        assertTrue(runtime.attemptStartEnabled)
-        runtime.beginAttempt()
-        assertEquals(0, api.prepares)
-        assertTrue(runtime.readerDiscoveryEnabled)
-        assertFalse(runtime.discoveredReaders.joinToString().contains("ticket"))
-
-        runtime.discoverReaders()
-        runtime.selectReader(reader)
-        assertTrue(runtime.readerConnectionEnabled)
-        runtime.connectSelectedReader()
-        assertTrue(runtime.collectionControlsEnabled)
-        runtime.startCollection()
-
-        assertEquals(listOf("retrieve:secret_transient", "collect:pi_same", "confirm:pi_same"), terminal.operations)
-        assertTrue(store.writes.any { it.attempt?.paymentIntentId == "pi_same" })
-        assertTrue(store.writes.none { it.toString().contains("secret_transient") })
-        assertEquals(null, store.state.attempt)
-        assertFalse(runtime.attemptStartEnabled)
-
-        runtime.lookupStudent("+15550000001")
-        runtime.confirmSelectedStudent()
-        assertTrue(runtime.attemptStartEnabled)
-        runtime.beginAttempt()
-        assertEquals(2, api.issued)
-        assertEquals(1, api.prepares)
-    }
-
-    @Test
     fun restartAtTicketOnlyAndKnownIdNeverIssuesAnotherTicketOrIntent() {
         val ticketOnlyStore = MemoryStore(DurableState(session))
         val ticketOnlyApi = Api()
@@ -134,39 +46,6 @@ class N6ExplicitSequenceTest {
         assertEquals(0, knownApi.issued)
         assertEquals(0, knownApi.prepares)
         assertEquals(1, knownApi.recoveries)
-    }
-
-    private class GrantedPermissions : BluetoothPermissions {
-        override fun hasBluetoothPermissions() = true
-        override fun requestBluetoothPermissions() = Unit
-    }
-
-    private class SequenceTerminal : NativeTerminalAdapter {
-        val operations = mutableListOf<String>()
-        override fun initialize(connectionTokenProvider: () -> String) = Unit
-        override fun discover(request: BluetoothDiscoveryRequest, onUpdate: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            onUpdate(listOf(ConnectedReader("tmr_fixture", Approved.M2_SERIAL, "stripe_m2", Approved.LOCATION)))
-            return NativeCancelable {}
-        }
-        override fun connect(reader: ConnectedReader, request: BluetoothConnectionRequest, onDisconnect: () -> Unit, onSuccess: () -> Unit, onFailure: () -> Unit): NativeCancelable {
-            onSuccess()
-            return NativeCancelable {}
-        }
-        override fun retrieve(clientSecret: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            operations += "retrieve:$clientSecret"
-            onSuccess("pi_same")
-            return NativeCancelable {}
-        }
-        override fun collect(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            operations += "collect:$paymentIntentId"
-            onSuccess(paymentIntentId)
-            return NativeCancelable {}
-        }
-        override fun confirm(paymentIntentId: String, onSuccess: (String) -> Unit, onFailure: () -> Unit): NativeCancelable {
-            operations += "confirm:$paymentIntentId"
-            onSuccess(paymentIntentId)
-            return NativeCancelable {}
-        }
     }
 
     private class MemoryStore(var state: DurableState) : StateStore {

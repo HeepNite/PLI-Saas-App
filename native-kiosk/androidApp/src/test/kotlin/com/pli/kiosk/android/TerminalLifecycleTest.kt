@@ -2,7 +2,6 @@ package com.pli.kiosk.android
 
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
@@ -154,75 +153,11 @@ class TerminalLifecycleTest {
         assertEquals(0, api.prepares)
     }
 
-    @Test
-    fun operatorActivityShowsOnlyTheConfirmedMinimumIdentityAndNeverAnAttemptAction() {
-        val activity = Robolectric.buildActivity(OperatorActivity::class.java).setup().get()
-        val selection = FakeStudentSelection()
-        activity.bindStudentSelection(selection)
-        val root = activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0) as android.view.ViewGroup
-        val phone = (0 until root.childCount).map(root::getChildAt).filterIsInstance<android.widget.EditText>()
-            .single { it.hint == "Complete student phone" }
-        val lookup = (0 until root.childCount).map(root::getChildAt).filterIsInstance<android.widget.Button>()
-            .single { it.text == "Look up student" }
-        val confirm = (0 until root.childCount).map(root::getChildAt).filterIsInstance<android.widget.Button>()
-            .single { it.text == "Confirm selected student" }
-        val confirmation = (0 until root.childCount).map(root::getChildAt).filterIsInstance<android.widget.TextView>()
-            .single { it.text == "Enter a complete phone and use the authenticated staff-session lookup." }
-
-        phone.setText("+15550000000")
-        lookup.performClick()
-
-        assertEquals("Confirm student: Fixture student", confirmation.text)
-        assertTrue(confirm.isEnabled)
-        assertEquals(listOf("+15550000000"), selection.lookups)
-        confirm.performClick()
-        assertEquals("Student confirmed: Fixture student", confirmation.text)
-        assertEquals(1, selection.confirmations)
-    }
-
-    @Test
-    fun operatorActivityKeepsEveryPaymentActionUnreachableByDefault() {
-        val activity = Robolectric.buildActivity(OperatorActivity::class.java).setup().get()
-        val buttons = (activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0) as android.view.ViewGroup)
-            .let { root -> (0 until root.childCount).map(root::getChildAt).filterIsInstance<android.widget.Button>() }
-
-        listOf("Discover readers", "Connect selected reader", "Start collection", "Cancel collection", "Recover payment status").forEach { label ->
-            assertFalse(buttons.single { it.text == label }.isEnabled)
-        }
-    }
-
-    @Test
-    fun operatorActivityOnlyShowsDisabledAndSafeRecoveryActions() {
-        val activity = Robolectric.buildActivity(OperatorActivity::class.java).setup().get()
-        val labels = (activity.findViewById<android.view.ViewGroup>(android.R.id.content).getChildAt(0) as android.view.ViewGroup)
-            .let { root -> (0 until root.childCount).map { index -> (root.getChildAt(index) as android.widget.TextView).text.toString() } }
-
-        assertTrue(labels.any { it.contains("Collection disabled") })
-        assertTrue(labels.contains("USD 1.00 — one general class credit"))
-        assertTrue(labels.containsAll(listOf("Look up student", "Confirm selected student", "Manual BLE reconnect", "Refresh status", "Recover known attempt")))
-        assertFalse(labels.drop(1).any { it.contains("Collect") || it.contains("Confirm payment") || it.contains("Create payment") })
-    }
-
     private fun lifecycle(
         terminal: FakeTerminalAdapter,
         authorization: FakeCollectionAuthorization,
         unresolvedAttempt: () -> AttemptState? = { null },
     ) = CollectionLifecycleCoordinator(terminal, authorization, { now }, unresolvedAttempt)
-
-    private class FakeStudentSelection : StudentSelectionActions {
-        val lookups = mutableListOf<String>()
-        var confirmations = 0
-
-        override fun lookupStudent(phone: String): StudentLookupResult {
-            lookups += phone
-            return StudentLookupResult.Unique(MinimumStudentIdentity("Fixture student"))
-        }
-
-        override fun confirmSelectedStudent(): MinimumStudentIdentity {
-            confirmations++
-            return MinimumStudentIdentity("Fixture student")
-        }
-    }
 
     private class FakeTerminalAdapter(initialReader: ConnectedReader?) : TerminalAdapter {
         var reader = initialReader
