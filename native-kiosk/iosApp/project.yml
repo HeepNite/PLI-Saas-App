@@ -1,0 +1,68 @@
+# Source of truth for PLIKiosk.xcodeproj. Regenerate with `xcodegen generate` (brew install xcodegen) after editing.
+name: PLIKiosk
+options:
+  developmentLanguage: en
+  deploymentTarget:
+    iOS: "16.0"
+configs:
+  Debug: debug
+  Release: release
+# Per-device layers: Base (origin, bundle id) + Device-iPad (reader serial/location pins).
+configFiles:
+  Debug: Config/Device-iPad.xcconfig
+  Release: Config/Device-iPad.xcconfig
+packages:
+  KioskNative:
+    path: ../apps/kiosk-native
+  StripeTerminal:
+    url: https://github.com/stripe/stripe-terminal-ios
+    exactVersion: 6.0.0
+targets:
+  PLIKiosk:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - Resources
+    dependencies:
+      - package: KioskNative
+        product: KioskNative
+      - package: StripeTerminal
+        product: StripeTerminal
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "2"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Resources/Info.plist
+    preBuildScripts:
+      - name: Check reader pins
+        script: '"${SRCROOT}/scripts/check-device-config.sh"'
+        basedOnDependencyAnalysis: false
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: PLI Kiosk
+        CFBundleLocalizations: [en, es]
+        # Per-device build inputs, read by KioskConfiguration (xcconfig substitution).
+        PLIApprovedOrigin: $(APPROVED_HTTPS_ORIGIN)
+        PLIM2Serial: $(PLI_M2_SERIAL)
+        PLIStripeLocation: $(PLI_STRIPE_LOCATION)
+        # Base (English) strings; es.lproj/InfoPlist.strings localizes them.
+        NSBluetoothAlwaysUsageDescription: This app uses Bluetooth to connect to the Stripe card reader.
+        NSLocationWhenInUseUsageDescription: Location access is required to accept card payments.
+        # Stripe requires bluetooth-central so the M2 can stay in standby while the iPad is locked.
+        UIBackgroundModes: [bluetooth-central]
+        UIRequiredDeviceCapabilities: [arm64, bluetooth-le]
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UIViewControllerBasedStatusBarAppearance: false
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight

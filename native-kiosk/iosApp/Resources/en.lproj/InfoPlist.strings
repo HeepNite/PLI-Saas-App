@@ -1,0 +1,2 @@
+"NSBluetoothAlwaysUsageDescription" = "This app uses Bluetooth to connect to the Stripe card reader.";
+"NSLocationWhenInUseUsageDescription" = "Location access is required to accept card payments.";

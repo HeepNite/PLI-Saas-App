@@ -1,0 +1,12 @@
+// Shared build settings for the iPad kiosk. Per-device values live in Device-*.xcconfig.
+// In xcconfig files "//" starts a comment, so URL slashes are written as "/$()/".
+
+PRODUCT_BUNDLE_IDENTIFIER = com.pli.kiosk.livefoundation
+
+// Only origin the WebView may load and the bridge may admit (https, default port, no path).
+APPROVED_HTTPS_ORIGIN = https:/$()/pli.palladiumlatin.art
+
+// Placeholders: a device layer must override both. scripts/check-device-config.sh fails
+// Release and AdHoc builds while they are placeholders or malformed.
+PLI_M2_SERIAL = REPLACE_WITH_M2_SERIAL
+PLI_STRIPE_LOCATION = REPLACE_WITH_STRIPE_LOCATION

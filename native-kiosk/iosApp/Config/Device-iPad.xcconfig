@@ -1,0 +1,5 @@
+// Production iPad (iPad12,2) paired with the second Stripe Reader M2.
+#include "Base.xcconfig"
+
+PLI_M2_SERIAL = STRM2D533025667
+PLI_STRIPE_LOCATION = tml_GqQ6wPY5rSAhAt
