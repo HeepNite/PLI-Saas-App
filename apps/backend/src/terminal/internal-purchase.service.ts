@@ -71,18 +71,7 @@ const verifyLiveMerchant = async (stripe: Stripe) => {
     throw new InternalPurchaseError("LIVE merchant verification failed")
   }
 }
-const verifyLiveCatalog = async (stripe: Stripe) => {
-  const product = await stripe.products.retrieve(approved.productId)
-  if (product.deleted || product.id !== approved.productId || product.active !== true || product.livemode !== true) {
-    throw new InternalPurchaseError("LIVE product verification failed")
-  }
-  const price = await stripe.prices.retrieve(approved.priceId)
-  const productId = typeof price.product === "string" ? price.product : price.product.id
-  if (price.id !== approved.priceId || productId !== approved.productId || price.active !== true ||
-      price.livemode !== true || price.type !== "one_time" || price.unit_amount !== approved.amount ||
-      price.currency !== approved.currency || price.lookup_key !== "pli_internal_usd1_live") {
-    throw new InternalPurchaseError("LIVE price verification failed")
-  }
+const verifyLiveLocation = async (stripe: Stripe) => {
   const location = await stripe.terminal.locations.retrieve(approved.locationId)
   if (location.deleted || location.id !== approved.locationId || location.livemode !== true ||
       location.address.line1 !== "54 Coles St" || location.address.city !== "Jersey City" ||
@@ -351,7 +340,7 @@ export const prepareInternalPurchase = async (
   // Only connection-token remains: legacy USD 1 actions were removed once every reader moved to prepared-*.
   const stripe = createLiveClient(caller.terminalId)
   await verifyLiveMerchant(stripe)
-  await verifyLiveCatalog(stripe)
+  await verifyLiveLocation(stripe)
   const service = new ConnectionTokenService(async () => {
     // Stripe only enforces this scope for internet-connected readers, not Bluetooth M2.
     const token = await stripe.terminal.connectionTokens.create({ location: approved.locationId })

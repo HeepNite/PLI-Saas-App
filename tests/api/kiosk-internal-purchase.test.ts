@@ -69,11 +69,6 @@ const catalog = {
 }
 const fixtures = {
   account: { id: catalog.accountId, charges_enabled: true, country: "US" },
-  product: { id: catalog.productId, active: true, livemode: true },
-  price: {
-    id: catalog.priceId, product: catalog.productId, active: true, livemode: true,
-    type: "one_time", unit_amount: 100, currency: "usd", lookup_key: "pli_internal_usd1_live",
-  },
   location: {
     id: catalog.locationId, livemode: true,
     address: { line1: "54 Coles St", city: "Jersey City", state: "NJ", postal_code: "07302", country: "US" },
@@ -111,9 +106,12 @@ describe("internal LIVE connection-token and prepared purchase boundary", () => 
       ok: true, sessionId: "session_live",
       terminal: { id: "terminal_live", slug: "front-desk", name: "Front desk", location: "Lobby", active: true },
     })
-    for (const key of ["account", "product", "price", "location"] as const) {
+    for (const key of ["account", "location"] as const) {
       mocks[key].mockResolvedValue(structuredClone(fixtures[key]))
     }
+    // The connection must never depend on the retired USD 1 product/price catalog.
+    mocks.product.mockRejectedValue(new Error("catalog must not be read"))
+    mocks.price.mockRejectedValue(new Error("catalog must not be read"))
     mocks.token.mockResolvedValue({ secret: "pst_fixture", location: catalog.locationId })
     mocks.reader.mockResolvedValue({ id: "tmr_fixture", livemode: true, device_type: "stripe_m2", location: catalog.locationId })
     mocks.retrieve.mockReset()
@@ -219,12 +217,6 @@ describe("internal LIVE connection-token and prepared purchase boundary", () => 
   })
   it.each([
     ["account", { id: "acct_wrong" }], ["account", { charges_enabled: false }],
-    ["product", { id: "prod_wrong" }], ["product", { deleted: true }],
-    ["product", { active: false }], ["product", { livemode: false }],
-    ["price", { id: "price_wrong" }], ["price", { product: "prod_wrong" }],
-    ["price", { active: false }], ["price", { livemode: false }],
-    ["price", { type: "recurring" }], ["price", { unit_amount: 101 }],
-    ["price", { currency: "eur" }], ["price", { lookup_key: "other" }],
     ["location", { id: "tml_wrong" }], ["location", { livemode: false }],
     ["location", { deleted: true }], ["location", { address: { country: "US", line1: "Other school" } }],
   ] as const)("rejects mismatched %s %j before token creation", async (resource, override) => {
@@ -232,18 +224,30 @@ describe("internal LIVE connection-token and prepared purchase boundary", () => 
     expect((await request({ action: "connection-token" })).status).toBe(503)
     expect(mocks.token).not.toHaveBeenCalled()
   })
-  it("creates a location-scoped token only after fresh catalog verification on every acquisition", async () => {
+  it("creates a location-scoped token after merchant and location checks without reading the product or price", async () => {
     const response = await request({ action: "connection-token" })
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ...catalog, secret: "pst_fixture" })
     expect(response.headers.get("Cache-Control")).toBe("no-store")
+    expect(mocks.construct).toHaveBeenCalledExactlyOnceWith("rk_live_fixture", expect.objectContaining({ maxNetworkRetries: 0 }))
+    expect(mocks.auth).toHaveBeenCalledWith({ touchLastSeen: false })
+    expect(mocks.account).toHaveBeenCalledWith()
+    expect(mocks.location).toHaveBeenCalledWith(catalog.locationId)
+    expect(mocks.product).not.toHaveBeenCalled()
+    expect(mocks.price).not.toHaveBeenCalled()
     expect(mocks.token).toHaveBeenCalledExactlyOnceWith({ location: catalog.locationId })
     expect(mocks.token.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.location.mock.invocationCallOrder[0])
-    mocks.price.mockResolvedValue({ ...fixtures.price, active: false })
+    expect(mocks.token.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.account.mock.invocationCallOrder[0])
+  })
+  it.each(["account", "location"] as const)("still fails closed when the %s check fails, on every acquisition", async (resource) => {
+    expect((await request({ action: "connection-token" })).status).toBe(200)
+    mocks[resource].mockResolvedValue({ ...fixtures[resource], livemode: false, charges_enabled: false })
     expect((await request({ action: "connection-token" })).status).toBe(503)
     expect(mocks.token).toHaveBeenCalledTimes(1)
+    expect(mocks.product).not.toHaveBeenCalled()
+    expect(mocks.price).not.toHaveBeenCalled()
   })
-  it.each(["account", "product", "price", "location", "token"] as const)("sanitizes %s failures without logging secrets", async (resource) => {
+  it.each(["account", "location", "token"] as const)("sanitizes %s failures without logging secrets", async (resource) => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
     try {
       mocks[resource].mockRejectedValue(new Error("rk_live_sensitive pst_sensitive"))
