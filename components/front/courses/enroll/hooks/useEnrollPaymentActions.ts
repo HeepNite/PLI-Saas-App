@@ -101,6 +101,31 @@ export type UseEnrollPaymentActionsInput = {
   t: (key: "account_exists_signed_in" | "account_exists_error") => string
 }
 
+type CheckoutApiResult = Awaited<ReturnType<typeof requestCheckoutSessionApi>>
+
+/**
+ * Sends one checkout request; when a signed-in customer gets 409 ACCOUNT_EXISTS it
+ * retries exactly once with a freshly minted token after 350 ms. Returns the final
+ * result, the token last used, and the response code of the FIRST attempt.
+ */
+const requestWithAccountRetry = async (
+  { isSignedIn, getToken }: Pick<UseEnrollPaymentActionsInput, "isSignedIn" | "getToken">,
+  request: (token: string | null) => Promise<CheckoutApiResult>
+) => {
+  let token = isSignedIn ? await getToken({ skipCache: true }) : null
+  let result = await request(token)
+  const initialCode: string | undefined = typeof result.data?.code === "string" ? result.data.code : undefined
+  if (result.res.status === 409 && initialCode === "ACCOUNT_EXISTS" && isSignedIn) {
+    await new Promise((resolve) => window.setTimeout(resolve, 350))
+    const refreshed = await getToken({ skipCache: true })
+    if (refreshed) {
+      token = refreshed
+      result = await request(token)
+    }
+  }
+  return { result, token, initialCode }
+}
+
 export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
   const {
     course, service, pkg, addons, participants, date, time, contact,
@@ -381,18 +406,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       error: prev.error,
     }))
 
-    let token = isSignedIn ? await getToken({ skipCache: true }) : null
-    let result = await requestKioskCheckoutSession(token)
-    const code = typeof result.data?.code === "string" ? result.data.code : undefined
-
-    if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-      await new Promise((resolve) => window.setTimeout(resolve, 350))
-      const refreshed = await getToken({ skipCache: true })
-      if (refreshed) {
-        token = refreshed
-        result = await requestKioskCheckoutSession(token)
-      }
-    }
+    const { result } = await requestWithAccountRetry({ isSignedIn, getToken }, requestKioskCheckoutSession)
 
     if (!result.res.ok) {
       const message =
@@ -424,6 +438,59 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     })
     return true
   }, [getToken, isSignedIn, requestKioskCheckoutSession, setFormError, setKioskQrCheckout])
+
+  const clearSignInPrompt = () => {
+    setRequiresSignIn(false)
+    setExistingAccountDetected(false)
+    setResumeAfterSignInStep(null)
+    setPendingAutoPay(false)
+  }
+
+  /**
+   * Shared not-ok handling for the hosted, profile, intent and cash checkouts. The
+   * per-branch differences stay explicit through the options:
+   * - `code`: card branches pass the post-retry code, cash passes the pre-retry code.
+   * - `message`: the error shown for a plain failure (each branch builds its own).
+   * - `phoneFallback`: profile checkouts never take the phone-verification fallback.
+   * - `signedInAccountExists`: card branches show `account_exists_signed_in` when a
+   *   signed-in customer still hits ACCOUNT_EXISTS; cash asks for sign-in instead.
+   */
+  const handleCheckoutFailure = (
+    data: CheckoutApiResult["data"],
+    options: { code: string | undefined; message: string; phoneFallback: boolean; signedInAccountExists: boolean }
+  ) => {
+    const error = typeof data?.error === "string" ? data.error : null
+    const needsSignIn = !isCheckInFlow && options.code === "ACCOUNT_EXISTS"
+    const isNewStudentBlocked =
+      options.code === "NEW_STUDENT_ALREADY" || (error !== null && error.toLowerCase().includes("new student price"))
+    const needsPhoneFallback =
+      options.phoneFallback && isCheckInFlow && error !== null && error.toLowerCase().includes("phone verification")
+    if (options.signedInAccountExists && needsSignIn && isSignedIn) {
+      setFormError(t("account_exists_signed_in"))
+      clearSignInPrompt()
+      setProcessing(false)
+      return
+    }
+    if (isNewStudentBlocked || needsPhoneFallback) {
+      clearSignInPrompt()
+      setProcessing(false)
+      showRegularFallbackPopup(
+        isNewStudentBlocked
+          ? `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
+          : `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
+      )
+      return
+    }
+    setFormError(needsSignIn ? null : options.message)
+    setRequiresSignIn(needsSignIn)
+    setExistingAccountDetected(needsSignIn)
+    setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
+    setPendingAutoPay(needsSignIn)
+    setProcessing(false)
+  }
+
+  const cardFailureMessage = (data: CheckoutApiResult["data"]) =>
+    typeof data?.error === "string" ? data.error : "Error starting card payment."
 
   const handleSubmit = async (
     e?: React.FormEvent,
@@ -526,79 +593,22 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       try {
         const buildHostedCheckoutPayload = () => buildCheckoutPayload({ checkInBooking: true })
         const endpoint = bookingSource === "public_booking" ? "/api/public/checkout/session" : undefined
-        let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutSessionApi({ token, payload: buildHostedCheckoutPayload(), endpoint })
-        const code = typeof result.data?.code === "string" ? result.data.code : undefined
-        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-          await new Promise((resolve) => window.setTimeout(resolve, 350))
-          const refreshed = await getToken({ skipCache: true })
-          if (refreshed) {
-            token = refreshed
-            result = await requestCheckoutSessionApi({ token, payload: buildHostedCheckoutPayload(), endpoint })
-          }
-        }
+        const { result } = await requestWithAccountRetry({ isSignedIn, getToken }, (token) =>
+          requestCheckoutSessionApi({ token, payload: buildHostedCheckoutPayload(), endpoint })
+        )
         if (!result.res.ok) {
-          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
-          const isNewStudentBlocked =
-            finalCode === "NEW_STUDENT_ALREADY" ||
-            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-          const needsPhoneFallback =
-            isCheckInFlow &&
-            typeof result.data?.error === "string" &&
-            result.data.error.toLowerCase().includes("phone verification")
-          if (needsSignIn && isSignedIn) {
-            setFormError(t("account_exists_signed_in"))
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            return
-          }
-          if (isNewStudentBlocked) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-            )
-            return
-          }
-          if (needsPhoneFallback) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-            )
-            return
-          }
-          const message =
-            needsSignIn
-              ? t("account_exists_error")
-              : typeof result.data?.error === "string"
-                ? result.data.error
-                : "Error starting card payment."
-          setFormError(needsSignIn ? null : message)
-          setRequiresSignIn(needsSignIn)
-          setExistingAccountDetected(needsSignIn)
-          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-          setPendingAutoPay(needsSignIn)
-          setProcessing(false)
+          handleCheckoutFailure(result.data, {
+            code: typeof result.data?.code === "string" ? result.data.code : undefined,
+            message: cardFailureMessage(result.data),
+            phoneFallback: true,
+            signedInAccountExists: true,
+          })
           return
         }
         if (typeof result.data?.url !== "string" || result.data.url.trim().length === 0) {
           throw new Error("Checkout session is missing the hosted redirect URL")
         }
-        setRequiresSignIn(false)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
+        clearSignInPrompt()
         // Full-page redirect to Stripe hosted checkout. Keep `processing` true so the
         // submit button stays locked while the browser navigates away.
         window.location.href = result.data.url
@@ -618,64 +628,22 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
     // the Stripe webhook and there is no post-redirect client callback.
     if (paymentMethod === "stripe" && isProfileBookingFlow) {
       try {
-        let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload(), endpoint: "/api/profile/checkout/session" })
-        const code = typeof result.data?.code === "string" ? result.data.code : undefined
-        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-          await new Promise((resolve) => window.setTimeout(resolve, 350))
-          const refreshed = await getToken({ skipCache: true })
-          if (refreshed) {
-            token = refreshed
-            result = await requestCheckoutSessionApi({ token, payload: buildCheckoutPayload(), endpoint: "/api/profile/checkout/session" })
-          }
-        }
+        const { result } = await requestWithAccountRetry({ isSignedIn, getToken }, (token) =>
+          requestCheckoutSessionApi({ token, payload: buildCheckoutPayload(), endpoint: "/api/profile/checkout/session" })
+        )
         if (!result.res.ok) {
-          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
-          const isNewStudentBlocked =
-            finalCode === "NEW_STUDENT_ALREADY" ||
-            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-          if (needsSignIn && isSignedIn) {
-            setFormError(t("account_exists_signed_in"))
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            return
-          }
-          if (isNewStudentBlocked) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-            )
-            return
-          }
-          const message =
-            needsSignIn
-              ? t("account_exists_error")
-              : typeof result.data?.error === "string"
-                ? result.data.error
-                : "Error starting card payment."
-          setFormError(needsSignIn ? null : message)
-          setRequiresSignIn(needsSignIn)
-          setExistingAccountDetected(needsSignIn)
-          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-          setPendingAutoPay(needsSignIn)
-          setProcessing(false)
+          handleCheckoutFailure(result.data, {
+            code: typeof result.data?.code === "string" ? result.data.code : undefined,
+            message: cardFailureMessage(result.data),
+            phoneFallback: false,
+            signedInAccountExists: true,
+          })
           return
         }
         if (typeof result.data?.url !== "string" || result.data.url.trim().length === 0) {
           throw new Error("Checkout session is missing the hosted redirect URL")
         }
-        setRequiresSignIn(false)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
+        clearSignInPrompt()
         // Full-page redirect to Stripe hosted checkout. Keep `processing` true so the
         // submit button stays locked while the browser navigates away.
         window.location.href = result.data.url
@@ -721,87 +689,22 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
       }
       try {
         const endpoint = bookingSource === "public_booking" ? "/api/public/checkout/intent" : undefined
-        let token = isSignedIn ? await getToken({ skipCache: true }) : null
-        let result = await requestCheckoutIntentApi({
-          token,
-          payload: buildCheckoutPayload({}),
-          endpoint,
-        })
-        const code = typeof result.data?.code === "string" ? result.data.code : undefined
-        if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-          await new Promise((resolve) => window.setTimeout(resolve, 350))
-          const refreshed = await getToken({ skipCache: true })
-          if (refreshed) {
-            token = refreshed
-            result = await requestCheckoutIntentApi({
-              token,
-              payload: buildCheckoutPayload({}),
-              endpoint,
-            })
-          }
-        }
+        const { result } = await requestWithAccountRetry({ isSignedIn, getToken }, (token) =>
+          requestCheckoutIntentApi({ token, payload: buildCheckoutPayload({}), endpoint })
+        )
         if (!result.res.ok) {
-          const finalCode = typeof result.data?.code === "string" ? result.data.code : undefined
-          const needsSignIn = !isCheckInFlow && finalCode === "ACCOUNT_EXISTS"
-          const isNewStudentBlocked =
-            finalCode === "NEW_STUDENT_ALREADY" ||
-            (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-          const needsPhoneFallback =
-            isCheckInFlow &&
-            typeof result.data?.error === "string" &&
-            result.data.error.toLowerCase().includes("phone verification")
-          if (needsSignIn && isSignedIn) {
-            setFormError(t("account_exists_signed_in"))
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            return
-          }
-          if (isNewStudentBlocked) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-            )
-            return
-          }
-          if (needsPhoneFallback) {
-            setRequiresSignIn(false)
-            setExistingAccountDetected(false)
-            setResumeAfterSignInStep(null)
-            setPendingAutoPay(false)
-            setProcessing(false)
-            showRegularFallbackPopup(
-              `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-            )
-            return
-          }
-          const message =
-            needsSignIn
-              ? t("account_exists_error")
-              : typeof result.data?.error === "string"
-                ? result.data.error
-                : "Error starting card payment."
-          setFormError(needsSignIn ? null : message)
-          setRequiresSignIn(needsSignIn)
-          setExistingAccountDetected(needsSignIn)
-          setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-          setPendingAutoPay(needsSignIn)
-          setProcessing(false)
+          handleCheckoutFailure(result.data, {
+            code: typeof result.data?.code === "string" ? result.data.code : undefined,
+            message: cardFailureMessage(result.data),
+            phoneFallback: true,
+            signedInAccountExists: true,
+          })
           return
         }
         if (!result.data.clientSecret) throw new Error("Missing client secret")
         setStripeClientSecret(result.data.clientSecret)
         setShowStripeModal(true)
-        setRequiresSignIn(false)
-        setExistingAccountDetected(false)
-        setResumeAfterSignInStep(null)
-        setPendingAutoPay(false)
+        clearSignInPrompt()
       } catch (err) {
         console.error(err)
         alert("We couldn't start the payment. Please try again.")
@@ -813,48 +716,21 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
 
     // Cash checkout
     try {
-      let token = isSignedIn ? await getToken({ skipCache: true }) : null
-      let result = await requestCheckoutCashApi({ token, payload: buildCheckoutPayload({ cashNote: contact.note || undefined }) })
-      const code = typeof result.data?.code === "string" ? result.data.code : undefined
-
-      if (result.res.status === 409 && code === "ACCOUNT_EXISTS" && isSignedIn) {
-        await new Promise((resolve) => window.setTimeout(resolve, 350))
-        const refreshed = await getToken({ skipCache: true })
-        if (refreshed) {
-          token = refreshed
-          result = await requestCheckoutCashApi({ token, payload: buildCheckoutPayload({ cashNote: contact.note || undefined }) })
-        }
-      }
+      const { result, token, initialCode } = await requestWithAccountRetry({ isSignedIn, getToken }, (nextToken) =>
+        requestCheckoutCashApi({ token: nextToken, payload: buildCheckoutPayload({ cashNote: contact.note || undefined }) })
+      )
 
       if (!result.res.ok) {
-        const isNewStudentBlocked =
-          code === "NEW_STUDENT_ALREADY" ||
-          (typeof result.data?.error === "string" && result.data.error.toLowerCase().includes("new student price"))
-        const message =
-          typeof result.data?.error === "string" && result.data.error.trim().length > 0
-            ? result.data.error
-            : "Unable to register cash payment."
-        const needsPhoneFallback = isCheckInFlow && message.toLowerCase().includes("phone verification")
-        const needsSignIn = !isCheckInFlow && code === "ACCOUNT_EXISTS"
-        if (isNewStudentBlocked || needsPhoneFallback) {
-          setRequiresSignIn(false)
-          setExistingAccountDetected(false)
-          setResumeAfterSignInStep(null)
-          setPendingAutoPay(false)
-          setProcessing(false)
-          showRegularFallbackPopup(
-            isNewStudentBlocked
-              ? `This customer is not eligible for the new-student price. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-              : `Phone verification was not completed. We switched the booking to the ${formatRegularPricePhrase(regularServicePrice)}.`
-          )
-          return
-        }
-        setFormError(needsSignIn ? null : message)
-        setRequiresSignIn(needsSignIn)
-        setExistingAccountDetected(needsSignIn)
-        setResumeAfterSignInStep(needsSignIn ? (paymentsStepIndex >= 0 ? paymentsStepIndex : step) : null)
-        setPendingAutoPay(needsSignIn)
-        setProcessing(false)
+        handleCheckoutFailure(result.data, {
+          // Cash decides on the pre-retry code (historical behaviour, pinned by tests).
+          code: initialCode,
+          message:
+            typeof result.data?.error === "string" && result.data.error.trim().length > 0
+              ? result.data.error
+              : "Unable to register cash payment.",
+          phoneFallback: true,
+          signedInAccountExists: false,
+        })
         return
       }
 
@@ -894,10 +770,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
 
       setSuccessMessage(completionMessage)
       setSuccess(true)
-      setRequiresSignIn(false)
-      setExistingAccountDetected(false)
-      setResumeAfterSignInStep(null)
-      setPendingAutoPay(false)
+      clearSignInPrompt()
     } catch (err) {
       console.error(err)
       alert("We couldn't register the cash payment. Please try again.")
