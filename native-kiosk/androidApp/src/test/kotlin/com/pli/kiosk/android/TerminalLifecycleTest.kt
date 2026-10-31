@@ -144,6 +144,7 @@ class TerminalLifecycleTest {
             session.association,
             origin.value,
             paymentIntentId = "pi_known",
+            mode = AttemptMode.PREPARED,
         )))
         val api = RecoveryOnlyApi()
         val coordinator = PurchaseCoordinator(origin, store, api, { now })
@@ -184,19 +185,18 @@ class TerminalLifecycleTest {
         override fun write(state: DurableState) { this.state = state }
     }
 
-    private class RecoveryOnlyApi : PurchaseApi {
+    private class RecoveryOnlyApi : PreparedPurchaseApi {
         var prepares = 0
         val recoveries = mutableListOf<String>()
-        override fun lookup(session: StaffSession, phone: String): StudentLookupResult = error("lookup must not run")
-        override fun preflight(session: StaffSession) = Unit
-        override fun issue(session: StaffSession, phone: String): AttemptTicket = error("issue must not run")
-        override fun prepare(session: StaffSession, ticket: AttemptTicket): PaymentResult {
+        override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket =
+            error("issue must not run")
+        override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?): PaymentResult {
             prepares++
             error("prepare must not run")
         }
-        override fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult {
-            recoveries += id
-            return PaymentResult(id, "succeeded", true)
+        override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+            recoveries += paymentIntentId
+            return PaymentResult(paymentIntentId, "succeeded", true)
         }
     }
 }

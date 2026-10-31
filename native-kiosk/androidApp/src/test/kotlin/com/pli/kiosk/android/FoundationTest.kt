@@ -31,35 +31,17 @@ class FoundationTest {
         }
     }
 
-    private inner class Api : PurchaseApi {
-        var issued = 0
-        val submissions = mutableListOf<String>()
-        val recoveries = mutableListOf<String>()
-        var result = PaymentResult("pi_fixture", "requires_payment_method", false, "secret_fixture")
-        var onPrepare: () -> Unit = {}
-        var failPrepare = false
-        override fun lookup(session: StaffSession, phone: String): StudentLookupResult = StudentLookupResult.Unique(MinimumStudentIdentity("Fixture student"))
-        override fun preflight(session: StaffSession) = Unit
-        override fun issue(session: StaffSession, phone: String): AttemptTicket { issued++; return ticket }
-        override fun prepare(session: StaffSession, ticket: AttemptTicket): PaymentResult {
-            submissions.add(ticket.value)
-            onPrepare()
-            if (failPrepare) throw IOException("offline")
-            return result
-        }
-        override fun recover(session: StaffSession, ticket: AttemptTicket, id: String): PaymentResult {
-            recoveries.add(id)
-            return result
-        }
-    }
-
     private inner class PreparedApi : PreparedPurchaseApi {
         var attempts = 0
         val paymentIds = mutableListOf<String?>()
         val recoveries = mutableListOf<String>()
+        var cancels = 0
+        var creationStatusRequests = 0
         var result = PaymentResult("pi_fixture", "requires_payment_method", false, "secret_fixture")
         var onAttempt: () -> Unit = {}
+        var onPayment: () -> Unit = {}
         var failAttempt = false
+        var failPayment = false
         override fun preparedAttempt(session: StaffSession, preparedPurchaseReference: String): AttemptTicket {
             attempts++
             onAttempt()
@@ -68,93 +50,94 @@ class FoundationTest {
         }
         override fun preparedPaymentIntent(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String?): PaymentResult {
             paymentIds += paymentIntentId
+            onPayment()
+            if (failPayment) throw IOException("offline")
             return result
         }
         override fun preparedRecover(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
             recoveries += paymentIntentId
             return result
         }
+        override fun preparedCreationStatus(session: StaffSession, ticket: AttemptTicket): PreparedCreationStatus {
+            creationStatusRequests++
+            return PreparedCreationStatus.UNCREATED
+        }
+        override fun preparedCancel(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String): PaymentResult {
+            cancels++
+            return PaymentResult(paymentIntentId, "canceled", false)
+        }
     }
 
-    private fun coordinator(store: StateStore, api: Api = Api(), time: Long = now, prepared: PreparedPurchaseApi? = null) =
-        PurchaseCoordinator(origin, store, api, { time }, prepared)
+    private val reference = "A".repeat(43)
 
-    private fun selectAndConfirm(coordinator: PurchaseCoordinator) {
-        coordinator.lookupStudent("+15550000000")
-        coordinator.confirmSelectedStudent()
-    }
+    private fun coordinator(store: StateStore, prepared: PreparedApi = PreparedApi(), time: Long = now) =
+        PurchaseCoordinator(origin, store, prepared) { time }
+
+    private fun admitted(store: MemoryStore, prepared: PreparedApi) =
+        coordinator(store, prepared).also { assertEquals(Outcome.PENDING, it.startPrepared(reference)) }
 
     @Test fun ticketIsDurableBeforeExplicitCollectionPreparation() {
         val store = MemoryStore(DurableState(session))
-        val api = Api()
         val prepared = PreparedApi()
-        api.onPrepare = { assertEquals(ticket, store.state.attempt?.ticket) }
-        val c = coordinator(store, api, prepared = prepared)
-        selectAndConfirm(c)
-        assertEquals(Outcome.PENDING, c.start())
+        prepared.onPayment = { assertEquals(ticket, store.state.attempt?.ticket) }
+        val c = admitted(store, prepared)
         assertEquals(ticket, store.state.attempt?.ticket)
         assertNull(store.state.attempt?.paymentIntentId)
-        assertTrue(api.submissions.isEmpty())
+        assertTrue(prepared.paymentIds.isEmpty())
         c.startCollection()
         assertEquals("pi_fixture", store.state.attempt?.paymentIntentId)
-        assertFalse(c.collectionEnabled)
-        assertEquals(0, prepared.attempts)
-        assertTrue(prepared.paymentIds.isEmpty())
+        assertEquals(1, prepared.attempts)
     }
 
     @Test fun restartWithKnownIdOnlyRecoversEvenAfterExpiry() {
         val store = MemoryStore(DurableState(session))
-        val api = Api()
-        coordinator(store, api).also(::selectAndConfirm).also { it.start(); it.startCollection() }
-        api.result = PaymentResult("pi_fixture", "succeeded", true)
-        assertEquals(Outcome.PAID, coordinator(store, api, now + 70_000).resume())
-        assertEquals(1, api.submissions.size)
-        assertEquals(listOf("pi_fixture"), api.recoveries)
-        assertEquals(1, api.issued)
+        val prepared = PreparedApi()
+        admitted(store, prepared).startCollection()
+        prepared.result = PaymentResult("pi_fixture", "succeeded", true)
+        assertEquals(Outcome.PAID, coordinator(store, prepared, now + 70_000).recoverKnownAttempt())
+        assertEquals(1, prepared.paymentIds.size)
+        assertEquals(listOf("pi_fixture"), prepared.recoveries)
+        assertEquals(1, prepared.attempts)
         assertNotNull(store.state.attempt)
     }
 
     @Test fun unknownOutcomeReplaysOnlyRetainedTicket() {
         val store = MemoryStore(DurableState(session))
-        val api = Api().apply { failPrepare = true }
-        coordinator(store, api).also(::selectAndConfirm).let { it.start(); assertFails { it.startCollection() } }
-        api.failPrepare = false
-        coordinator(store, api).startCollection()
-        assertEquals(listOf(ticket.value, ticket.value), api.submissions)
-        assertEquals(1, api.issued)
+        val prepared = PreparedApi().apply { failPayment = true }
+        admitted(store, prepared).let { assertFails { it.startCollection() } }
+        prepared.failPayment = false
+        coordinator(store, prepared).startCollection()
+        assertEquals(listOf<String?>(null, null), prepared.paymentIds)
+        assertEquals(1, prepared.attempts)
     }
 
-    @Test fun expiredUnknownCannotResumeOrReplace() {
+    @Test fun expiredUnknownCannotCollectOrReplace() {
         val store = MemoryStore(DurableState(session))
-        val api = Api().apply { failPrepare = true }
-        coordinator(store, api).also(::selectAndConfirm).let { it.start(); assertFails { it.startCollection() } }
-        val restarted = coordinator(store, api, now + 70_000)
-        assertEquals(Outcome.PENDING, restarted.resume())
+        val prepared = PreparedApi().apply { failPayment = true }
+        admitted(store, prepared).let { assertFails { it.startCollection() } }
+        val restarted = coordinator(store, prepared, now + 70_000)
         assertFails { restarted.startCollection() }
-        assertEquals(Outcome.PENDING, restarted.start())
-        assertEquals(1, api.issued)
-        assertEquals(1, api.submissions.size)
+        assertFails { restarted.startPrepared(reference) }
+        assertEquals(1, prepared.attempts)
+        assertEquals(1, prepared.paymentIds.size)
     }
 
     @Test fun corruptionAndInitialWriteFailureBlockNetwork() {
         val store = MemoryStore(DurableState(session)).apply { fail = true }
-        val api = Api()
-        assertFails { coordinator(store, api).start() }
-        assertEquals(0, api.issued)
+        val prepared = PreparedApi()
+        assertFails { coordinator(store, prepared).startPrepared(reference) }
+        assertEquals(0, prepared.attempts)
     }
 
     @Test fun failedIdWritePoisonsInstanceAndRetainsReplayTicket() {
         val store = MemoryStore(DurableState(session))
-        val api = Api().apply { onPrepare = { store.fail = true } }
-        val c = coordinator(store, api)
-        selectAndConfirm(c)
-        c.start()
+        val prepared = PreparedApi().apply { onPayment = { store.fail = true } }
+        val c = admitted(store, prepared)
         assertFails { c.startCollection() }
         store.fail = false
-        assertFails { c.resume() }
+        assertFails { c.recoverKnownAttempt() }
         assertNull(store.state.attempt?.paymentIntentId)
         assertEquals(ticket, store.state.attempt?.ticket)
-        assertFalse(c.collectionEnabled)
     }
 
     @Test fun loginReplacesExpiredSessionOnlyWithoutAttempt() {
@@ -164,9 +147,8 @@ class FoundationTest {
         assertEquals(replacement, coordinator(store).login { replacement })
         assertEquals(DurableState(replacement), store.state)
 
-        val c = coordinator(store)
-        selectAndConfirm(c)
-        c.start()
+        store.state = DurableState(session)
+        admitted(store, PreparedApi())
         store.state = store.state.copy(session = expired)
         var logins = 0
         assertFails { coordinator(store).login { logins++; replacement } }
@@ -174,65 +156,48 @@ class FoundationTest {
         assertNotNull(store.state.attempt)
     }
 
-    @Test fun missingOriginalSessionBlocksResumeAndLoginBeforeCallback() {
+    @Test fun missingOriginalSessionBlocksRecoveryAndLoginBeforeCallback() {
         val store = MemoryStore(DurableState(session))
-        val c = coordinator(store)
-        selectAndConfirm(c)
-        c.start()
+        val prepared = PreparedApi()
+        admitted(store, prepared).startCollection()
         store.state = store.state.copy(session = null)
-        assertFails { coordinator(store).resume() }
+        assertFails { coordinator(store, prepared).recoverKnownAttempt() }
         var logins = 0
-        assertFails { coordinator(store).login { logins++; session } }
+        assertFails { coordinator(store, prepared).login { logins++; session } }
         assertEquals(0, logins)
         assertNotNull(store.state.attempt)
-    }
-
-    @Test fun missingOriginalSessionBlocksRecoveryAndLogin() {
-        val store = MemoryStore(DurableState(session))
-        val c = coordinator(store)
-        selectAndConfirm(c)
-        c.start()
-        store.state = store.state.copy(session = null)
-        var logins = 0
-        assertFails { coordinator(store).resume() }
-        assertFails { coordinator(store).login { logins++; session } }
-        assertEquals(0, logins)
+        assertTrue(prepared.recoveries.isEmpty())
     }
 
     @Test fun changedOriginOrSessionBlocksRecovery() {
         val store = MemoryStore(DurableState(session))
-        val api = Api()
-        coordinator(store, api).also(::selectAndConfirm).start()
-        store.state = store.state.copy(session = session.copy(association = "replacement"))
-        assertFails { coordinator(store, api).resume() }
-        store.state = store.state.copy(session = session.copy(origin = "https://other.invalid"))
-        assertFails { coordinator(store, api).resume() }
-        assertTrue(api.recoveries.isEmpty())
+        val prepared = PreparedApi()
+        admitted(store, prepared).startCollection()
+        val retained = store.state
+        store.state = retained.copy(session = session.copy(association = "replacement"))
+        assertFails { coordinator(store, prepared).recoverKnownAttempt() }
+        store.state = retained.copy(session = session.copy(origin = "https://other.invalid"))
+        assertFails { coordinator(store, prepared).recoverKnownAttempt() }
+        assertTrue(prepared.recoveries.isEmpty())
     }
 
-    @Test fun sdkCallbacksNeverMarkPaidAndKnownIdMismatchFails() {
+    @Test fun knownIdMismatchFailsWithoutResolving() {
         val store = MemoryStore(DurableState(session))
-        val api = Api()
-        val c = coordinator(store, api)
-        selectAndConfirm(c)
-        c.start()
+        val prepared = PreparedApi()
+        val c = admitted(store, prepared)
         c.startCollection()
-        assertEquals(Outcome.DISABLED, c.sdkCompleted("stale", true))
-        assertFalse(store.state.attempt!!.resolved)
-        api.result = PaymentResult("pi_other", "succeeded", true)
-        assertFails { c.resume() }
+        prepared.result = PaymentResult("pi_other", "succeeded", true)
+        assertFails { c.recoverKnownAttempt() }
         assertFalse(store.state.attempt!!.resolved)
     }
 
-    @Test fun simultaneousStartsIssueOnlyOneAttempt() {
+    @Test fun simultaneousCollectionStartsPrepareOnlyOnce() {
         val store = MemoryStore(DurableState(session))
-        val api = Api()
+        val prepared = PreparedApi()
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        api.onPrepare = { entered.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)) }
-        val c = coordinator(store, api)
-        selectAndConfirm(c)
-        c.start()
+        val c = admitted(store, prepared)
+        prepared.onPayment = { entered.countDown(); assertTrue(release.await(5, TimeUnit.SECONDS)) }
         val pool = Executors.newSingleThreadExecutor()
         try {
             val first = pool.submit<TransientCollectionStart> { c.startCollection() }
@@ -240,16 +205,16 @@ class FoundationTest {
             assertTrue(runCatching { c.startCollection() }.isFailure)
             release.countDown()
             assertEquals("pi_fixture", first.get(5, TimeUnit.SECONDS).attempt.paymentIntentId)
-            assertEquals(1, api.issued)
+            assertEquals(1, prepared.attempts)
+            assertEquals(1, prepared.paymentIds.size)
         } finally { release.countDown(); pool.shutdownNow() }
     }
 
     @Test fun preparedMarkerIsDurableBeforeOneTimeIssueAndNeverRetainsReference() {
         val store = MemoryStore(DurableState(session))
         val prepared = PreparedApi()
-        val reference = "A".repeat(43)
         listOf("", "A".repeat(42), "!" + "A".repeat(42), "B".repeat(43)).forEach {
-            assertFails { coordinator(store, prepared = prepared).startPrepared(it) }
+            assertFails { coordinator(store, prepared).startPrepared(it) }
         }
         assertNull(store.state.attempt)
         assertEquals(0, prepared.attempts)
@@ -261,7 +226,7 @@ class FoundationTest {
             assertFalse(store.state.toString().contains(reference))
         }
 
-        assertEquals(Outcome.PENDING, coordinator(store, prepared = prepared).startPrepared(reference))
+        assertEquals(Outcome.PENDING, coordinator(store, prepared).startPrepared(reference))
 
         assertEquals(1, prepared.attempts)
         assertEquals(ticket, store.state.attempt?.ticket)
@@ -271,48 +236,63 @@ class FoundationTest {
     @Test fun lostPreparedIssueResponseBlocksEveryRetryWithoutReissuing() {
         val store = MemoryStore(DurableState(session))
         val prepared = PreparedApi().apply { failAttempt = true }
-        assertFails { coordinator(store, prepared = prepared).startPrepared("A".repeat(43)) }
+        assertFails { coordinator(store, prepared).startPrepared(reference) }
 
-        val restarted = coordinator(store, prepared = prepared)
-        assertFails { restarted.startPrepared("A".repeat(43)) }
-        assertFails { restarted.start() }
+        val restarted = coordinator(store, prepared)
+        assertFails { restarted.startPrepared(reference) }
         assertFails { restarted.startCollection() }
         assertEquals(1, prepared.attempts)
         assertNull(store.state.attempt?.ticket)
         assertEquals(AttemptMode.PREPARED, store.state.attempt?.mode)
     }
 
-    @Test fun preparedPaymentAndRecoveryUseOnlyPreparedApiAndRetainSameId() {
+    @Test fun preparedPaymentAndRecoveryRetainSameId() {
         val store = MemoryStore(DurableState(session))
-        val legacy = Api()
         val prepared = PreparedApi()
-        val c = coordinator(store, legacy, prepared = prepared)
-        c.startPrepared("A".repeat(43))
+        val c = admitted(store, prepared)
 
         c.startCollection()
         assertEquals(listOf<String?>(null), prepared.paymentIds)
-        assertTrue(legacy.submissions.isEmpty())
         assertEquals("pi_fixture", store.state.attempt?.paymentIntentId)
         c.startCollection()
         assertEquals(listOf<String?>(null, "pi_fixture"), prepared.paymentIds)
 
-        c.resume()
+        c.recoverKnownAttempt()
         assertEquals(listOf("pi_fixture"), prepared.recoveries)
-        assertTrue(legacy.recoveries.isEmpty())
         prepared.result = PaymentResult("pi_other", "requires_payment_method", false, "secret_fixture")
         assertFails { c.recoverKnownAttempt() }
         assertEquals(listOf("pi_fixture", "pi_fixture"), prepared.recoveries)
     }
 
-    @Test fun preparedModeWithoutPreparedApiFailsClosedWithoutLegacyFallback() {
-        val store = MemoryStore(DurableState(session, AttemptState(ticket, session.association, session.origin, mode = AttemptMode.PREPARED)))
-        val legacy = Api()
+    @Test fun retainedLegacyAttemptFailsClosedAndIsNeverCollectedOrCleared() {
+        val legacyStates = listOf(
+            AttemptState(ticket, session.association, session.origin, mode = AttemptMode.LEGACY),
+            AttemptState(ticket, session.association, session.origin, "pi_legacy", mode = AttemptMode.LEGACY),
+            AttemptState(ticket, session.association, session.origin, "pi_legacy", resolved = true, mode = AttemptMode.LEGACY),
+        )
+        legacyStates.forEach { legacy ->
+            val retained = DurableState(session, legacy)
+            val store = MemoryStore(retained)
+            val prepared = PreparedApi().apply { result = PaymentResult("pi_legacy", "succeeded", true) }
+            val c = coordinator(store, prepared)
 
-        assertFails { coordinator(store, legacy).startCollection() }
-        assertFails { coordinator(store, legacy).resume() }
+            assertFails { c.startCollection() }
+            assertFails { c.recoverKnownAttempt() }
+            assertFails { c.recoverKnownPreparedAttemptForStartup() }
+            assertFails { c.cancelUnpaidPreparedAttempt() }
+            assertFails { c.resolveTicketOnlyPreparedAttempt() }
+            assertFails { c.clearResolvedPreparedAttempt() }
+            assertFails { c.retainedPreparedAttemptForNativeRuntime() }
+            assertFails { c.startPrepared(reference) }
+            assertFails { c.login { session } }
 
-        assertTrue(legacy.submissions.isEmpty())
-        assertTrue(legacy.recoveries.isEmpty())
+            assertEquals(retained, store.state)
+            assertEquals(0, prepared.attempts)
+            assertTrue(prepared.paymentIds.isEmpty())
+            assertTrue(prepared.recoveries.isEmpty())
+            assertEquals(0, prepared.cancels)
+            assertEquals(0, prepared.creationStatusRequests)
+        }
     }
 
     @Test fun approvedOriginRejectsMissingInsecureOrAmbiguousConfiguration() {

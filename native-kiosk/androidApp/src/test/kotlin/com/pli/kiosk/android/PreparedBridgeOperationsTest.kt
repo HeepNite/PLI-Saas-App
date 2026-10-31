@@ -939,7 +939,7 @@ class PreparedBridgeOperationsTest {
     }
 
     private fun coordinator(prepared: RecordingPreparedApi, store: MemoryStore = MemoryStore(DurableState(session()))): PurchaseCoordinator =
-        PurchaseCoordinator(ApprovedOrigin("https://approved.invalid"), store, LegacyApi(), { 1_000L }, prepared)
+        PurchaseCoordinator(ApprovedOrigin("https://approved.invalid"), store, prepared) { 1_000L }
     private fun session() = StaffSession("https://approved.invalid", "association", "cookie", 2_000L)
     private fun reader(ticket: AttemptTicket) = ConnectedReader(ticket.readerId, Approved.M2_SERIAL, "stripe_m2", ticket.locationId)
 
@@ -991,13 +991,6 @@ class PreparedBridgeOperationsTest {
     private class MemoryStore(var state: DurableState) : StateStore {
         override fun read() = state
         override fun write(state: DurableState) { this.state = state }
-    }
-    private class LegacyApi : PurchaseApi {
-        override fun lookup(session: StaffSession, phone: String) = StudentLookupResult.Invalid
-        override fun preflight(session: StaffSession) = Unit
-        override fun issue(session: StaffSession, phone: String) = error("legacy issue")
-        override fun prepare(session: StaffSession, ticket: AttemptTicket) = error("legacy prepare")
-        override fun recover(session: StaffSession, ticket: AttemptTicket, id: String) = error("legacy recover")
     }
     private class RecordingPreparedApi(
         private val ticket: AttemptTicket,

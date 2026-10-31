@@ -119,7 +119,7 @@ class SaleSessionRenewalTest {
             origin, store, StaffSessionTransport(origin) { clock.now }, BrowserCookieReader { readCookie() },
             { clock.now }, api,
         )
-        fun coordinator() = PurchaseCoordinator(origin, store, LegacyApi(), { clock.now }, api)
+        fun coordinator() = PurchaseCoordinator(origin, store, api) { clock.now }
     }
 
     private fun reference(first: Char) = first + "A".repeat(42)
@@ -136,14 +136,6 @@ class SaleSessionRenewalTest {
             PaymentResult(paymentIntentId, "requires_payment_method", false)
         override fun preparedCancel(session: StaffSession, ticket: AttemptTicket, paymentIntentId: String) =
             PaymentResult(paymentIntentId, "canceled", false)
-    }
-
-    private class LegacyApi : PurchaseApi {
-        override fun lookup(session: StaffSession, phone: String) = StudentLookupResult.Invalid
-        override fun preflight(session: StaffSession) = Unit
-        override fun issue(session: StaffSession, phone: String) = error("legacy issue")
-        override fun prepare(session: StaffSession, ticket: AttemptTicket) = error("legacy prepare")
-        override fun recover(session: StaffSession, ticket: AttemptTicket, id: String) = error("legacy recover")
     }
 
     class MutableClock(var now: Long) {
