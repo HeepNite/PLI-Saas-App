@@ -18,9 +18,6 @@ import {
   type CheckinQrDecisionGatewayResponse,
 } from "./contracts/checkin-qr-decision"
 import {
-  parseTerminalConnectionTokenGatewayResponse,
-  type TerminalConnectionTokenGatewayRequest,
-  type TerminalConnectionTokenGatewayResponse,
 } from "./contracts/terminal-precutover"
 import {
   parseTerminalPaymentIntentGatewayResponse,
@@ -46,7 +43,6 @@ type NestHealthSuccess = NestHealthPayload & {
 export type NestGatewayHealthResult = NestHealthSuccess | NestGatewayFallbackResult
 export type NestGatewayTodayClassesResult = CheckinTodayClassesResponse | NestGatewayFallbackResult
 export type NestGatewayQrDecisionResult = CheckinQrDecisionGatewayResponse | NestGatewayFallbackResult
-export type NestGatewayTerminalConnectionTokenResult = TerminalConnectionTokenGatewayResponse | NestGatewayFallbackResult
 export type NestGatewayTerminalPaymentIntentResult =
   | TerminalPaymentIntentGatewayResponse
   | NestGatewayFallbackResult
@@ -70,7 +66,6 @@ type NestGatewayRequestOptions<TSuccess> = NestGatewayHealthOptions & {
 const HEALTH_ROUTE = "internal-health"
 const TODAY_CLASSES_ROUTE = "today-classes"
 const QR_DECISION_ROUTE = "qr-decision"
-const TERMINAL_CONNECTION_TOKEN_ROUTE = "terminal-connection-token"
 const TERMINAL_PAYMENT_INTENTS_ROUTE = "terminal-payment-intents"
 
 const reportFallback = ({
@@ -226,28 +221,6 @@ export const getNestGatewayQrDecision = async ({
     reporter,
     requestId,
     route: QR_DECISION_ROUTE,
-  })
-}
-
-export const getNestGatewayTerminalConnectionToken = async ({
-  env = process.env,
-  fetchImpl = fetch,
-  payload,
-  requestId,
-  reporter = defaultNestGatewayFallbackReporter,
-}: NestGatewayHealthOptions & {
-  payload: TerminalConnectionTokenGatewayRequest
-}): Promise<NestGatewayTerminalConnectionTokenResult> => {
-  return executeNestGatewayRequest({
-    env,
-    fetchImpl,
-    body: payload,
-    method: "POST",
-    parseSuccess: parseTerminalConnectionTokenGatewayResponse,
-    path: "/internal/terminal/connection-token",
-    reporter,
-    requestId,
-    route: TERMINAL_CONNECTION_TOKEN_ROUTE,
   })
 }
 

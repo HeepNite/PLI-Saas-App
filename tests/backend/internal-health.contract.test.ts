@@ -4,7 +4,6 @@ import { QrDecisionController } from "@/apps/backend/src/checkin/qr-decision.con
 import { TodayClassesController } from "@/apps/backend/src/checkin/today-classes.controller"
 import { bootstrapBackendApp, createBackendRequestHandler } from "@/apps/backend/src/main"
 import { HealthController } from "@/apps/backend/src/health/health.controller"
-import { ConnectionTokenController } from "@/apps/backend/src/terminal/connection-token.controller"
 import { PaymentIntentsController } from "@/apps/backend/src/terminal/payment-intents.controller"
 import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
 
@@ -63,7 +62,6 @@ describe("backend internal health contract", () => {
       HealthController,
       TodayClassesController,
       QrDecisionController,
-      ConnectionTokenController,
       PaymentIntentsController,
     ])
   })

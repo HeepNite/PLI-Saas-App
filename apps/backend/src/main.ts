@@ -2,11 +2,9 @@ import { AppModule, appControllers } from "./app.module"
 import { QrDecisionController } from "./checkin/qr-decision.controller"
 import { TodayClassesController } from "./checkin/today-classes.controller"
 import { HealthController } from "./health/health.controller"
-import { ConnectionTokenController } from "./terminal/connection-token.controller"
 import { PaymentIntentsController } from "./terminal/payment-intents.controller"
 import { INTERNAL_AUTH_HEADER } from "@/lib/nest-gateway/auth"
 import type { CheckinQrDecisionGatewayRequest } from "@/lib/nest-gateway/contracts/checkin-qr-decision"
-import { parseTerminalConnectionTokenGatewayRequest } from "@/lib/nest-gateway/contracts/terminal-precutover"
 import { parseTerminalPaymentIntentGatewayRequest } from "@/lib/nest-gateway/contracts/terminal-payment-intents"
 
 const NOT_FOUND_STATUS = 404
@@ -27,7 +25,6 @@ const createTerminalPaymentIntentErrorResponse = (error: unknown) => {
 export type BackendRequestHandler = (request: Request) => Promise<Response>
 
 type BackendControllers = {
-  connectionTokenController?: Pick<ConnectionTokenController, "post">
   healthController?: Pick<HealthController, "getHealth">
   paymentIntentsController?: Pick<PaymentIntentsController, "post">
   qrDecisionController?: Pick<QrDecisionController, "getQrDecision">
@@ -36,7 +33,6 @@ type BackendControllers = {
 
 export const createBackendRequestHandler = (
   {
-    connectionTokenController = new ConnectionTokenController(),
     healthController = new HealthController(),
     paymentIntentsController = new PaymentIntentsController(),
     qrDecisionController = new QrDecisionController(),
@@ -72,22 +68,6 @@ export const createBackendRequestHandler = (
       }
 
       return Response.json(await qrDecisionController.getQrDecision(payload), { status: OK_STATUS })
-    }
-
-    if (request.method === "POST" && pathname === "/internal/terminal/connection-token") {
-      let payload: unknown
-      try {
-        payload = await request.json()
-      } catch {
-        return Response.json({ error: "Invalid JSON body" }, { status: BAD_REQUEST_STATUS })
-      }
-
-      const connectionTokenRequest = parseTerminalConnectionTokenGatewayRequest(payload)
-      if (!connectionTokenRequest) {
-        return Response.json({ error: "Invalid terminal connection-token payload" }, { status: BAD_REQUEST_STATUS })
-      }
-
-      return Response.json(await connectionTokenController.post(connectionTokenRequest), { status: OK_STATUS })
     }
 
     if (request.method === "POST" && pathname === "/internal/terminal/payment-intents") {
