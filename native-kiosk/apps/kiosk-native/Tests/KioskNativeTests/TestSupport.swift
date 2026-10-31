@@ -210,6 +210,10 @@ final class World {
     var now: Int64 = 1_000
     var cookie: String? = "cookie"
     lazy var store = KeychainStore(keychain: keychain)
+    lazy var coordinator = PurchaseCoordinator(
+        origin: Fixtures.origin, locationId: Fixtures.location, store: store, server: PurchaseServer(origin: Fixtures.origin, http: http),
+        clock: { [unowned self] in now }, currentCookie: { [unowned self] in cookie }, execute: { $0() }
+    )
     var session: StaffSession { StaffSession(origin: Fixtures.origin, cookie: "cookie", expiresAt: 100_000_000) }
     let ticket = AttemptTicket(value: "ticket-1", expiresAt: 100_000_000, readerId: Fixtures.readerId, locationId: Fixtures.location)
 
