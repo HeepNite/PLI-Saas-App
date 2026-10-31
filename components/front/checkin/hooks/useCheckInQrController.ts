@@ -557,7 +557,7 @@ export function useCheckInQrController({
     setQuickRepeatQrCheckout({ ...createEmptyKioskQrCheckoutState(), phase: "creating" })
 
     try {
-      const { res, data } = await requestCheckoutSessionApi({ payload: sessionPayload })
+      const { res, data } = await requestCheckoutSessionApi({ payload: sessionPayload, includeCredentials: false })
 
       if (!res.ok || typeof data?.url !== "string" || typeof data?.sessionId !== "string") {
         const message = typeof data?.error === "string" && data.error.trim().length > 0

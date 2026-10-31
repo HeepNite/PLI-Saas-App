@@ -135,4 +135,26 @@ describe("useKioskQrCheckoutPoller", () => {
     expect(applyFirstUpdate(setCheckoutState)).toMatchObject({ phase: "error", awaitingWebhook: false, error: "Unable to refresh checkout status." })
     expect(warnSpy).toHaveBeenCalledWith("Unable to poll consecutive checkout session status", expect.any(Error))
   })
+
+  it("does not re-render on poll ticks that return an unchanged status", async () => {
+    vi.useFakeTimers()
+    let renders = 0
+    const fetchStatus = vi.fn().mockResolvedValue(statusResponse(true, { status: "open" }))
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    function Harness() {
+      const [state, setState] = React.useState(checkoutState({ phase: "waiting_for_payment" }))
+      renders += 1
+      useKioskQrCheckoutPoller({ checkoutState: state, setCheckoutState: setState, onComplete: vi.fn(), fetchStatus, pollIntervalMs: 25 })
+      return null
+    }
+    await act(async () => root!.render(<Harness />))
+    const rendersAfterFirstPoll = renders
+
+    await act(async () => vi.advanceTimersByTimeAsync(75))
+
+    expect(fetchStatus.mock.calls.length).toBeGreaterThanOrEqual(4)
+    expect(renders).toBe(rendersAfterFirstPoll)
+  })
 })

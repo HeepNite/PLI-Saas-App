@@ -100,6 +100,7 @@ describe("checkin QR API adapter", () => {
     await requestCheckoutSessionApi({
       fetchImpl,
       payload: { courseSlug: "bachata", amount: 2500 },
+      includeCredentials: false,
     })
 
     const [url, init] = firstCall(fetchImpl)

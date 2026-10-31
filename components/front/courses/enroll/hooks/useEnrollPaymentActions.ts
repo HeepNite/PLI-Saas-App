@@ -28,11 +28,10 @@ import {
   requestCheckoutCashApi,
   requestCheckoutIntentApi,
   requestCheckoutQuoteApi,
-  requestCheckoutSessionApi,
-  requestDropInCheckInApi,
   requestNewStudentOutcomeApi,
   requestPublicPackageReservationApi,
 } from "@/components/front/courses/enroll/effects/checkout-api"
+import { requestCheckoutSessionApi, requestDropInCheckInApi } from "@/lib/checkin/checkin-qr-api"
 import { formatRegularPricePhrase } from "@/components/front/courses/utils/package-pricing"
 
 type SetState<T> = React.Dispatch<React.SetStateAction<T>>

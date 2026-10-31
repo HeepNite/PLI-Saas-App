@@ -19,9 +19,9 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 - [ ] P0a — Non-major npm audit fix; patched next, @clerk/nextjs, @sentry/nextjs.
 - [x] P0b — Android MissingPermission, WebViewFeature guards, Stripe Terminal and androidx.webkit bumps. Route: inline single writer (4 Kotlin files + gradle). Evidence: 299 unit tests green, lintRelease 0 errors (was 1), assembleRelease OK; stripeterminal 5.6.0→5.8.2, webkit 1.12.1→1.18.0. Reader smoke owner-gated.
 - [x] W1 — Dead ternaries, shared useNowTick, stale comment. (branch refactor/kiosk-web-w1; vitest 1386 pass, tsc + lint clean)
-- [ ] W2 — useEnrollPaymentActions helpers.
-- [ ] W3 — bridgeRequest helper and runNativePreparedCheckout unit test.
-- [ ] W4 — Merge QR pollers and checkout API helpers.
+- [x] W2 — useEnrollPaymentActions helpers. (PRs #782, #783)
+- [x] W3 — bridgeRequest helper and runNativePreparedCheckout unit test. (PR #781)
+- [x] W4 — Merge QR pollers and checkout API helpers. Route: delegated writer (14 files). One core `lib/checkin/kiosk-qr-poller.ts` (moved from enroll/effects) used by both hooks; checkin hook poll loop deleted; checkout session/status/drop-in helpers live only in `lib/checkin/checkin-qr-api.ts` (check-in callers keep their no-credentials session request via `includeCredentials: false`). Drift resolved to trim-everywhere. Unchanged poll patches return `prev` (no re-render). Evidence: tests/checkin + enroll + cash-grant 923 pass; tsc, lint clean. Branch refactor/kiosk-web-w4.
 - [ ] W5 — pliNativeAttemptState removal (only after owner confirms).
 - [ ] S1 — /api/checkin/phone/identify (after log check).
 - [ ] S2 — /api/kiosk/terminal/connection-token (after log check).
@@ -34,4 +34,4 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 
 ## Progress
 
-Spec created; no implementation started. Next step: P0a.
+P0b, W1-W4 done. Next step: P0a, then W5 (owner-gated).
