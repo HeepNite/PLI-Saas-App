@@ -515,6 +515,36 @@ class WebSessionReadinessTest {
     }
 
     @Test
+    fun retainedLegacyAttemptAtStartupFailsClosedWithoutRecoveryOrMutation() {
+        val clock = MutableClock(1_000_000L)
+        val prepared = retainedPreparedState(clock, sessionExpiry = clock.now + 600_000L)
+        val legacy = requireNotNull(prepared.attempt).copy(mode = AttemptMode.LEGACY)
+        val states = listOf(
+            prepared.copy(attempt = legacy),
+            prepared.copy(attempt = legacy.copy(paymentIntentId = null)),
+            prepared.copy(attempt = legacy.copy(resolved = true)),
+        )
+
+        states.forEach { original ->
+            val store = MemoryStore(original)
+            val api = RecordingPreparedApi(result = PaymentResult("pi_retained", "succeeded", true))
+            val stages = mutableListOf<RetainedRecoveryStage>()
+            var cookieReads = 0
+            val readiness = readiness(store, clock, api, onRecoveryStage = { stages += it }) { cookieReads++; cookie }
+
+            assertFalse(readiness.capture(terminal, terminal))
+            assertFalse(readiness.ready)
+            assertNull(readiness.currentSession())
+            assertEquals(listOf(RetainedRecoveryStage.INELIGIBLE), stages)
+            assertEquals(0, cookieReads)
+            assertEquals(emptyList(), api.recoveries + api.cancels)
+            assertEquals(emptyList(), api.creationStatusTickets)
+            assertEquals(0, store.writes)
+            assertEquals(original, store.state)
+        }
+    }
+
+    @Test
     fun rolloverReadbackFailureRestoresTheResolvedPreparedAttempt() {
         val session = StaffSession(origin.value, "association", "old-cookie", 900_000L)
         val attempt = AttemptState(
