@@ -724,7 +724,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
         let token = isSignedIn ? await getToken({ skipCache: true }) : null
         let result = await requestCheckoutIntentApi({
           token,
-          payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+          payload: buildCheckoutPayload({}),
           endpoint,
         })
         const code = typeof result.data?.code === "string" ? result.data.code : undefined
@@ -735,7 +735,7 @@ export function useEnrollPaymentActions(input: UseEnrollPaymentActionsInput) {
             token = refreshed
             result = await requestCheckoutIntentApi({
               token,
-              payload: buildCheckoutPayload(isKioskTerminalFlow ? { paymentSurface: "embedded" } : {}),
+              payload: buildCheckoutPayload({}),
               endpoint,
             })
           }

@@ -1,4 +1,5 @@
 import React from "react"
+import { useNowTick } from "@/components/front/checkin/hooks/useNowTick"
 import {
   shouldSurfaceClosedWindowPackageError,
   shouldAutoOpenExistingPurchase,
@@ -202,10 +203,7 @@ export function useCheckInTerminalEffects(input: UseCheckInTerminalEffectsInput)
   }, [hasActiveClerkSession, showPhoneSignIn, setShowPhoneSignIn])
 
   // ── Clock interval (30-second tick) ─────────────────────────
-  React.useEffect(() => {
-    const intervalId = window.setInterval(() => setInternalNowTick(new Date()), 30_000)
-    return () => window.clearInterval(intervalId)
-  }, [setInternalNowTick])
+  useNowTick(30_000, setInternalNowTick)
 
   // ── Origin sync ──────────────────────────────────────────────
   React.useEffect(() => {

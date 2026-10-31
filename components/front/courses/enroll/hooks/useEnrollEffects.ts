@@ -1,5 +1,6 @@
 "use client"
 import React from "react"
+import { useNowTick } from "@/components/front/checkin/hooks/useNowTick"
 import type { EnrollmentOption } from "@/constants/courses"
 import type { EnrollmentContact } from "@/components/front/courses/types"
 import { computeCheckInAutofill } from "@/components/front/courses/enroll/model/checkin-autofill"
@@ -143,12 +144,7 @@ export function useEnrollEffects(input: UseEnrollEffectsInput) {
   }, [open, isInline])
 
   // Check-in clock
-  React.useEffect(() => {
-    if (!isCheckInFlow || !open) return
-    setCheckInNow(new Date())
-    const intervalId = window.setInterval(() => setCheckInNow(new Date()), 30_000)
-    return () => window.clearInterval(intervalId)
-  }, [isCheckInFlow, open, setCheckInNow])
+  useNowTick(30_000, setCheckInNow, { enabled: isCheckInFlow && open, immediate: true })
 
   // Prefill contact (non-check-in flows)
   React.useEffect(() => {
