@@ -1,0 +1,435 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0A9CF2BD6165BF162D7E2981 /* KioskNative in Frameworks */ = {isa = PBXBuildFile; productRef = 6CA56259EF56E9AEFBA28B95 /* KioskNative */; };
+		16AE747FC21A622E55C7838F /* LiveTerminalSDKClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C816AD956693A09A8A1F89FD /* LiveTerminalSDKClient.swift */; };
+		972CC34D25A694F9C48E86C1 /* KioskApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CEFFF96F7208D11A1C27DBA /* KioskApp.swift */; };
+		A3520156A9076F3820505DCF /* KioskViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA68D4A4FF7C84CE5032D7F4 /* KioskViewController.swift */; };
+		A4924F89887DE3A8B5FAD628 /* PlatformSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9945A70FEBD7E88154CCB56 /* PlatformSeams.swift */; };
+		AC33007D23F5CB4AC1C8C58A /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = C5D25BBF20E9C4AB2AA16D11 /* InfoPlist.strings */; };
+		BF36C1E66E6A0119F60FA21E /* StripeTerminal in Frameworks */ = {isa = PBXBuildFile; productRef = 3D183D064D64037DD2043BA6 /* StripeTerminal */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0D4369A0594A002DCCA7D19F /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = es.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		1CEFFF96F7208D11A1C27DBA /* KioskApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskApp.swift; sourceTree = "<group>"; };
+		6651A67E219015087536A34E /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		679C17ACA23BA93315C40978 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6F0A2E50D92A3A2E13504090 /* Device-iPad.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = "Device-iPad.xcconfig"; sourceTree = "<group>"; };
+		BA68D4A4FF7C84CE5032D7F4 /* KioskViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KioskViewController.swift; sourceTree = "<group>"; };
+		BDA9302915E232EBCB430D45 /* PLIKiosk.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PLIKiosk.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C816AD956693A09A8A1F89FD /* LiveTerminalSDKClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTerminalSDKClient.swift; sourceTree = "<group>"; };
+		D418F2B1EFE60E4EC8F4C7A9 /* kiosk-native */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "kiosk-native"; path = "../apps/kiosk-native"; sourceTree = SOURCE_ROOT; };
+		F9945A70FEBD7E88154CCB56 /* PlatformSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlatformSeams.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		831768DB2359796CC90796EE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0A9CF2BD6165BF162D7E2981 /* KioskNative in Frameworks */,
+				BF36C1E66E6A0119F60FA21E /* StripeTerminal in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		03998F04FB347F5E40F5E91D /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				D418F2B1EFE60E4EC8F4C7A9 /* kiosk-native */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		5943B8569E4B4CF0A6F2F4C5 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				BDA9302915E232EBCB430D45 /* PLIKiosk.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		76ED38A1E7946D6442A70DFB /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				6F0A2E50D92A3A2E13504090 /* Device-iPad.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		837F4734A9A69BBA32C1B95B /* App */ = {
+			isa = PBXGroup;
+			children = (
+				1CEFFF96F7208D11A1C27DBA /* KioskApp.swift */,
+				BA68D4A4FF7C84CE5032D7F4 /* KioskViewController.swift */,
+				C816AD956693A09A8A1F89FD /* LiveTerminalSDKClient.swift */,
+				F9945A70FEBD7E88154CCB56 /* PlatformSeams.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		8C6F4D401DBE5ED72D9F19FF = {
+			isa = PBXGroup;
+			children = (
+				837F4734A9A69BBA32C1B95B /* App */,
+				76ED38A1E7946D6442A70DFB /* Config */,
+				03998F04FB347F5E40F5E91D /* Packages */,
+				D3CC3BC2B6125ADCC71DE9F0 /* Resources */,
+				5943B8569E4B4CF0A6F2F4C5 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		D3CC3BC2B6125ADCC71DE9F0 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				679C17ACA23BA93315C40978 /* Info.plist */,
+				C5D25BBF20E9C4AB2AA16D11 /* InfoPlist.strings */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3299A9D9FB087A50BCF2C7CD /* PLIKiosk */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9AD61A5BFC630DA207D7EFAA /* Build configuration list for PBXNativeTarget "PLIKiosk" */;
+			buildPhases = (
+				004EC640E2F33F6BC0BC8C93 /* Check reader pins */,
+				D21F2568F72BB86CAE7027D5 /* Sources */,
+				C4AC059F3F8B9ED752A7A9C8 /* Resources */,
+				831768DB2359796CC90796EE /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PLIKiosk;
+			packageProductDependencies = (
+				6CA56259EF56E9AEFBA28B95 /* KioskNative */,
+				3D183D064D64037DD2043BA6 /* StripeTerminal */,
+			);
+			productName = PLIKiosk;
+			productReference = BDA9302915E232EBCB430D45 /* PLIKiosk.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		ECAD7DFE57258B546613ACBC /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = CFEF0A8DBA5104CA72D4A8A9 /* Build configuration list for PBXProject "PLIKiosk" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+				es,
+			);
+			mainGroup = 8C6F4D401DBE5ED72D9F19FF;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8B866853C060CEB7BEB02C9B /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */,
+				54CA7837DA0410535C343835 /* XCLocalSwiftPackageReference "../apps/kiosk-native" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5943B8569E4B4CF0A6F2F4C5 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				3299A9D9FB087A50BCF2C7CD /* PLIKiosk */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C4AC059F3F8B9ED752A7A9C8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AC33007D23F5CB4AC1C8C58A /* InfoPlist.strings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		004EC640E2F33F6BC0BC8C93 /* Check reader pins */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Check reader pins";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/scripts/check-device-config.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D21F2568F72BB86CAE7027D5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				972CC34D25A694F9C48E86C1 /* KioskApp.swift in Sources */,
+				A3520156A9076F3820505DCF /* KioskViewController.swift in Sources */,
+				16AE747FC21A622E55C7838F /* LiveTerminalSDKClient.swift in Sources */,
+				A4924F89887DE3A8B5FAD628 /* PlatformSeams.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		C5D25BBF20E9C4AB2AA16D11 /* InfoPlist.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				6651A67E219015087536A34E /* en */,
+				0D4369A0594A002DCCA7D19F /* es */,
+			);
+			name = InfoPlist.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		2C2D543CE30C2E5968ECFE7F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		2CDF9EEACB6C14A5D48DD36F /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6F0A2E50D92A3A2E13504090 /* Device-iPad.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6EC74184E28B7E8D45513454 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6F0A2E50D92A3A2E13504090 /* Device-iPad.xcconfig */;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		99C42BBEFF29115792B1C7BB /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Resources/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		9AD61A5BFC630DA207D7EFAA /* Build configuration list for PBXNativeTarget "PLIKiosk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				99C42BBEFF29115792B1C7BB /* Debug */,
+				2C2D543CE30C2E5968ECFE7F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CFEF0A8DBA5104CA72D4A8A9 /* Build configuration list for PBXProject "PLIKiosk" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6EC74184E28B7E8D45513454 /* Debug */,
+				2CDF9EEACB6C14A5D48DD36F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		54CA7837DA0410535C343835 /* XCLocalSwiftPackageReference "../apps/kiosk-native" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../apps/kiosk-native";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8B866853C060CEB7BEB02C9B /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/stripe/stripe-terminal-ios";
+			requirement = {
+				kind = exactVersion;
+				version = 6.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		3D183D064D64037DD2043BA6 /* StripeTerminal */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8B866853C060CEB7BEB02C9B /* XCRemoteSwiftPackageReference "stripe-terminal-ios" */;
+			productName = StripeTerminal;
+		};
+		6CA56259EF56E9AEFBA28B95 /* KioskNative */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = KioskNative;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = ECAD7DFE57258B546613ACBC /* Project object */;
+}
