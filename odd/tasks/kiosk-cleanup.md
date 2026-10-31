@@ -17,7 +17,7 @@ Clean up, refactor and optimise the kiosk (web, server routes, Android, iPad) wi
 ## Checklist
 
 - [ ] P0a — Non-major npm audit fix; patched next, @clerk/nextjs, @sentry/nextjs.
-- [ ] P0b — Android MissingPermission, WebViewFeature guards, Stripe Terminal and androidx.webkit bumps.
+- [x] P0b — Android MissingPermission, WebViewFeature guards, Stripe Terminal and androidx.webkit bumps. Route: inline single writer (4 Kotlin files + gradle). Evidence: 299 unit tests green, lintRelease 0 errors (was 1), assembleRelease OK; stripeterminal 5.6.0→5.8.2, webkit 1.12.1→1.18.0. Reader smoke owner-gated.
 - [x] W1 — Dead ternaries, shared useNowTick, stale comment. (branch refactor/kiosk-web-w1; vitest 1386 pass, tsc + lint clean)
 - [ ] W2 — useEnrollPaymentActions helpers.
 - [ ] W3 — bridgeRequest helper and runNativePreparedCheckout unit test.

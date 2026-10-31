@@ -74,8 +74,8 @@ android {
 }
 kotlin.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
 dependencies {
-    implementation("androidx.webkit:webkit:1.12.1")
-    implementation("com.stripe:stripeterminal:5.6.0")
+    implementation("androidx.webkit:webkit:1.18.0")
+    implementation("com.stripe:stripeterminal:5.8.2")
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.robolectric:robolectric:4.16.1")

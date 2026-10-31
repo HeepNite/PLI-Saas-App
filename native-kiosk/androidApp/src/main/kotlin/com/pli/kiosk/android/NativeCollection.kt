@@ -22,11 +22,14 @@ internal fun requiredBluetoothPermissions(sdk: Int): Array<String> = if (sdk >= 
 } else {
     arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION)
 }
+/** Discovery is permitted only when every runtime permission required on [sdk] is granted. */
+internal fun bluetoothDiscoveryPermitted(sdk: Int, isGranted: (String) -> Boolean): Boolean =
+    requiredBluetoothPermissions(sdk).all(isGranted)
 class AndroidBluetoothPermissions(private var activity: android.app.Activity? = null) : BluetoothPermissions {
     fun attach(activity: android.app.Activity) { this.activity = activity }
     override fun hasBluetoothPermissions(): Boolean {
         val owner = activity ?: return false
-        return requiredBluetoothPermissions(android.os.Build.VERSION.SDK_INT).all {
+        return bluetoothDiscoveryPermitted(android.os.Build.VERSION.SDK_INT) {
             owner.checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
     }
@@ -72,7 +75,7 @@ class AndroidCollectionDeadlineScheduler : CollectionDeadlineScheduler {
     }
 }
 
-/** Narrow SDK seam. Production maps these calls to Stripe Terminal 5.6.0. */
+/** Narrow SDK seam. Production maps these calls to Stripe Terminal 5.x. */
 interface NativeTerminalAdapter {
     fun initialize(connectionTokenProvider: () -> String)
     fun discover(request: BluetoothDiscoveryRequest, onUpdate: (List<ConnectedReader>) -> Unit, onFailure: () -> Unit): NativeCancelable
