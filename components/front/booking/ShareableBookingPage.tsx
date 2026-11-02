@@ -421,7 +421,7 @@ export default function ShareableBookingPage({ weekday }: { weekday?: number }) 
           <div className="flex flex-col items-center gap-3">
             <Image src="/logo/logo-white.png" alt="Palladium Latin Art" width={160} height={64} priority className="h-auto w-36" />
             <p className="mt-2 rounded-full bg-[#b61616] px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.1em]">
-              Heritage pin booking
+              {isHeritageCampaignAcquiringNow() ? "Heritage pin booking" : "Booking"}
             </p>
             <p className="max-w-sm text-lg font-black">{navigatingOccurrence.title}</p>
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/25 border-t-[#d51f2b] motion-reduce:animate-none" aria-hidden="true" />

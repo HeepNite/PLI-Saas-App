@@ -267,7 +267,7 @@ async function handleCheckoutSession(req: Request) {
   if (bookingSource === "public_booking" && isHeritagePinAcquisitionDate(new Date()) && !heritagePinCountryCode) {
     return NextResponse.json({ error: "Select a valid country for the Heritage pin." }, { status: 400 })
   }
-  const heritagePinMetadata: Record<string, string> = bookingSource === "public_booking" && heritagePinCountryCode
+  const heritagePinMetadata: Record<string, string> = bookingSource === "public_booking" && heritagePinCountryCode && isHeritagePinAcquisitionDate(new Date())
     ? {
         heritagePinIntent: HERITAGE_PIN_CAMPAIGN_KEY,
         heritagePinCountryCode,
