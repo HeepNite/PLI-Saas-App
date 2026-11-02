@@ -61,6 +61,7 @@ Provide a public, shareable booking page where a visitor can discover and reserv
 29. Package booking MUST create one scheduled attendance and hold package capacity without final credit consumption. Attendance completion consumes the credit; cancellation before attendance releases the hold.
 30. The server MUST prevent package holds from exceeding available credits and MUST reject forged package ownership, stale package state, duplicate booking, full class, invalid schedule, or mismatched course claims.
 31. Physical Heritage pin state MUST NOT affect new-student, regular, or package routing.
+32. The public package-reservation check MUST validate the selected course and occurrence against the active public catalog, not only the static demo schedule. The QR handoff `https://pli.palladiumlatin.art/courses/salsa-night-beginner?enroll=1&qrBooking=1&date=2026-11-02&time=21%3A10&durationMinutes=55&bookingSource=public_booking` MUST reach the existing `no_package` paid-checkout fallback when no package is owned; missing/inactive courses and unavailable times MUST retain the exact `The selected class is not available.` error without booking writes. Kiosk and native QR flows remain unchanged.
 
 ## Constraints
 

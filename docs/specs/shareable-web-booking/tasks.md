@@ -77,6 +77,13 @@
 - [ ] Redirect `/monday-salsa-beginner` to `/monday`.
 - [ ] Run focused tests, typecheck/lint/diff checks, and a read-only smoke for Monday plus one other weekday.
 
+## Bounded Follow-up — Public Catalog Reservation Validation
+
+- [x] Reproduce the Monday 2026-11-02 21:10 `salsa-night-beginner` public package-check rejection through the route with real schedule validation.
+- [x] Resolve the active public catalog course at the reservation route and validate its schedule before package lookup, preserving the missing/invalid-slot response and no-package checkout fallback.
+- [x] Cover missing/inactive catalog omission, wrong time, legacy helper behavior, and the existing route contract without changing kiosk or native QR code.
+- [x] Parent-owned final verification: 374 non-database test files and 3,789 tests passed; focused coverage passed 111 tests; TypeScript, scoped ESLint, and diff checks passed. Database integration and physical Android/iOS scan checks were not run. Native assessment was unavailable because the new untracked regression test requires explicit scope declaration; no review approval is claimed. No commit, publication, or deployment was performed; delivery remains a human decision. Weekday route extension remains planned.
+
 ## Delivery Guardrails
 
 - No new endpoint, schema migration, dependency, auth path, checkout path, or kiosk edit.
