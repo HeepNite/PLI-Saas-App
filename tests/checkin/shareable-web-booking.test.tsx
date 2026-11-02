@@ -332,7 +332,9 @@ describe("BookingPageContent", () => {
     expect(html).toContain(">BOOK<")
   })
 
-  it("cycles decorative flags across the visible filtered rows", () => {
+  it("cycles decorative flags across the visible filtered rows during the Heritage campaign", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-15T16:00:00.000Z"))
     const occurrences: ShareableBookingOccurrence[] = Array.from({ length: 9 }, (_, index) => ({
       ...readyOccurrence,
       id: `course-${index}:2026-06-11:19:00`,
@@ -357,6 +359,7 @@ describe("BookingPageContent", () => {
 
     expect(html).toContain("🇦🇷")
     expect(html).toContain("🇲🇽")
+    vi.useRealTimers()
   })
 
   it("keeps discovery controls visible when no classes match", () => {
