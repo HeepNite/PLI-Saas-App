@@ -16,6 +16,7 @@
 12. Weekday occurrence inclusion is schedule-driven and never depends on promotion presence, applicability, or expiration. Promotion labels and pricing remain downstream concerns after a visitor selects an occurrence.
 13. Each weekday route has a deterministic empty state and continues through the existing canonical booking, identity, and checkout flow.
 14. Implement weekday routes with shared weekday configuration and seven explicit static route files, not a broad top-level `[weekday]` catch-all. `/monday-salsa-beginner` is a legacy redirect to `/monday`; `/booking` is unchanged.
+15. For public package reservation only, use the existing active catalog and its schedule resolver as the authoritative slot source. The static demo-course check remains a fallback for callers that do not supply an authoritative course. A missing/inactive catalog course is unavailable; a valid slot without an owned package must still enter the existing paid-checkout fallback. Do not alter kiosk/native QR, payment, or timestamp contracts.
 
 ## Contract Reconciliation
 

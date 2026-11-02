@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   upsertUser: vi.fn(),
   reserve: vi.fn(),
+  getCatalogFrontData: vi.fn(),
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -13,6 +14,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 }))
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/users", () => ({ upsertUserByIdentifiers: mocks.upsertUser }))
+vi.mock("@/lib/catalog-courses", () => ({ getCatalogFrontData: mocks.getCatalogFrontData }))
 vi.mock("@/lib/bookings/public-package-booking", () => ({ reservePublicPackageBooking: mocks.reserve }))
 
 describe("public package reservation route", () => {
@@ -26,6 +28,7 @@ describe("public package reservation route", () => {
       primaryPhoneNumber: { phoneNumber: "+15555550103" },
     })
     mocks.upsertUser.mockResolvedValue({ id: "db_user_1" })
+    mocks.getCatalogFrontData.mockResolvedValue({ courses: [{ slug: "salsa-night-beginner", title: "Salsa Beginner" }] })
   })
 
   const request = (body: unknown) => new Request("http://localhost/api/profile/bookings/reserve-package", {
@@ -42,6 +45,7 @@ describe("public package reservation route", () => {
 
     expect(response.status).toBe(401)
     expect(mocks.reserve).not.toHaveBeenCalled()
+    expect(mocks.getCatalogFrontData).not.toHaveBeenCalled()
   })
 
   it("returns a package reservation without accepting a client package id", async () => {
@@ -69,6 +73,7 @@ describe("public package reservation route", () => {
       courseSlug: "salsa-night-beginner",
       date: "2026-10-05",
       time: "21:10",
+      authoritativeCourse: { slug: "salsa-night-beginner", title: "Salsa Beginner" },
     })
   })
 

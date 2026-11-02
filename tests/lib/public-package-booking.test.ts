@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 vi.mock("@/lib/class-schedule", () => ({
   buildSessionStartsAt: vi.fn(() => new Date("2026-10-06T01:10:00.000Z")),
   getCourseBySlug: vi.fn(() => ({ slug: "salsa-night-beginner", title: "Salsa Beginner" })),
+  getAvailableTimesForCourseDateFromCourse: vi.fn(() => ["21:10"]),
   isTimeAllowedForCourseDate: vi.fn(() => true),
 }))
 
@@ -96,6 +97,44 @@ describe("public package booking", () => {
         reason: "PUBLIC_BOOKING_HOLD",
       }),
     })
+  })
+
+  it("uses the trusted catalog title and schedule for a package reservation", async () => {
+    const { db, tx } = createDb()
+    const ownedPackage = {
+      id: "package_1", packageId: "first-groove", packageLabel: "First Groove",
+      courseSlug: "salsa-night-beginner", packagePlanId: null, packagePlan: null,
+      status: "active", isUnlimited: false, remainingCredits: 4,
+      expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+    }
+    tx.packagePurchase.findMany.mockResolvedValue([ownedPackage])
+    tx.packagePurchase.findFirst.mockResolvedValue(ownedPackage)
+    const authoritativeCourse = {
+      slug: "salsa-night-beginner", title: "Catalog Salsa Beginner",
+      schedule: { day: "Mon", time: "21:10", starts: "Ongoing", availableWeekdays: [0], availableTimes: ["21:10"] },
+    }
+
+    const result = await reservePublicPackageBooking(db as never, { ...input, authoritativeCourse })
+
+    expect(result.kind).toBe("reserved")
+    expect(tx.classSession.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      update: { title: "Catalog Salsa Beginner" },
+      create: expect.objectContaining({ title: "Catalog Salsa Beginner" }),
+    }))
+  })
+
+  it("rejects a trusted course that does not match the claimed slug without writes", async () => {
+    const { db, tx } = createDb()
+    const authoritativeCourse = {
+      slug: "different-course", title: "Other",
+      schedule: { day: "Mon", time: "21:10", starts: "Ongoing", availableWeekdays: [0], availableTimes: ["21:10"] },
+    }
+
+    expect(await reservePublicPackageBooking(db as never, { ...input, authoritativeCourse })).toEqual({ kind: "invalid_slot" })
+    expect(db.$transaction).not.toHaveBeenCalled()
+    expect(tx.classSession.upsert).not.toHaveBeenCalled()
+    expect(tx.attendance.create).not.toHaveBeenCalled()
+    expect(tx.packageUsageLedger.create).not.toHaveBeenCalled()
   })
 
   it("preserves an existing session capacity when checking whether the class is full", async () => {
