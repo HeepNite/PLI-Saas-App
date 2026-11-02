@@ -49,6 +49,8 @@ function EnamelFlagPin({ code, className = "" }: { code: string; className?: str
 export const isHeritageCampaignAcquiringNow = () => isHeritagePinAcquisitionDate(new Date())
 
 export function HeritageCampaignBanner() {
+  if (!isHeritageCampaignAcquiringNow()) return null
+
   return (
     <div className="mb-6 flex justify-center">
       <div className="relative flex w-full max-w-sm items-center justify-center gap-2 overflow-hidden py-1 text-center sm:gap-3">
@@ -160,6 +162,20 @@ export function HeritageBookButton({
 }) {
   const flagCode = getDecorativeBookingFlag(occurrence.id, decorativeIndex)
   const label = `Book ${occurrence.title} on ${occurrence.date}`
+
+  if (!isHeritageCampaignAcquiringNow()) {
+    return (
+      <button
+        type="button"
+        aria-label={label}
+        disabled={disabled}
+        onClick={onSelect}
+        className="flex h-[52px] w-[52px] items-center justify-center rounded-full border-[3px] border-[#74747c] bg-[#b61616] text-[9px] font-black tracking-[0.08em] text-white shadow-[inset_0_0_0_2px_rgba(255,255,255,0.09),0_5px_16px_rgba(0,0,0,0.38)] disabled:cursor-not-allowed disabled:opacity-45 sm:h-[60px] sm:w-[60px] sm:text-[10px]"
+      >
+        {busy ? "OPEN" : "BOOK"}
+      </button>
+    )
+  }
 
   return (
     <button
