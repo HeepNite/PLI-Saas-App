@@ -50,12 +50,18 @@ afterEach(() => {
 })
 
 describe("Heritage campaign booking presentation", () => {
+  const duringCampaign = () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-10-15T16:00:00.000Z"))
+  }
+
   it("cycles visible rows through varied deterministic flag pins without selecting the visitor's country", () => {
     const firstCycle = Array.from({ length: 8 }, (_, index) => getDecorativeBookingFlag(occurrence.id, index))
     expect(new Set(firstCycle).size).toBe(8)
     expect(getDecorativeBookingFlag(occurrence.id)).toBe(getDecorativeBookingFlag(occurrence.id))
     expect(countryCodeToFlag("MX")).toBe("🇲🇽")
 
+    duringCampaign()
     const html = renderToStaticMarkup(
       <HeritageBookButton occurrence={occurrence} decorativeIndex={1} busy={false} disabled={false} onSelect={() => undefined} />,
     )
@@ -67,6 +73,7 @@ describe("Heritage campaign booking presentation", () => {
   })
 
   it("keeps the booking header compact with real pin cutouts and an accessible light sweep", () => {
+    duringCampaign()
     const html = renderToStaticMarkup(<HeritageCampaignBanner />)
     expect(html).toContain("¡Feliz Mes de la Herencia Latina!")
     expect(html).toContain("Your country. Your community.")
@@ -149,6 +156,20 @@ describe("Heritage campaign booking presentation", () => {
     expect(document.documentElement.style.overflow).toBe("")
     expect(document.body.style.overflow).toBe("")
     expect(document.body.style.position).toBe("")
+  })
+
+  it("hides the campaign banner, flag pins, and pin loading copy once the acquisition window closes", () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-11-01T16:00:00.000Z"))
+    expect(renderToStaticMarkup(<HeritageCampaignBanner />)).toBe("")
+    const html = renderToStaticMarkup(
+      <HeritageBookButton occurrence={occurrence} decorativeIndex={1} busy={false} disabled={false} onSelect={() => undefined} />,
+    )
+    expect(html).not.toContain("🇲🇽")
+    expect(html).not.toContain("radial-gradient")
+    expect(html).toContain("BOOK")
+    expect(html).toContain("Book Salsa Timba")
+    expect(shareableBookingSource).toContain('isHeritageCampaignAcquiringNow() ? "Heritage pin booking" : "Booking"')
   })
 
   it("opens the country step only during the configured New York acquisition window", () => {

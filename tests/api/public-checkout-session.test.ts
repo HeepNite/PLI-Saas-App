@@ -104,6 +104,21 @@ describe("public checkout session route", () => {
     }))
   })
 
+  it("does not grant a Heritage pin after the acquisition window closes", async () => {
+    vi.setSystemTime(new Date("2026-11-01T16:00:00.000Z"))
+    const { POST } = await import("@/app/api/public/checkout/session/route")
+    const response = await POST(new Request("http://localhost/api/public/checkout/session", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bookingSource: "public_booking", heritagePinCountryCode: "MX", phone: "+525512345678" }),
+    }))
+
+    expect(response.status).toBe(200)
+    const metadata = mockCreateCheckoutSession.mock.calls[0][0].metadata
+    expect(metadata).not.toHaveProperty("heritagePinIntent")
+    expect(metadata).not.toHaveProperty("heritagePinCountryCode")
+    expect(metadata).not.toHaveProperty("heritagePinSource")
+  })
+
   it("uses the refreshed authoritative course promotion and price after identity preparation", async () => {
     const initial = promotionValidation()
     const refreshed = promotionValidation({
