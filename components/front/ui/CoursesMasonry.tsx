@@ -5,6 +5,12 @@ import Link from "next/link"
 import React from "react"
 import { Users, Filter, Clock, ChevronDown, Star, Play } from "lucide-react"
 import type { HomeCourse } from "@/types/home"
+import { isEmbedVideoUrl, toAutoplayEmbedUrl, toEmbedVideoUrl } from "@/lib/video-embed"
+
+const PREVIEW_AUTOPLAY_PARAMS = {
+  youtube: "autoplay=1&mute=1&controls=0&rel=0&playsinline=1",
+  vimeo: "autoplay=1&muted=1&background=1",
+}
 
 export type CoursesMasonryProps = {
   title?: string
@@ -21,40 +27,6 @@ const BRAND_DARK = "var(--brand-dark,#7d0000)"
 const BRAND_SOFT = "rgba(182,22,22,0.35)"
 const BRAND_STRONG = "rgba(182,22,22,0.65)"
 const TOP_BADGES = ["New", "Most Popular", "Best Value", "Hot"] as const
-
-const toEmbedVideoUrl = (input: string) => {
-  const value = input.trim()
-  if (!value) return ""
-  if (value.includes("youtube.com/watch?v=")) {
-    const id = value.split("watch?v=")[1]?.split("&")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("youtu.be/")) {
-    const id = value.split("youtu.be/")[1]?.split("?")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("vimeo.com/")) {
-    const id = value.split("vimeo.com/")[1]?.split("?")[0]
-    return id ? `https://player.vimeo.com/video/${id}` : value
-  }
-  return value
-}
-
-const isEmbedVideoUrl = (value: string) =>
-  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
-
-const toAutoplayEmbedUrl = (value: string) => {
-  const base = value.trim()
-  if (!base) return ""
-  const hasQuery = base.includes("?")
-  if (base.includes("youtube.com/embed/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
-  }
-  if (base.includes("player.vimeo.com/video/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
-  }
-  return base
-}
 
 const pickTopBadge = (course: HomeCourse) => {
   const seed = `${course.slug || course.id || course.title}`.trim().toLowerCase()
@@ -142,7 +114,7 @@ export default function CoursesMasonry({
     const previewVideoRaw = c.previewVideo?.trim() || ""
     const previewEmbedVideo = toEmbedVideoUrl(previewVideoRaw)
     const isEmbedPreviewVideo = isEmbedVideoUrl(previewEmbedVideo)
-    const previewVideoSrc = isEmbedPreviewVideo ? toAutoplayEmbedUrl(previewEmbedVideo) : previewVideoRaw
+    const previewVideoSrc = isEmbedPreviewVideo ? toAutoplayEmbedUrl(previewEmbedVideo, PREVIEW_AUTOPLAY_PARAMS) : previewVideoRaw
     const topBadge = pickTopBadge(c)
 
     return (

@@ -1,6 +1,12 @@
 "use client"
 import React from "react"
 import type { CourseSectionsData } from "./types"
+import { isEmbedVideoUrl, toAutoplayEmbedUrl, toEmbedVideoUrl } from "@/lib/video-embed"
+
+const HERO_AUTOPLAY_PARAMS = {
+  youtube: "autoplay=1&mute=1&controls=1&rel=0&playsinline=1",
+  vimeo: "autoplay=1&muted=1",
+}
 
 const faqs = [
   {
@@ -106,40 +112,6 @@ const formatScheduleTime = (raw: string) => {
   return cleaned.replace(/\d{1,2}:\d{2}/g, (m) => to12h(m))
 }
 
-const toEmbedVideoUrl = (input: string) => {
-  const value = input.trim()
-  if (!value) return ""
-  if (value.includes("youtube.com/watch?v=")) {
-    const id = value.split("watch?v=")[1]?.split("&")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("youtu.be/")) {
-    const id = value.split("youtu.be/")[1]?.split("?")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("vimeo.com/")) {
-    const id = value.split("vimeo.com/")[1]?.split("?")[0]
-    return id ? `https://player.vimeo.com/video/${id}` : value
-  }
-  return value
-}
-
-const isEmbedVideoUrl = (value: string) =>
-  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
-
-const toAutoplayEmbedUrl = (value: string) => {
-  const base = value.trim()
-  if (!base) return ""
-  const hasQuery = base.includes("?")
-  if (base.includes("youtube.com/embed/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=1&rel=0&playsinline=1`
-  }
-  if (base.includes("player.vimeo.com/video/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1`
-  }
-  return base
-}
-
 const extractScheduleSlots = (raw: string) => {
   if (!raw) return [] as string[]
   const segments = raw.split(/[\/•]/).map((s) => s.trim()).filter(Boolean)
@@ -224,7 +196,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
   const heroVideoRaw = course.heroMedia?.video?.trim() || ""
   const heroEmbedVideo = toEmbedVideoUrl(heroVideoRaw)
   const isHeroEmbedVideo = isEmbedVideoUrl(heroEmbedVideo)
-  const heroVideo = isHeroEmbedVideo ? toAutoplayEmbedUrl(heroEmbedVideo) : heroVideoRaw
+  const heroVideo = isHeroEmbedVideo ? toAutoplayEmbedUrl(heroEmbedVideo, HERO_AUTOPLAY_PARAMS) : heroVideoRaw
   const ageNotes = extractAgeNotes(course.schedule.time || "")
   const scheduleSlots = extractScheduleSlots(course.schedule.time || "")
 
