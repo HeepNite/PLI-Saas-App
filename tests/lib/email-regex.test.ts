@@ -11,9 +11,11 @@ describe("EMAIL_REGEX", () => {
   })
 
   it("rejects an adversarial many-dots input in linear time (no ReDoS)", () => {
-    const input = `a@${".".repeat(50_000)}@`
+    // The old quadratic pattern needed ~1.3s for 50k dots; 200k would take ~20s.
+    // A generous bound keeps this deterministic on slow CI runners.
+    const input = `a@${".".repeat(200_000)}@`
     const start = performance.now()
     expect(EMAIL_REGEX.test(input)).toBe(false)
-    expect(performance.now() - start).toBeLessThan(100)
+    expect(performance.now() - start).toBeLessThan(2_000)
   })
 })

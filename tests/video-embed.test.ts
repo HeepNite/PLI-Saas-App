@@ -18,6 +18,14 @@ describe("toEmbedVideoUrl", () => {
     expect(toEmbedVideoUrl("  ")).toBe("")
   })
 
+  it("accepts schemeless and protocol-relative links like before", () => {
+    expect(toEmbedVideoUrl("youtube.com/watch?v=abc123XYZ_-")).toBe("https://www.youtube.com/embed/abc123XYZ_-")
+    expect(toEmbedVideoUrl("youtu.be/abc123XYZ_-")).toBe("https://www.youtube.com/embed/abc123XYZ_-")
+    expect(toEmbedVideoUrl("vimeo.com/123456789")).toBe("https://player.vimeo.com/video/123456789")
+    expect(isEmbedVideoUrl("//www.youtube.com/embed/abc123XYZ_-")).toBe(true)
+    expect(isEmbedVideoUrl("player.vimeo.com/video/123")).toBe(true)
+  })
+
   it("does not treat lookalike hosts as YouTube or Vimeo", () => {
     expect(toEmbedVideoUrl("https://evil.com/youtube.com/watch?v=abc123XYZ_-")).toBe(
       "https://evil.com/youtube.com/watch?v=abc123XYZ_-"

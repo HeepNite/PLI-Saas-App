@@ -9,9 +9,14 @@ const VIMEO_PLAYER_HOST = "player.vimeo.com"
 const YOUTUBE_ID = /^[\w-]+$/
 const VIMEO_ID = /^\d+$/
 
+const HAS_SCHEME = /^[a-z][a-z\d+.-]*:/i
+
+// Stored course links may omit the scheme ("youtube.com/watch?v=..." or "//youtube.com/...");
+// those are read as https. Any explicit non-http(s) scheme is rejected.
 const parseHttpUrl = (value: string): URL | null => {
+  const candidate = value.startsWith("//") ? `https:${value}` : HAS_SCHEME.test(value) ? value : `https://${value}`
   try {
-    const url = new URL(value)
+    const url = new URL(candidate)
     return url.protocol === "https:" || url.protocol === "http:" ? url : null
   } catch {
     return null
