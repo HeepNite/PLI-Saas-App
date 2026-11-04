@@ -18,60 +18,6 @@ import {
 } from "./staffCourseScheduleHelpers"
 import type { CourseFormState, CourseScheduleSlot, SchoolCourseRow } from "./staffAdminTypes"
 
-const parseAbsoluteVideoUrl = (value: string) => {
-  try {
-    return new URL(value)
-  } catch {
-    return null
-  }
-}
-
-const toEmbedVideoUrl = (input: string) => {
-  const value = input.trim()
-  if (!value) return ""
-  const url = parseAbsoluteVideoUrl(value)
-  if (!url) return value
-  const hostname = url.hostname.toLowerCase()
-  if (hostname === "youtube.com" || hostname === "www.youtube.com" || hostname === "m.youtube.com") {
-    const id = url.searchParams.get("v")?.trim()
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (hostname === "youtu.be") {
-    const id = url.pathname.split("/").filter(Boolean)[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (hostname === "vimeo.com" || hostname === "www.vimeo.com") {
-    const id = url.pathname.split("/").filter(Boolean)[0]
-    return id ? `https://player.vimeo.com/video/${id}` : value
-  }
-  return value
-}
-
-const isEmbedVideoUrl = (value: string) => {
-  const url = parseAbsoluteVideoUrl(value)
-  if (!url) return false
-  const hostname = url.hostname.toLowerCase()
-  return (
-    ((hostname === "youtube.com" || hostname === "www.youtube.com") && url.pathname.startsWith("/embed/")) ||
-    (hostname === "player.vimeo.com" && url.pathname.startsWith("/video/"))
-  )
-}
-
-const toAutoplayEmbedUrl = (value: string) => {
-  const base = value.trim()
-  if (!base) return ""
-  const hasQuery = base.includes("?")
-  const url = parseAbsoluteVideoUrl(base)
-  const hostname = url?.hostname.toLowerCase()
-  if ((hostname === "youtube.com" || hostname === "www.youtube.com") && url?.pathname.startsWith("/embed/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
-  }
-  if (hostname === "player.vimeo.com" && url?.pathname.startsWith("/video/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
-  }
-  return base
-}
-
 export type StaffCoursesDerivedInput = {
   courseForm: CourseFormState
   courseScheduleSlots: CourseScheduleSlot[]
@@ -171,9 +117,6 @@ export const useStaffCoursesDerived = (input: StaffCoursesDerivedInput) => {
   // ─── Preview / share ─────────────────────────────────────────────
   const previewMediaUrl = courseLocalImagePreview || courseForm.previewImageUrl.trim()
   const previewVideoUrl = courseLocalVideoPreview || courseForm.previewVideoUrl.trim()
-  const embedPreviewVideoUrl = toEmbedVideoUrl(previewVideoUrl)
-  const isEmbedPreviewVideo = isEmbedVideoUrl(embedPreviewVideoUrl)
-  const previewVideoSource = isEmbedPreviewVideo ? toAutoplayEmbedUrl(embedPreviewVideoUrl) : previewVideoUrl
   const selectedCourseKindLabel = COURSE_KIND_LABELS[courseForm.kind] || "Course"
   const selectedCourseKindReviewLabel = `${selectedCourseKindLabel} review`
   const courseReviewVariants = React.useMemo(
@@ -325,9 +268,6 @@ export const useStaffCoursesDerived = (input: StaffCoursesDerivedInput) => {
     getCourseScheduleDateTone,
     previewMediaUrl,
     previewVideoUrl,
-    embedPreviewVideoUrl,
-    isEmbedPreviewVideo,
-    previewVideoSource,
     selectedCourseKindLabel,
     selectedCourseKindReviewLabel,
     courseReviewVariants,
