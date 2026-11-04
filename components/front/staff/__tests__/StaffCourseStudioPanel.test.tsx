@@ -151,7 +151,6 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
     reviewPreviewHover: null,
     setReviewPreviewHover: dispatch<"home" | "single" | null>(),
     previewVideoSource: "",
-    isEmbedPreviewVideo: false,
     previewMediaUrl: null,
     previewEditorHref: "/courses/salsa-basics",
     defaultRoomName: "None",

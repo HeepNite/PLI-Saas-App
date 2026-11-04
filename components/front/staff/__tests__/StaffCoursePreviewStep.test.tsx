@@ -64,7 +64,6 @@ const createProps = (overrides: Partial<Props> = {}): Props => ({
   reviewPreviewHover: null,
   setReviewPreviewHover: vi.fn(),
   previewVideoSource: "",
-  isEmbedPreviewVideo: false,
   previewMediaUrl: "/cover.jpg",
   previewEditorHref: "/admin/courses/salsa-basics",
   defaultRoomName: "Studio A",
