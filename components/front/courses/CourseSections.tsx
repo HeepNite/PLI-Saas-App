@@ -106,40 +106,6 @@ const formatScheduleTime = (raw: string) => {
   return cleaned.replace(/\d{1,2}:\d{2}/g, (m) => to12h(m))
 }
 
-const toEmbedVideoUrl = (input: string) => {
-  const value = input.trim()
-  if (!value) return ""
-  if (value.includes("youtube.com/watch?v=")) {
-    const id = value.split("watch?v=")[1]?.split("&")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("youtu.be/")) {
-    const id = value.split("youtu.be/")[1]?.split("?")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("vimeo.com/")) {
-    const id = value.split("vimeo.com/")[1]?.split("?")[0]
-    return id ? `https://player.vimeo.com/video/${id}` : value
-  }
-  return value
-}
-
-const isEmbedVideoUrl = (value: string) =>
-  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
-
-const toAutoplayEmbedUrl = (value: string) => {
-  const base = value.trim()
-  if (!base) return ""
-  const hasQuery = base.includes("?")
-  if (base.includes("youtube.com/embed/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=1&rel=0&playsinline=1`
-  }
-  if (base.includes("player.vimeo.com/video/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1`
-  }
-  return base
-}
-
 const extractScheduleSlots = (raw: string) => {
   if (!raw) return [] as string[]
   const segments = raw.split(/[\/•]/).map((s) => s.trim()).filter(Boolean)
@@ -221,10 +187,7 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
   const benefits = course.benefits ?? []
   const syllabus = course.syllabus ?? []
   const heroImage = course.heroMedia?.image
-  const heroVideoRaw = course.heroMedia?.video?.trim() || ""
-  const heroEmbedVideo = toEmbedVideoUrl(heroVideoRaw)
-  const isHeroEmbedVideo = isEmbedVideoUrl(heroEmbedVideo)
-  const heroVideo = isHeroEmbedVideo ? toAutoplayEmbedUrl(heroEmbedVideo) : heroVideoRaw
+  const heroVideo = course.heroMedia?.video?.trim() || ""
   const ageNotes = extractAgeNotes(course.schedule.time || "")
   const scheduleSlots = extractScheduleSlots(course.schedule.time || "")
 
@@ -348,26 +311,16 @@ export default function CourseSections({ course }: { course: CourseSectionsData 
           <div className="mt-6 overflow-hidden rounded-3xl border border-white/10 bg-black/60">
             <div className="aspect-video w-full">
               {heroVideo ? (
-                isHeroEmbedVideo ? (
-                  <iframe
-                    src={heroVideo}
-                    title={`${course.title} preview`}
-                    className="h-full w-full"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <video
-                    src={heroVideo}
-                    poster={heroImage}
-                    className="h-full w-full object-cover"
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    preload="metadata"
-                  />
-                )
+                <video
+                  src={heroVideo}
+                  poster={heroImage}
+                  className="h-full w-full object-cover"
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
               ) : heroImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={heroImage} alt="" className="h-full w-full object-cover" />

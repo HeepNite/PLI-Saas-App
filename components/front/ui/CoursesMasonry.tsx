@@ -22,40 +22,6 @@ const BRAND_SOFT = "rgba(182,22,22,0.35)"
 const BRAND_STRONG = "rgba(182,22,22,0.65)"
 const TOP_BADGES = ["New", "Most Popular", "Best Value", "Hot"] as const
 
-const toEmbedVideoUrl = (input: string) => {
-  const value = input.trim()
-  if (!value) return ""
-  if (value.includes("youtube.com/watch?v=")) {
-    const id = value.split("watch?v=")[1]?.split("&")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("youtu.be/")) {
-    const id = value.split("youtu.be/")[1]?.split("?")[0]
-    return id ? `https://www.youtube.com/embed/${id}` : value
-  }
-  if (value.includes("vimeo.com/")) {
-    const id = value.split("vimeo.com/")[1]?.split("?")[0]
-    return id ? `https://player.vimeo.com/video/${id}` : value
-  }
-  return value
-}
-
-const isEmbedVideoUrl = (value: string) =>
-  value.includes("youtube.com/embed/") || value.includes("player.vimeo.com/video/")
-
-const toAutoplayEmbedUrl = (value: string) => {
-  const base = value.trim()
-  if (!base) return ""
-  const hasQuery = base.includes("?")
-  if (base.includes("youtube.com/embed/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&mute=1&controls=0&rel=0&playsinline=1`
-  }
-  if (base.includes("player.vimeo.com/video/")) {
-    return `${base}${hasQuery ? "&" : "?"}autoplay=1&muted=1&background=1`
-  }
-  return base
-}
-
 const pickTopBadge = (course: HomeCourse) => {
   const seed = `${course.slug || course.id || course.title}`.trim().toLowerCase()
   if (!seed) return TOP_BADGES[0]
@@ -139,10 +105,7 @@ export default function CoursesMasonry({
     const teacherLabel = c.teacher ?? "Instructor invitado"
     const categoryLabel = c.category ?? "Program"
     const comingSoon = c.badge?.toLowerCase().includes("coming")
-    const previewVideoRaw = c.previewVideo?.trim() || ""
-    const previewEmbedVideo = toEmbedVideoUrl(previewVideoRaw)
-    const isEmbedPreviewVideo = isEmbedVideoUrl(previewEmbedVideo)
-    const previewVideoSrc = isEmbedPreviewVideo ? toAutoplayEmbedUrl(previewEmbedVideo) : previewVideoRaw
+    const previewVideoSrc = c.previewVideo?.trim() || ""
     const topBadge = pickTopBadge(c)
 
     return (
@@ -151,7 +114,7 @@ export default function CoursesMasonry({
         className={`group relative isolate overflow-hidden rounded-2xl border border-white/10 bg-[#0b0a0f]/80 backdrop-blur-xl shadow-[0_25px_120px_-60px_rgba(0,0,0,0.9)] ${isSingle ? "xl:col-span-2" : ""}`}
         style={{ minHeight: "400px" }}
         onMouseEnter={
-          previewVideoRaw && !isEmbedPreviewVideo
+          previewVideoSrc
             ? (e) => {
                 const video = e.currentTarget.querySelector("video")
                 if (video) {
@@ -162,7 +125,7 @@ export default function CoursesMasonry({
             : undefined
         }
         onMouseLeave={
-          previewVideoRaw && !isEmbedPreviewVideo
+          previewVideoSrc
             ? (e) => {
                 const video = e.currentTarget.querySelector("video") as HTMLVideoElement | null
                 video?.pause()
@@ -182,27 +145,18 @@ export default function CoursesMasonry({
                 sizes="(max-width: 768px) 100vw, 40vw"
                 className="object-cover transition duration-300 group-hover:scale-[1.02] group-hover:opacity-90"
               />
-              {previewVideoRaw &&
-                (isEmbedPreviewVideo ? (
-                  <iframe
-                    src={previewVideoSrc}
-                    title={`${c.title} preview`}
-                    className="absolute inset-0 h-full w-full opacity-0 transition-opacity duration-300 group-hover:opacity-100 pointer-events-none"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                  />
-                ) : (
-                  <video
-                    muted
-                    playsInline
-                    preload="auto"
-                    autoPlay
-                    loop
-                    poster={c.image}
-                    className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                    src={previewVideoSrc}
-                  />
-                ))}
+              {previewVideoSrc && (
+                <video
+                  muted
+                  playsInline
+                  preload="auto"
+                  autoPlay
+                  loop
+                  poster={c.image}
+                  className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                  src={previewVideoSrc}
+                />
+              )}
               <div className="absolute inset-0 bg-gradient-to-t from-black via-black/45 to-transparent" />
 
               <div className="absolute top-3 left-3 max-w-[60%]">
@@ -216,7 +170,7 @@ export default function CoursesMasonry({
                   {topBadge}
                 </span>
               </div>
-              {previewVideoRaw && (
+              {previewVideoSrc && (
                 <>
                   <span className="absolute inset-0 flex items-center justify-center text-white/80 opacity-90 transition-opacity duration-200 group-hover:opacity-0 pointer-events-none">
                     <span className="inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/30 bg-black/40 backdrop-blur-sm">

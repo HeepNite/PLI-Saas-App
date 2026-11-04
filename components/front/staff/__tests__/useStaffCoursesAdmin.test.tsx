@@ -340,18 +340,17 @@ describe("useStaffCoursesAdmin", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("does not treat lookalike video hosts as trusted embeds", async () => {
+  it("uses the course video URL as the preview source without converting it to a third-party embed", async () => {
     await renderHook()
 
     await act(async () => {
       captured!.setCourseForm((prev) => ({
         ...prev,
-        previewVideoUrl: "https://evil.example/vimeo.com/12345",
+        previewVideoUrl: " https://www.youtube.com/watch?v=abc123 ",
       }))
     })
 
-    expect(captured!.embedPreviewVideoUrl).toBe("https://evil.example/vimeo.com/12345")
-    expect(captured!.previewVideoSource).toBe("https://evil.example/vimeo.com/12345")
+    expect(captured!.previewVideoSource).toBe("https://www.youtube.com/watch?v=abc123")
   })
   it("toggles course active state with the explicit set_active command (never a partial full-save body)", async () => {
     const fetchMock = vi.fn().mockResolvedValue({

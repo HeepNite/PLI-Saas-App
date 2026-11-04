@@ -23,7 +23,6 @@ type StaffCoursePreviewStepProps = {
   reviewPreviewHover: "home" | "single" | null
   setReviewPreviewHover: React.Dispatch<React.SetStateAction<"home" | "single" | null>>
   previewVideoSource: string
-  isEmbedPreviewVideo: boolean
   previewMediaUrl: string | null
   previewEditorHref: string
   defaultRoomName: string
@@ -46,7 +45,6 @@ export default function StaffCoursePreviewStep({
   reviewPreviewHover,
   setReviewPreviewHover,
   previewVideoSource,
-  isEmbedPreviewVideo,
   previewMediaUrl,
   previewEditorHref,
   defaultRoomName,
@@ -87,7 +85,6 @@ export default function StaffCoursePreviewStep({
               reviewPreviewHover={reviewPreviewHover}
               setReviewPreviewHover={setReviewPreviewHover}
               previewVideoSource={previewVideoSource}
-              isEmbedPreviewVideo={isEmbedPreviewVideo}
               previewMediaUrl={previewMediaUrl}
               previewEditorHref={previewEditorHref}
             />
@@ -101,7 +98,6 @@ export default function StaffCoursePreviewStep({
               reviewPreviewHover={reviewPreviewHover}
               setReviewPreviewHover={setReviewPreviewHover}
               previewVideoSource={previewVideoSource}
-              isEmbedPreviewVideo={isEmbedPreviewVideo}
               previewMediaUrl={previewMediaUrl}
               previewEditorHref={previewEditorHref}
             />
@@ -135,7 +131,6 @@ function PreviewCard({
   reviewPreviewHover,
   setReviewPreviewHover,
   previewVideoSource,
-  isEmbedPreviewVideo,
   previewMediaUrl,
   previewEditorHref,
 }: {
@@ -148,7 +143,6 @@ function PreviewCard({
   reviewPreviewHover: "home" | "single" | null
   setReviewPreviewHover: React.Dispatch<React.SetStateAction<"home" | "single" | null>>
   previewVideoSource: string
-  isEmbedPreviewVideo: boolean
   previewMediaUrl: string | null
   previewEditorHref: string
 }) {
@@ -164,26 +158,16 @@ function PreviewCard({
       <p className="text-[10px] uppercase tracking-[0.2em] text-black/60 dark:text-white/60">{title}</p>
       <div className="relative mt-1 h-48 overflow-hidden rounded-md border border-black/10 bg-[#050810] dark:border-white/10">
         {showVideo ? (
-          isEmbedPreviewVideo ? (
-            <iframe
-              src={previewVideoSource}
-              title={mediaAlt}
-              className="h-48 w-full"
-              allow="autoplay; encrypted-media; picture-in-picture"
-              allowFullScreen
-            />
-          ) : (
-            <video
-              src={previewVideoSource}
-              poster={previewMediaUrl || undefined}
-              className="h-full w-full object-cover"
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="metadata"
-            />
-          )
+          <video
+            src={previewVideoSource}
+            poster={previewMediaUrl || undefined}
+            className="h-full w-full object-cover"
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+          />
         ) : previewMediaUrl ? (
           <Image
             src={previewMediaUrl}
