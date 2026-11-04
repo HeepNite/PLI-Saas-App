@@ -2,7 +2,8 @@
 
 import React from "react"
 import { useAuth } from "@clerk/nextjs"
-import { useSearchParams } from "next/navigation"
+import Link from "next/link"
+import { useRouter, useSearchParams } from "next/navigation"
 import dynamic from "next/dynamic"
 import Image from "next/image"
 import { buildQrBookingUrl, buildQrSignInUrl } from "@/lib/checkin/qr-booking-links"
@@ -58,23 +59,21 @@ export default function CheckInPageRouter() {
 }
 
 function WelcomeScreen({ searchParams }: { searchParams: URLSearchParams }) {
+  const router = useRouter()
   const [navigating, setNavigating] = React.useState(false)
 
   const redirectUrl = `/checkin?${searchParams.toString()}`
-  const durationMinutes = searchParams.get("durationMinutes")
-    ? Number(searchParams.get("durationMinutes"))
-    : undefined
-  const bookingUrl = buildQrBookingUrl({
-    courseSlug: searchParams.get("courseSlug") || "",
-    date: searchParams.get("date") || "",
-    time: searchParams.get("time") || "",
-    durationMinutes,
-    kioskQrCashGrant: searchParams.get("kioskQrCashGrant") || undefined,
-  })
+  const courseSlug = searchParams.get("courseSlug") || ""
+  const bookingParams = new URLSearchParams(searchParams.toString())
+  if (!bookingParams.has("enroll")) bookingParams.set("enroll", "1")
+  if (!bookingParams.has("qrBooking")) bookingParams.set("qrBooking", "1")
+  const bookingUrl = courseSlug
+    ? `/courses/${encodeURIComponent(courseSlug)}?${bookingParams.toString()}`
+    : buildQrBookingUrl({ courseSlug })
 
   const handleNewClick = () => {
     setNavigating(true)
-    window.location.href = bookingUrl
+    router.push(bookingUrl)
   }
 
   if (navigating) {
@@ -112,12 +111,12 @@ function WelcomeScreen({ searchParams }: { searchParams: URLSearchParams }) {
           >
             I&apos;m new
           </button>
-          <a
+          <Link
             href={buildQrSignInUrl(redirectUrl)}
             className="inline-block rounded-md border border-white/15 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-white/80"
           >
             I have an account
-          </a>
+          </Link>
         </div>
       </div>
     </div>

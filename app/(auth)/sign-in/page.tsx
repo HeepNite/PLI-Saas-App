@@ -1,7 +1,9 @@
 import type { Metadata } from "next"
 import { SignIn } from "@clerk/nextjs"
 import Image from "next/image"
+import EmbeddedSignIn from "@/components/front/auth/EmbeddedSignIn"
 import { clerkDarkAuthAppearance } from "@/lib/clerk-auth-appearance"
+import { resolveSafeQrRedirect } from "@/lib/checkin/qr-auth-resume"
 
 export const metadata: Metadata = {
   title: "Sign in — PLI",
@@ -12,6 +14,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const params = await searchParams
   const rawRedirect = typeof params.redirect_url === "string" ? params.redirect_url.trim() : ""
   const safeRedirect = rawRedirect.startsWith("/") ? rawRedirect : ""
+  const qrRedirect = resolveSafeQrRedirect(rawRedirect)
   return (
     <main
       data-auth-page="true"
@@ -51,23 +54,29 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           priority
           className="h-auto w-36 sm:w-40"
         />
-        <SignIn
-          routing="hash"
-          appearance={{
-            ...clerkDarkAuthAppearance,
-            elements: {
-              ...clerkDarkAuthAppearance.elements,
-              rootBox: "mx-auto flex w-full max-w-[24rem] justify-center",
-              cardBox: "mx-auto w-full max-w-[24rem]",
-              card:
-                "mx-auto w-full max-w-[24rem] border border-white/10 bg-[#171922]/95 backdrop-blur rounded-2xl shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]",
-              socialButtonsIconButton:
-                "border border-white/15 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-md h-12 [&_svg]:text-white [&_svg]:fill-white",
-            },
-          }}
-          forceRedirectUrl={safeRedirect || undefined}
-          fallbackRedirectUrl="/client-profile"
-        />
+        {qrRedirect ? (
+          <div className="mx-auto w-full max-w-[24rem]">
+            <EmbeddedSignIn redirectUrl={qrRedirect} />
+          </div>
+        ) : (
+          <SignIn
+            routing="hash"
+            appearance={{
+              ...clerkDarkAuthAppearance,
+              elements: {
+                ...clerkDarkAuthAppearance.elements,
+                rootBox: "mx-auto flex w-full max-w-[24rem] justify-center",
+                cardBox: "mx-auto w-full max-w-[24rem]",
+                card:
+                  "mx-auto w-full max-w-[24rem] border border-white/10 bg-[#171922]/95 backdrop-blur rounded-2xl shadow-[0_20px_60px_-25px_rgba(0,0,0,0.65)]",
+                socialButtonsIconButton:
+                  "border border-white/15 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-md h-12 [&_svg]:text-white [&_svg]:fill-white",
+              },
+            }}
+            forceRedirectUrl={safeRedirect || undefined}
+            fallbackRedirectUrl="/client-profile"
+          />
+        )}
       </div>
     </main>
   )
