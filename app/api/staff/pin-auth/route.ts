@@ -5,10 +5,9 @@ import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { extractStaffRoleFromUserMetadata } from "@/lib/security/staff-role"
 import { extractStaffCategoryFromUserMetadata } from "@/lib/security/staff-category"
 import { isValidPinHash } from "@/lib/security/staff-pin-auth"
+import { EMAIL_REGEX } from "@/lib/shared"
 
 export const runtime = "nodejs"
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export async function POST(req: Request) {
   const guard = await withStaffGuard(req, {

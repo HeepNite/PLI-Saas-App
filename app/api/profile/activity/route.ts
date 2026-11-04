@@ -51,7 +51,7 @@ const getRecurringLabel = (dates: Date[]) => {
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
   const [best] = [...counts.entries()].sort((a, b) => b[1] - a[1])
-  return best ? best[0].replace("|", " ") : null
+  return best ? best[0].replaceAll("|", " ") : null
 }
 
 export async function GET(req: Request) {
