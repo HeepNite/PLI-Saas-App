@@ -19,7 +19,9 @@
 | Wizard persistence | Save once from the final step through the existing profile save handler; do not introduce per-step drafts or API changes. |
 | Wizard reopen behavior | Closing resets navigation to Personal information while retaining unsaved form values for the mounted page session. Do not persist the active step across navigation or reload. |
 | Wizard viewport | Render the same responsive wizard on mobile and desktop. |
-| Test fixture | Keep the authorized Development booking until integrated verification, then remove its attendance/session/purchase artifacts. |
+| Test fixture | The historical Development booking was retained through the initial integrated smoke and then removed. Any fresh T7 smoke uses isolated controlled records and cleans them immediately after verification. |
+| Public booking boundary | `public_booking` is a scheduled web channel. Reusing compact QR-shaped UI does not authorize kiosk attribution, kiosk check-in status, or kiosk completion semantics. |
+| Public package fallback | Validate against the same DB-backed catalog schedule advertised by weekday booking pages; `no_package` and `no_credits` continue to regular checkout. |
 | Production | Out of scope until Development is green and the user explicitly authorizes promotion. |
 
 ## Conflicts reconciled
@@ -28,6 +30,7 @@
 - Profile-origin checkout may redeem an already delivered Heritage benefit, but profile origin does not acquire a new pin. This work must preserve that distinction.
 - International-phone historical code is reference material. Only behavior compatible with current booking and identity contracts will be ported.
 - Removing profile sections means removing composition, not deleting future reusable components.
+- The `qrBooking` presentation marker is not business authority. Server-owned checkout channel metadata distinguishes public scheduled booking from kiosk and mobile check-in flows.
 
 ## Wizard decision record
 

@@ -48,6 +48,14 @@ After the open product decisions are resolved:
 4. Apply existing validation and final save contract.
 5. Preserve edit-prefill and canonical profile refresh.
 
+### 5. Public web booking boundary
+
+1. Keep the compact enrollment presentation but do not submit public booking as `checkInBooking`.
+2. Persist the server-owned trusted checkout channel in Stripe metadata and use it to resolve web attribution.
+3. Keep kiosk terminal and mobile check-in status behavior unchanged while public checkout creates `scheduled` attendance.
+4. Validate public package reservation slots against `getCatalogFrontData()` output, the same authoritative schedule used by weekday discovery.
+5. Preserve `no_package` and `no_credits` as checkout fallbacks and keep duplicate, capacity, ownership, and credit holds unchanged.
+
 ## Rollback boundaries
 
 Each work unit ships as its own reviewable commit/PR slice:
@@ -56,6 +64,7 @@ Each work unit ships as its own reviewable commit/PR slice:
 - Revert profile composition/modal independently.
 - Revert international phone wiring while retaining safe shared parsing where already consumed.
 - Revert wizard presentation to the existing flat `ProfileFormCard` without API/data rollback.
+- Revert public web channel metadata/status independently from kiosk behavior; revert authoritative package slot lookup independently.
 
 ## Verification strategy
 
@@ -65,4 +74,5 @@ Each work unit ships as its own reviewable commit/PR slice:
 | Prompt/composition | modal and profile composition tests | 390 px incomplete/complete profile smoke plus desktop absence check |
 | Phone | all-country parser/UI/verification/checkout tests | Development Clerk test-number smoke for representative NANP and non-NANP countries |
 | Wizard | navigation, validation, persistence and profile E2E | Mobile and desktop walkthrough |
+| Public booking boundary | checkout payload, trusted metadata, webhook status/attribution, package fallback tests | paid public booking appears as a 7:00 PM scheduled profile event without kiosk metadata |
 | Integrated | focused suites plus applicable full suite and independent verifier | clean Development smoke, then fixture cleanup |

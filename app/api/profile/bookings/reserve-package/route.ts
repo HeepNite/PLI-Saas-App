@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { reservePublicPackageBooking } from "@/lib/bookings/public-package-booking"
 import { parseIsoDate, parseTime24 } from "@/lib/class-schedule"
+import { getCatalogFrontData } from "@/lib/catalog-courses"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { asText } from "@/lib/shared"
 
@@ -53,11 +54,17 @@ export async function POST(req: Request) {
   if (!dbUser) return NextResponse.json({ error: "Unable to resolve user" }, { status: 500 })
 
   try {
+    const catalog = await getCatalogFrontData()
+    const authoritativeCourse = catalog.courses.find((course) => course.slug === courseSlug)
+    if (!authoritativeCourse) {
+      return NextResponse.json({ error: "The selected class is not available." }, { status: 400 })
+    }
     const result = await reservePublicPackageBooking(prisma, {
       userId: dbUser.id,
       courseSlug,
       date,
       time,
+      authoritativeCourse,
     })
     if (result.kind === "reserved") return NextResponse.json({ ok: true, ...result })
     if (result.kind === "no_package" || result.kind === "no_credits") {

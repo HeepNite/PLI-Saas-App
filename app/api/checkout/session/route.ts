@@ -452,6 +452,7 @@ async function handleCheckoutSession(req: Request) {
         phoneRaw: phone || "",
         email: identity.resolvedEmail,
         flowContext: photoContext,
+        checkoutChannel: trustedChannel || "",
         paymentSurface:
           photoContext === FLOW_CONTEXT.KIOSK_TERMINAL || isMobileQrCheckInBooking ? "hosted_checkout" : "web_checkout",
         // Consecutive class fields (present when user accepted the consecutive offer)

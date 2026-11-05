@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getUser: vi.fn(),
   upsertUser: vi.fn(),
   reserve: vi.fn(),
+  getCatalogFrontData: vi.fn(),
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -14,6 +15,7 @@ vi.mock("@clerk/nextjs/server", () => ({
 vi.mock("@/lib/prisma", () => ({ prisma: {} }))
 vi.mock("@/lib/users", () => ({ upsertUserByIdentifiers: mocks.upsertUser }))
 vi.mock("@/lib/bookings/public-package-booking", () => ({ reservePublicPackageBooking: mocks.reserve }))
+vi.mock("@/lib/catalog-courses", () => ({ getCatalogFrontData: mocks.getCatalogFrontData }))
 
 describe("public package reservation route", () => {
   beforeEach(() => {
@@ -26,6 +28,14 @@ describe("public package reservation route", () => {
       primaryPhoneNumber: { phoneNumber: "+15555550103" },
     })
     mocks.upsertUser.mockResolvedValue({ id: "db_user_1" })
+    mocks.getCatalogFrontData.mockResolvedValue({
+      courses: [{
+        slug: "salsa-night-beginner",
+        title: "Salsa Beginner",
+        schedule: { availableWeekdays: [0], availableTimes: ["21:10"] },
+        scheduleRules: null,
+      }],
+    })
   })
 
   const request = (body: unknown) => new Request("http://localhost/api/profile/bookings/reserve-package", {
@@ -69,7 +79,19 @@ describe("public package reservation route", () => {
       courseSlug: "salsa-night-beginner",
       date: "2026-10-05",
       time: "21:10",
+      authoritativeCourse: expect.objectContaining({ slug: "salsa-night-beginner" }),
     })
+  })
+
+  it("rejects a course absent from the authoritative advertised catalog", async () => {
+    mocks.getCatalogFrontData.mockResolvedValue({ courses: [] })
+    const { POST } = await import("@/app/api/profile/bookings/reserve-package/route")
+
+    const response = await POST(request({ courseSlug: "salsa-night-beginner", date: "2026-10-05", time: "21:10" }))
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "The selected class is not available." })
+    expect(mocks.reserve).not.toHaveBeenCalled()
   })
 
   it("allows regular checkout fallback when no applicable package exists", async () => {
