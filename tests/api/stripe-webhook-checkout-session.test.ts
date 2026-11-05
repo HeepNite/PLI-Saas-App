@@ -382,6 +382,56 @@ describe("stripe webhook checkout session persistence", () => {
     )
   })
 
+  it("keeps public web PaymentIntent bookings scheduled and attributed to web", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_public_booking_intent",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_public_intent",
+          status: "succeeded",
+          amount: 1500,
+          currency: "usd",
+          customer: "cus_public",
+          receipt_email: "public@example.com",
+          metadata: {
+            courseSlug: "salsa-timba-in-new-york-2",
+            courseTitle: "Salsa timba in New York 2",
+            date: "2026-10-23",
+            time: "19:00",
+            serviceId: "new-student",
+            userId: "user_public",
+            participants: "1",
+            email: "public@example.com",
+            phone: "12015550199",
+            flowContext: "qr_phone",
+            checkoutChannel: "public_booking",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", {
+      method: "POST",
+      body: JSON.stringify({ id: "evt_public_booking_intent" }),
+    }))
+
+    expect(response.status).toBe(200)
+    const upsertPayload = mockPurchaseUpsert.mock.calls[0]?.[0]
+    expect(upsertPayload?.where).toEqual({ stripePaymentIntentId: "pi_public_intent" })
+    expect(upsertPayload?.create?.metadata).toMatchObject({
+      checkoutChannel: "public_booking",
+      purchaseSource: "web",
+    })
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredStatus: "scheduled" })
+    )
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalledWith(
+      expect.objectContaining({ preferredStatus: "checked-in" })
+    )
+  })
+
   it("updates the pending special purchase and schedules one fixed attendance", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-08-30T14:00:00.000Z"))
