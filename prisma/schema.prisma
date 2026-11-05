@@ -43,6 +43,7 @@ model User {
   completedClassesOverride    Int?
   packageClassesUsedOverride  Int?
   dayOfWeekPurchaseCounts     DayOfWeekPurchaseCount[]
+  terminalChargesPaid         StaffTerminalCharge[]
 }
 
 model StudentRecoveryDraft {
@@ -720,9 +721,61 @@ model StaffTerminal {
   kioskMissCounter            KioskTerminalMissCounter?
   kioskIdentificationSessions KioskIdentificationSession[]
   preparedCheckoutContexts    PreparedCheckoutContext[]
+  terminalCharges             StaffTerminalCharge[]
 
   @@index([active])
   @@index([defaultCourseSlug])
+}
+
+// Staff-initiated card charge collected on one tablet's paired M2 reader.
+// Lifecycle: pending -> collecting -> paid | declined | cancelled; pending -> expired | cancelled.
+model StaffTerminalCharge {
+  id                String                    @id @default(cuid())
+  terminalId        String
+  terminal          StaffTerminal             @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  payerUserId       String
+  payer             User                      @relation(fields: [payerUserId], references: [id], onDelete: Restrict)
+  createdByUserId   String
+  status            String                    @default("pending")
+  totalCents        Int
+  currency          String                    @default("usd")
+  expiresAt         DateTime
+  collectingAt      DateTime?
+  carrierPurchaseId String?                   @unique
+  cancelledByUserId String?
+  cancelledAt       DateTime?
+  resolvedAt        DateTime?
+  failureReason     String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  items             StaffTerminalChargeItem[]
+
+  @@index([terminalId, status, expiresAt])
+  @@index([payerUserId])
+  @@index([status, createdAt])
+}
+
+model StaffTerminalChargeItem {
+  id                      String              @id @default(cuid())
+  chargeId                String
+  charge                  StaffTerminalCharge @relation(fields: [chargeId], references: [id], onDelete: Cascade)
+  kind                    String
+  beneficiaryUserId       String?
+  courseSlug              String?
+  packageId               String?
+  quantity                Int                 @default(1)
+  unitCents               Int
+  amountCents             Int
+  outstandingPurchaseId   String?
+  outstandingAttendanceId String?
+  description             String?
+  guestName               String?
+  resultPurchaseId        String?
+  createdAt               DateTime            @default(now())
+
+  @@index([chargeId])
+  @@index([outstandingPurchaseId])
+  @@index([outstandingAttendanceId])
 }
 
 model StaffTerminalSession {
