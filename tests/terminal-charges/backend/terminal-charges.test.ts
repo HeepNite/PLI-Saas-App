@@ -96,6 +96,7 @@ beforeEach(() => {
   vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", "fixture-signing-secret-at-least-32-bytes")
   vi.stubEnv("STRIPE_SECRET_KEY", "sk_test")
   vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_test")
+  vi.stubEnv("TERMINAL_CHARGE_TERMINALS", " samsung , ipad ")
   holder.db = createFakeDb()
   seedBasics(holder.db)
   holder.db.tables.purchase.push({
@@ -104,7 +105,7 @@ beforeEach(() => {
   })
   holder.db.tables.attendance.push({ id: "att_1", userId: "payer_1", metadata: {}, packageUsage: null, session: { courseSlug: "salsa", title: "Salsa", startsAt: new Date("2026-11-02T23:00:00Z") } })
   for (const mock of Object.values(mocks)) mock.mockReset()
-  mocks.baseAuth.mockResolvedValue(staff("staff", "front_desk"))
+  mocks.baseAuth.mockResolvedValue(staff("owner", null))
   mocks.terminalAuth.mockResolvedValue(terminal("terminal_a"))
   mocks.issue.mockResolvedValue("prepared_reference")
   mocks.claim.mockResolvedValue("claimed")
@@ -117,7 +118,8 @@ afterEach(() => {
 
 describe("staff panel routes", () => {
   it.each([
-    [staff("owner", null), 201], [staff("admin", null), 201], [staff("staff", "front_desk"), 201],
+    // Rollout: owner only; admin and staff/front_desk (D4) come back after the live tablet test.
+    [staff("owner", null), 201], [staff("admin", null), 403], [staff("staff", "front_desk"), 403],
     [staff("staff", "teacher"), 403], [staff("staff", "manager"), 403], [{ ok: false, status: 401, error: "Unauthorized" }, 401],
   ])("gates create, read and cancel by role (%#)", async (auth, status) => {
     const id = await createCharge()
@@ -243,6 +245,21 @@ describe("tablet routes", () => {
     expect((await (await api.pending()).json()).charge).toBeNull()
     expect([(await api.prepare(id)).status, (await api.result(id, "cancelled")).status]).toEqual([404, 404])
     expect(chargeRow().status).toBe("pending")
+  })
+
+  it("only charge on tablets listed in TERMINAL_CHARGE_TERMINALS (rollout gate)", async () => {
+    const id = await createCharge()
+    vi.stubEnv("TERMINAL_CHARGE_TERMINALS", "ipad")
+    const refused = await api.create([free(100)], "terminal_a")
+    expect([refused.status, await refused.json()]).toEqual([409, { error: "Charging is not enabled on this tablet" }])
+    expect((await api.create([free(100)], "terminal_b")).status).toBe(201)
+    expect((await (await api.pending()).json()).charge).toBeNull()
+    const answers = [await api.prepare(id), await api.result(id, "cancelled")]
+    expect(await Promise.all(answers.map(async (r) => [r.status, (await r.json()).error]))).toEqual([
+      [409, "Charging is not enabled on this tablet"], [409, "Charging is not enabled on this tablet"],
+    ])
+    vi.stubEnv("TERMINAL_CHARGE_TERMINALS", "")
+    expect((await api.create([free(100)], "terminal_b")).status).toBe(409)
   })
 
   it("prepare creates one carrier the native prepared-attempt pipeline accepts, bound to this session", async () => {

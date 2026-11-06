@@ -179,8 +179,10 @@ function useTestMode(classes: TodayClassItem[], enabled: boolean) {
 
 export default function StaffTerminalShell({
   terminal,
+  terminalChargesEnabled = false,
 }: {
   terminal: TerminalSummary
+  terminalChargesEnabled?: boolean
 }) {
   const searchParams = useSearchParams()
   const testModeEnabled =
@@ -313,12 +315,15 @@ export default function StaffTerminalShell({
     setKioskResetKey((key) => key + 1)
     handleFlowActiveChange(false)
   }, [handleFlowActiveChange])
-  const withChargeTakeover = (kiosk: React.ReactNode) => (
+  // Rollout gate: a tablet not in TERMINAL_CHARGE_TERMINALS renders the kiosk exactly as before
+  // (no takeover, no polling, unprefixed keys).
+  const keyPrefix = terminalChargesEnabled ? `${kioskResetKey}-` : ""
+  const withChargeTakeover = (kiosk: React.ReactElement) => terminalChargesEnabled ? (
     <>
       {kiosk}
       <TerminalChargeTakeover onReturnHome={returnKioskHome} onActiveChange={handleChargeActiveChange} />
     </>
-  )
+  ) : kiosk
 
   const [selectedCompletedClass, setSelectedCompletedClass] = React.useState<CompletedClassSelection | null>(null)
   const allClassesEnded = useMemo(
@@ -356,7 +361,7 @@ export default function StaffTerminalShell({
     return withChargeTakeover(
       <div className="relative h-screen">
         <CheckInQrClient
-          key={`${kioskResetKey}-completed-${activeCompletedClass.courseSlug}-${activeCompletedClass.date}-${activeCompletedClass.time}`}
+          key={`${keyPrefix}completed-${activeCompletedClass.courseSlug}-${activeCompletedClass.date}-${activeCompletedClass.time}`}
           forcedDeviceMode="station"
           forcedCourseSlug={activeCompletedClass.courseSlug}
           forcedClassContext={{
@@ -385,7 +390,7 @@ export default function StaffTerminalShell({
   if (todayClasses.length === 0) {
     return withChargeTakeover(
       <CheckInQrClient
-        key={`${kioskResetKey}-default`}
+        key={`${keyPrefix}default`}
         forcedDeviceMode="station"
         forcedCourseSlug={terminal.defaultCourseSlug || ""}
         terminalTodayOnly={false}
@@ -404,7 +409,7 @@ export default function StaffTerminalShell({
     return withChargeTakeover(
       <div className="relative h-screen">
         <CheckInQrClient
-          key={`${kioskResetKey}-current-${currentSession.courseSlug}-${currentSession.date}-${currentSession.time}`}
+          key={`${keyPrefix}current-${currentSession.courseSlug}-${currentSession.date}-${currentSession.time}`}
           forcedDeviceMode="station"
           forcedCourseSlug={currentSession.courseSlug}
           forcedClassContext={{
@@ -448,7 +453,7 @@ export default function StaffTerminalShell({
   // Fallback — no current slug computed
   return withChargeTakeover(
     <CheckInQrClient
-      key={`${kioskResetKey}-fallback`}
+      key={`${keyPrefix}fallback`}
       forcedDeviceMode="station"
       forcedCourseSlug={terminal.defaultCourseSlug || ""}
       shellVariant="terminal"

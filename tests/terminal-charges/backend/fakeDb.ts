@@ -101,6 +101,6 @@ export type FakeDb = ReturnType<typeof createFakeDb>
 
 export const seedBasics = (db: FakeDb) => {
   db.tables.user.push({ id: "payer_1", name: "Pat Payer", email: "pat@example.com", phone: "+15550000001" }, { id: "other_1", name: "Other" })
-  db.tables.staffTerminal.push({ id: "terminal_a", name: "Samsung", active: true }, { id: "terminal_b", name: "iPad", active: true })
+  db.tables.staffTerminal.push({ id: "terminal_a", slug: "samsung", name: "Samsung", active: true }, { id: "terminal_b", slug: "ipad", name: "iPad", active: true })
   db.tables.courseCatalog.push({ slug: "salsa", dropInPriceCents: 2000 })
 }

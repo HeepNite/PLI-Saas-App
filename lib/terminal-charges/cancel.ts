@@ -7,6 +7,7 @@ import { recordPreparedNativeAttemptFailure } from "@/lib/stripe/prepared-native
 import { asObject } from "@/lib/shared"
 import {
   ACTIVE_STATUSES,
+  assertTerminalChargingEnabled,
   conflict,
   expireStalePendingCharges,
   notFound,
@@ -149,6 +150,7 @@ export const cancelTerminalCharge = async (input: { id: string; staff?: StaffAct
 
 /** Tablet-reported end of a collection. `paid` is only ever set by the Stripe webhook. */
 export const recordTerminalChargeResult = async (input: { terminalId: string; id: string; body: unknown }) => {
+  await assertTerminalChargingEnabled(input.terminalId)
   const outcome = asObject(input.body).outcome
   if (outcome !== "cancelled" && outcome !== "declined") throw new TerminalChargeError(400, "Invalid outcome")
   return cancelTerminalCharge({ id: input.id, terminalId: input.terminalId, declined: outcome === "declined" })

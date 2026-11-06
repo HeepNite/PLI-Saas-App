@@ -18,6 +18,7 @@ import {
   type TerminalChargeView,
 } from "@/lib/terminal-charges/contract"
 import { priceTerminalChargeItems, TerminalChargeError } from "@/lib/terminal-charges/pricing"
+import { isTerminalChargeEnabled, TERMINAL_CHARGE_NOT_ENABLED } from "@/lib/terminal-charges/rollout"
 
 export { TerminalChargeError }
 
@@ -28,7 +29,7 @@ export const ACTIVE_STATUSES = ["pending", "collecting"]
 export const notFound = () => new TerminalChargeError(404, "Charge not found")
 export const conflict = (message: string) => new TerminalChargeError(409, message)
 
-/** Staff portal auth gated by canCreateTerminalCharge (D4: owner, admin, staff/front_desk). */
+/** Staff portal auth gated by canCreateTerminalCharge (owner only during the rollout). */
 export const authorizeTerminalChargeRequest = async () => {
   const auth = await authorizeStaffPortalBaseRequest()
   if (auth.ok && !canCreateTerminalCharge(auth.role, auth.category)) return { ok: false as const, status: 403, error: "Insufficient role" }
@@ -40,6 +41,14 @@ export const authorizeTerminalCaller = async () => {
   const auth = await authorizeStaffTerminalSession({ touchLastSeen: false })
   if (!auth.ok) return { ok: false as const, status: 401, error: "Terminal session required" }
   return { ok: true as const, terminalId: auth.terminal.id, sessionId: auth.sessionId }
+}
+
+/** Rollout gate for the tablet routes: is this terminal's slug in TERMINAL_CHARGE_TERMINALS? */
+const chargingEnabled = async (terminalId: string) =>
+  isTerminalChargeEnabled((await prisma.staffTerminal.findUnique({ where: { id: terminalId }, select: { slug: true } }))?.slug)
+
+export const assertTerminalChargingEnabled = async (terminalId: string) => {
+  if (!(await chargingEnabled(terminalId))) throw conflict(TERMINAL_CHARGE_NOT_ENABLED)
 }
 
 /** Maps a known charge error to its JSON response; rethrows anything else. */
@@ -108,11 +117,12 @@ export const createTerminalCharge = async (input: { staff: StaffActor; body: unk
   const terminalId = readId(body.terminalId, "terminalId")
   const payerUserId = readId(body.payerUserId, "payerUserId")
   const [terminal, payer] = await Promise.all([
-    prisma.staffTerminal.findUnique({ where: { id: terminalId }, select: { active: true } }),
+    prisma.staffTerminal.findUnique({ where: { id: terminalId }, select: { active: true, slug: true } }),
     prisma.user.findUnique({ where: { id: payerUserId }, select: { id: true } }),
   ])
   if (!terminal?.active) throw new TerminalChargeError(404, "Tablet not found")
   if (!payer) throw new TerminalChargeError(404, "Payer not found")
+  if (!isTerminalChargeEnabled(terminal.slug)) throw conflict(TERMINAL_CHARGE_NOT_ENABLED)
 
   const items = await priceTerminalChargeItems(prisma, payerUserId, body.items)
   const totalCents = items.reduce((sum, item) => sum + item.amountCents, 0)
@@ -167,6 +177,7 @@ export const getTerminalCharge = async (id: string) => {
 
 /** The charge this tablet must show now (pending or collecting), or null. */
 export const getPendingTerminalCharge = async (terminalId: string) => {
+  if (!(await chargingEnabled(terminalId))) return null
   await expireStalePendingCharges(prisma, { terminalId })
   const charge = await prisma.staffTerminalCharge.findFirst({ where: { terminalId, status: { in: ACTIVE_STATUSES } }, include: VIEW_INCLUDE })
   return charge ? toView(charge) : null
@@ -179,6 +190,7 @@ export const getPendingTerminalCharge = async (terminalId: string) => {
  */
 export const prepareTerminalCharge = async (input: { terminalId: string; sessionId: string; id: string }) => {
   const { terminalId, sessionId } = input
+  await assertTerminalChargingEnabled(terminalId)
   await expireStalePendingCharges(prisma, { id: input.id, terminalId })
   const charge = await prisma.staffTerminalCharge.findFirst({
     where: { id: input.id, terminalId },
