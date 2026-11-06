@@ -1,6 +1,7 @@
 # Staff panel M2 charge — phase 1
 
-Branch `feat/staff-panel-m2-charge-mvp` (base `origin/main`); full version kept on `feat/staff-panel-m2-charge-full`. Runner: `npx vitest run`.
+Branch `feat/staff-panel-m2-charge-v2` (base `origin/main`); full version kept on `feat/staff-panel-m2-charge-full`. Runner: `npx vitest run`.
+Status: `PHASE 1 IMPLEMENTED — PENDING DELIVERY`.
 
 ## Specs
 
@@ -11,7 +12,8 @@ Branch `feat/staff-panel-m2-charge-mvp` (base `origin/main`); full version kept 
 | ID | Scope | Status |
 |----|-------|--------|
 | T1 | Phase 1a lean rewrite (reuse helpers, one test per rule) | done |
-| T2 | Restore `package` + `guest_class` lean on the refactored code (L3), inline | done (uncommitted) |
+| T2 | Restore `package` + `guest_class` lean on the refactored code (L3), inline | done |
+| T3 | Review fixes M1–M4, T1–T4, P1–P2, D1 (one test each), delegated writer | done (uncommitted) |
 
 ## Log
 

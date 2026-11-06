@@ -4,8 +4,9 @@ import { reservePackageCreditForAttendance, syncPackagePurchaseFromPaidPurchase 
 import { buildSessionStartsAt } from "@/lib/class-schedule"
 import { asObject as asObjectShared, asText } from "@/lib/shared"
 
-// Moved verbatim from app/api/staff/payments/[purchaseId]/route.ts (a route file cannot export
-// helpers) so staff terminal charges settle outstanding purchases exactly like mark_paid.
+// Moved from app/api/staff/payments/[purchaseId]/route.ts (a route file cannot export helpers)
+// with asObject cast to Prisma.JsonObject, behavior unchanged, so staff terminal charges settle
+// outstanding purchases exactly like mark_paid.
 
 type SettledPurchase = NonNullable<Awaited<ReturnType<typeof prisma.purchase.findUnique>>>
 

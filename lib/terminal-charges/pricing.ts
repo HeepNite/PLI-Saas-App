@@ -81,7 +81,9 @@ const priceOutstandingAttendance = async (db: Db, payerUserId: string, attendanc
   const linked = linkedPurchaseId ? await db.purchase.findUnique({ where: { id: linkedPurchaseId } }) : null
   if (linked && !isOpenPurchase(linked).isOpen) throw invalid("Item is no longer outstanding")
   const courseSlug = attendance.session.courseSlug
-  return { cents: await courseDropInCents(db, courseSlug), courseSlug, title: attendance.session.title || courseSlug }
+  // An open linked purchase is the debt itself; zero-amount ones settle at the drop-in price, as bulk cash does.
+  const cents = linked && linked.amount > 0 ? linked.amount : await courseDropInCents(db, courseSlug)
+  return { cents, courseSlug, title: attendance.session.title || courseSlug }
 }
 
 /**

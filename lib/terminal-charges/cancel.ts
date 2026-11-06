@@ -79,18 +79,22 @@ const releaseCarrierPaymentIntent = async (carrierPurchaseId: string | null) => 
 
 /**
  * Cancels a pending or collecting charge (D5), from the panel (`staff`) or its own tablet
- * (`terminalId`). A collecting charge is cancelled only after Stripe confirms no money can be
- * taken; a charge whose PaymentIntent succeeded or is being processed is refused (409).
+ * (`terminalId`); with `declined`, ends a collecting charge the tablet reports declined. Either way a
+ * collecting charge ends only after Stripe confirms no money can be taken; a charge whose
+ * PaymentIntent succeeded or is being processed is refused (409) and left to the webhook.
  */
-export const cancelTerminalCharge = async (input: { id: string; staff?: StaffActor; terminalId?: string; ipAddress?: string | null }) => {
+export const cancelTerminalCharge = async (input: { id: string; staff?: StaffActor; terminalId?: string; ipAddress?: string | null; declined?: boolean }) => {
   const scope = { id: input.id, ...(input.terminalId ? { terminalId: input.terminalId } : {}) }
+  const target = input.declined ? "declined" : "cancelled"
   await expireStalePendingCharges(prisma, scope)
   const charge = await prisma.staffTerminalCharge.findFirst({
     where: scope,
     select: { id: true, status: true, payerUserId: true, terminalId: true, createdByUserId: true, carrierPurchaseId: true },
   })
   if (!charge) throw notFound()
-  if (charge.status === "cancelled") return requireChargeView(prisma, { id: charge.id })
+  if (charge.status === target) return requireChargeView(prisma, { id: charge.id })
+  // A decline only exists once the reader collected.
+  if (input.declined && charge.status !== "collecting") throw conflict("This charge is not being collected")
   if (!ACTIVE_STATUSES.includes(charge.status)) throw conflict("This charge can no longer be cancelled")
   const collecting = charge.status === "collecting"
   const releasedPaymentIntentId = collecting ? await releaseCarrierPaymentIntent(charge.carrierPurchaseId) : null
@@ -109,19 +113,22 @@ export const cancelTerminalCharge = async (input: { id: string; staff?: StaffAct
     }
     const now = new Date()
     const updated = await tx.staffTerminalCharge.updateMany({
-      where: { ...scope, status: charge.status },
-      data: {
-        status: "cancelled",
-        cancelledAt: now,
-        resolvedAt: now,
-        failureReason: input.staff ? "cancelled_by_staff" : "cancelled_on_tablet",
-        ...(input.staff ? { cancelledByUserId: input.staff.userId } : {}),
-      },
+      // Also guarded on the carrier the Stripe check used: a carrier bound since then aborts below.
+      where: { ...scope, status: charge.status, carrierPurchaseId: charge.carrierPurchaseId },
+      data: input.declined
+        ? { status: "declined", resolvedAt: now, failureReason: "card_declined" }
+        : {
+            status: "cancelled",
+            cancelledAt: now,
+            resolvedAt: now,
+            failureReason: input.staff ? "cancelled_by_staff" : "cancelled_on_tablet",
+            ...(input.staff ? { cancelledByUserId: input.staff.userId } : {}),
+          },
     })
     if (updated.count !== 1) {
       // A canceled-PaymentIntent webhook may have ended it first; anything else changed under us.
       const current = await requireChargeView(tx, { id: charge.id })
-      if (current.status === "cancelled") return current
+      if (current.status === target || current.status === "cancelled") return current
       throw conflict(current.status === "collecting" ? READER_STARTED : "This charge can no longer be cancelled")
     }
     await writeStudentDataAudit({
@@ -132,8 +139,8 @@ export const cancelTerminalCharge = async (input: { id: string; staff?: StaffAct
       entityId: charge.id,
       field: input.staff ? "terminal_charge_cancel" : "terminal_charge_result",
       valueBefore: { status: charge.status },
-      valueAfter: { status: "cancelled", terminalId: charge.terminalId },
-      reason: input.staff ? "Staff cancelled a tablet card charge" : "Charge cancelled on the tablet",
+      valueAfter: { status: target, terminalId: charge.terminalId },
+      reason: input.staff ? "Staff cancelled a tablet card charge" : input.declined ? "Card declined on the tablet" : "Charge cancelled on the tablet",
       ipAddress: input.ipAddress,
     }, tx)
     return requireChargeView(tx, { id: charge.id })
@@ -143,31 +150,6 @@ export const cancelTerminalCharge = async (input: { id: string; staff?: StaffAct
 /** Tablet-reported end of a collection. `paid` is only ever set by the Stripe webhook. */
 export const recordTerminalChargeResult = async (input: { terminalId: string; id: string; body: unknown }) => {
   const outcome = asObject(input.body).outcome
-  if (outcome === "cancelled") return cancelTerminalCharge({ id: input.id, terminalId: input.terminalId })
-  if (outcome !== "declined") throw new TerminalChargeError(400, "Invalid outcome")
-  return prisma.$transaction(async (tx) => {
-    const charge = await tx.staffTerminalCharge.findFirst({
-      where: { id: input.id, terminalId: input.terminalId },
-      select: { id: true, status: true, payerUserId: true, createdByUserId: true },
-    })
-    if (!charge) throw notFound()
-    if (charge.status === "declined") return requireChargeView(tx, { id: charge.id })
-    // A decline only exists once the reader collected.
-    const updated = await tx.staffTerminalCharge.updateMany({
-      where: { id: charge.id, status: "collecting" },
-      data: { status: "declined", resolvedAt: new Date(), failureReason: "card_declined" },
-    })
-    if (updated.count !== 1) throw conflict("This charge is not being collected")
-    await writeStudentDataAudit({
-      targetUserId: charge.payerUserId,
-      staffClerkId: charge.createdByUserId,
-      entity: "payment",
-      entityId: charge.id,
-      field: "terminal_charge_result",
-      valueBefore: { status: charge.status },
-      valueAfter: { status: "declined", terminalId: input.terminalId },
-      reason: "Card declined on the tablet",
-    }, tx)
-    return requireChargeView(tx, { id: charge.id })
-  })
+  if (outcome !== "cancelled" && outcome !== "declined") throw new TerminalChargeError(400, "Invalid outcome")
+  return cancelTerminalCharge({ id: input.id, terminalId: input.terminalId, declined: outcome === "declined" })
 }

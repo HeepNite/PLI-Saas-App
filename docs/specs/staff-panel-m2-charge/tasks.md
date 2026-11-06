@@ -1,5 +1,7 @@
 # Tasks - Staff Panel Charge Collected On A Tablet M2 Reader
 
+Status: `PHASE 1 IMPLEMENTED — PENDING DELIVERY`.
+
 Base: `main`. Each phase ships as its own PR (ported to `codex/develop`).
 
 - [x] Phase 1 — charge pipeline for all four kinds (`package`, `guest_class` (D2), `outstanding`,

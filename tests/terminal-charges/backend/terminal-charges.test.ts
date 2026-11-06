@@ -174,6 +174,27 @@ describe("staff panel routes", () => {
     ])
   })
 
+  it("refuses a debt already in another tablet's active charge, and frees it once that charge ends (M1)", async () => {
+    await createCharge([{ kind: "outstanding", outstandingPurchaseId: "debt_1" }])
+    const response = await api.create([{ kind: "outstanding", outstandingPurchaseId: "debt_1" }], "terminal_b")
+    expect([response.status, (await response.json()).error]).toEqual([409, "That debt is already in another charge"])
+    chargeRow().status = "cancelled"
+    expect((await api.create([{ kind: "outstanding", outstandingPurchaseId: "debt_1" }], "terminal_b")).status).toBe(201)
+  })
+
+  it("charges an attendance debt at its open linked purchase's amount, else the drop-in price (M3)", async () => {
+    holder.db.tables.purchase.push({ id: "linked_1", userId: "payer_1", courseSlug: "salsa", amount: 1500, status: "pending", metadata: { paymentChannel: "cash", settlementStatus: "pending" } })
+    holder.db.tables.attendance[0].metadata = { purchaseId: "linked_1" }
+    await createCharge([{ kind: "outstanding", outstandingAttendanceId: "att_1" }])
+    expect(chargeRow().totalCents).toBe(1500)
+  })
+
+  it("never shows the payer's email as the name on the tablet (P2)", async () => {
+    holder.db.tables.user[0].name = null
+    await createCharge()
+    expect((await (await api.pending()).json()).charge.payerName).toBe("Customer")
+  })
+
   it("allows one active charge per tablet", async () => {
     await createCharge()
     expect((await api.create([free(500)])).status).toBe(409)
@@ -290,6 +311,28 @@ describe("cancelling a collecting charge (D5)", () => {
     holder.db.$transaction.mockImplementation(async (callback: unknown) => (bindIntent(), run(callback)))
     expect((await (await api.cancel(id)).json()).error).toBe("The card reader just started; try again")
     expect([chargeRow().status, carrierRow().status]).toEqual(["collecting", "pending"])
+  })
+
+  it("refuses when the reader binds a carrier between the Stripe check and the cancel (M4)", async () => {
+    const id = await createCharge()
+    Object.assign(chargeRow(), { status: "collecting", carrierPurchaseId: null })
+    const run = holder.db.$transaction.getMockImplementation() as (callback: unknown) => Promise<unknown>
+    holder.db.$transaction.mockImplementation(async (callback: unknown) => ((chargeRow().carrierPurchaseId = "carrier_late"), run(callback)))
+    expect((await (await api.cancel(id)).json()).error).toBe("The card reader just started; try again")
+    expect(chargeRow().status).toBe("collecting")
+  })
+
+  it("releases the carrier on a tablet decline, and refuses it while the payment succeeded (M2)", async () => {
+    const id = await createAndPrepare()
+    bindIntent()
+    mocks.retrieve.mockResolvedValue(await intentFor("succeeded"))
+    expect((await api.result(id, "declined")).status).toBe(409)
+    expect(chargeRow().status).toBe("collecting")
+    mocks.retrieve.mockResolvedValue(await intentFor("requires_payment_method"))
+    mocks.cancel.mockResolvedValue(await intentFor("canceled"))
+    expect((await api.result(id, "declined")).status).toBe(200)
+    expect(mocks.cancel).toHaveBeenCalledWith("pi_charge_1", {}, { idempotencyKey: "prepared-native-m2-cancel:v1:pi_charge_1" })
+    expect([chargeRow().status, chargeRow().failureReason, carrierRow().status]).toEqual(["declined", "card_declined", "canceled"])
   })
 
   it("routes a tablet cancel while collecting through the same Stripe check", async () => {

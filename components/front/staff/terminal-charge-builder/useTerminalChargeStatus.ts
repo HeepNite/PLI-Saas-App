@@ -22,6 +22,8 @@ export const createTerminalCharge = (body: { terminalId: string; payerUserId: st
 
 export const UNREACHABLE_SERVER_MESSAGE = "Can't reach the server — retrying…"
 export const STATUS_POLL_MAX_DELAY_MS = 15_000
+/** A status read that takes longer is aborted and counts as a failed poll. */
+export const STATUS_REQUEST_TIMEOUT_MS = 8_000
 const FAILURES_BEFORE_WARNING = 3
 // The charge is gone or no longer ours to read: retrying cannot help.
 const UNRECOVERABLE_POLL_STATUSES = new Set([401, 403, 404])
@@ -46,9 +48,12 @@ export const useTerminalChargeStatus = (onPaid: () => void) => {
     if (!chargeId || isFinal || loadErrorStatus !== null) return
     let cancelled = false
     const delay = Math.min(TERMINAL_CHARGE_POLL_MS * 2 ** pollFailures, STATUS_POLL_MAX_DELAY_MS)
+    const request = new AbortController()
+    let requestTimer: ReturnType<typeof setTimeout> | undefined
     const timer = setTimeout(async () => {
+      requestTimer = setTimeout(() => request.abort(), STATUS_REQUEST_TIMEOUT_MS)
       try {
-        const next = await chargeRequest(`/${encodeURIComponent(chargeId)}`, "Unable to load the charge")
+        const next = await chargeRequest(`/${encodeURIComponent(chargeId)}`, "Unable to load the charge", { signal: request.signal })
         if (cancelled) return
         setPollFailures(0)
         setCharge(next)
@@ -56,11 +61,15 @@ export const useTerminalChargeStatus = (onPaid: () => void) => {
         if (cancelled) return
         if (error instanceof TerminalChargeApiError && UNRECOVERABLE_POLL_STATUSES.has(error.status)) setLoadErrorStatus(error.status)
         else setPollFailures((failures) => failures + 1) // re-arms the poll with a longer delay
+      } finally {
+        clearTimeout(requestTimer)
       }
     }, delay)
     return () => {
       cancelled = true
       clearTimeout(timer)
+      clearTimeout(requestTimer)
+      request.abort()
     }
   }, [chargeId, isFinal, charge, pollFailures, loadErrorStatus])
 

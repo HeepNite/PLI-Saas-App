@@ -9,7 +9,7 @@ import {
   pollPreparedPurchaseState,
 } from "@/components/front/courses/enroll/effects/native-payment-bridge"
 import { formatMoney } from "@/components/front/staff/staffAdminFormatters"
-import { useTerminalChargePoll } from "@/components/front/staff/terminal-charge/useTerminalChargePoll"
+import { TERMINAL_CHARGE_POLL_TIMEOUT_MS, useTerminalChargePoll } from "@/components/front/staff/terminal-charge/useTerminalChargePoll"
 import { isTerminalChargeFinal, type TerminalChargeView } from "@/lib/terminal-charges/contract"
 
 export const TERMINAL_CHARGE_PAID_SCREEN_MS = 3_000
@@ -19,12 +19,13 @@ export const TERMINAL_CHARGE_STUCK_CANCEL_MS = 30_000
 /** How long the tablet follows the reader before handing over to "Confirming payment…". */
 export const TERMINAL_CHARGE_COLLECT_DEADLINE_MS = 3 * 60_000
 
-type Phase = "idle" | "unavailable" | "preparing" | "prepare_failed" | "collecting" | "verifying" | "paid" | "declined"
+type Phase = "idle" | "unavailable" | "preparing" | "prepare_failed" | "reader_failed" | "collecting" | "verifying" | "paid" | "declined"
 
 const STATUS_TEXT: Record<Exclude<Phase, "idle">, string> = {
   unavailable: "Card reader unavailable on this device",
   preparing: "Preparing card reader…",
   prepare_failed: "We couldn't start the card reader. Please ask staff for help.",
+  reader_failed: "The card reader didn't respond",
   collecting: "Follow the instructions on the card reader.",
   verifying: "Confirming payment…",
   paid: "Payment complete. Thank you!",
@@ -53,7 +54,7 @@ async function postResult(chargeId: string, outcome: "declined" | "cancelled"): 
  */
 async function collectOnReader(reference: string, pollIntervalMs: number, isStopped: () => boolean) {
   const handoff = await handOffPreparedPurchase(reference)
-  if (handoff.state === "rejected") return "rejected"
+  if (handoff.state === "rejected") return "handoff_rejected" // no card was presented: not a decline
   if ((handoff.state !== "accepted" && handoff.state !== "pending") || !handoff.operationReference) return "uncertain"
   const deadline = Date.now() + TERMINAL_CHARGE_COLLECT_DEADLINE_MS
   while (!isStopped() && Date.now() < deadline) {
@@ -83,6 +84,7 @@ export function TerminalChargeTakeover({ onReturnHome, onActiveChange, collectio
   const phaseRef = useRef<Phase>("idle")
   const activeIdRef = useRef<string | null>(null)
   const handledIds = useRef(new Set<string>())
+  const declineUnreported = useRef(false)
   const screenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onReturnHomeRef = useRef(onReturnHome)
   onReturnHomeRef.current = onReturnHome
@@ -96,23 +98,39 @@ export function TerminalChargeTakeover({ onReturnHome, onActiveChange, collectio
     if (activeIdRef.current !== chargeId) return
     if (screenTimer.current) clearTimeout(screenTimer.current)
     handledIds.current.add(chargeId)
+    declineUnreported.current = false
     activeIdRef.current = null // also stops following the reader
     setCharge(null)
     setPhase("idle")
     onReturnHomeRef.current()
   }, [setPhase])
 
+  // A decline counts as handled only once the server accepted it; until then it stays on screen
+  // with the reason and is re-sent on each poll (the server may refuse while a payment is settling).
+  const reportDecline = useCallback(async (chargeId: string) => {
+    const refusal = await postResult(chargeId, "declined")
+    if (activeIdRef.current !== chargeId || !declineUnreported.current) return
+    if (refusal !== null) return setCancelError(refusal || "Couldn't report the declined card. Retrying…")
+    declineUnreported.current = false
+    setCancelError(null)
+    screenTimer.current = setTimeout(() => finish(chargeId), TERMINAL_CHARGE_DECLINED_SCREEN_MS)
+  }, [finish])
+
   const showOutcome = useCallback((chargeId: string, outcome: "paid" | "declined") => {
-    if (activeIdRef.current !== chargeId || phaseRef.current === "paid" || phaseRef.current === "declined") return
+    if (activeIdRef.current !== chargeId || phaseRef.current === "paid" || (phaseRef.current === "declined" && !declineUnreported.current)) return
     setPhase(outcome)
-    if (outcome === "declined") void postResult(chargeId, "declined")
-    screenTimer.current = setTimeout(() => finish(chargeId), outcome === "paid" ? TERMINAL_CHARGE_PAID_SCREEN_MS : TERMINAL_CHARGE_DECLINED_SCREEN_MS)
-  }, [finish, setPhase])
+    declineUnreported.current = outcome === "declined"
+    if (outcome === "declined") void reportDecline(chargeId)
+    else screenTimer.current = setTimeout(() => finish(chargeId), TERMINAL_CHARGE_PAID_SCREEN_MS)
+  }, [finish, reportDecline, setPhase])
 
   const collect = useCallback(async (chargeId: string) => {
-    const prepared = await fetch(chargeUrl(chargeId, "prepare"), { method: "POST" })
+    const request = new AbortController()
+    const timeout = setTimeout(() => request.abort(), TERMINAL_CHARGE_POLL_TIMEOUT_MS)
+    const prepared = await fetch(chargeUrl(chargeId, "prepare"), { method: "POST", signal: request.signal })
       .then(async (res) => (res.ok ? res.json() : null))
       .catch(() => null)
+      .finally(() => clearTimeout(timeout))
     const isStopped = () => activeIdRef.current !== chargeId || phaseRef.current !== "collecting"
     if (activeIdRef.current !== chargeId) return
     if (!isPreparedPurchaseResponse(prepared)) return setPhase("prepare_failed")
@@ -122,6 +140,7 @@ export function TerminalChargeTakeover({ onReturnHome, onActiveChange, collectio
     if (activeIdRef.current !== chargeId) return
     if (outcome === "paid") showOutcome(chargeId, "paid")
     else if (outcome === "rejected") showOutcome(chargeId, "declined")
+    else if (outcome === "handoff_rejected") setPhase("reader_failed")
     // The reader may still have charged the card: only the server (webhook) can settle it.
     else if (phaseRef.current === "collecting") setPhase("verifying")
   }, [collectionPollMs, setPhase, showOutcome])
@@ -140,12 +159,13 @@ export function TerminalChargeTakeover({ onReturnHome, onActiveChange, collectio
       }
       return
     }
-    if (phaseRef.current === "paid" || phaseRef.current === "declined") return
+    if (phaseRef.current === "paid" || (phaseRef.current === "declined" && !declineUnreported.current)) return
     // The server ended the charge (webhook paid, staff cancel, expiry): follow it and stop the reader.
     const same = serverCharge?.id === activeId ? serverCharge : null
     if (same?.status === "paid" && phaseRef.current !== "unavailable" && phaseRef.current !== "prepare_failed") showOutcome(activeId, "paid")
     else if (!same || isTerminalChargeFinal(same.status)) finish(activeId)
-  }, [serverCharge, collect, finish, setPhase, showOutcome])
+    else if (declineUnreported.current) void reportDecline(activeId)
+  }, [serverCharge, collect, finish, reportDecline, setPhase, showOutcome])
 
   useEffect(() => {
     onActiveChange?.(phase !== "idle")
@@ -155,7 +175,7 @@ export function TerminalChargeTakeover({ onReturnHome, onActiveChange, collectio
   // customer/staff cancel it. The server refuses when the card was charged or is being processed.
   useEffect(() => {
     setStuckCancelReady(false)
-    setCancelError(null)
+    if (phase !== "declined") setCancelError(null) // a declined screen keeps its report error
     if (phase !== "verifying") return
     const timer = setTimeout(() => setStuckCancelReady(true), TERMINAL_CHARGE_STUCK_CANCEL_MS)
     return () => clearTimeout(timer)
@@ -180,8 +200,9 @@ export function TerminalChargeTakeover({ onReturnHome, onActiveChange, collectio
   }
 
   if (phase === "idle" || !charge) return null
-  const canCancel = phase === "unavailable" || phase === "prepare_failed" || (phase === "verifying" && stuckCancelReady)
-  const statusTone = phase === "paid" ? "text-emerald-300" : phase === "declined" || phase === "prepare_failed" || phase === "unavailable" ? "text-red-300" : "text-white/80"
+  const notStarted = phase === "unavailable" || phase === "prepare_failed" || phase === "reader_failed"
+  const canCancel = notStarted || (phase === "verifying" && stuckCancelReady)
+  const statusTone = phase === "paid" ? "text-emerald-300" : phase === "declined" || notStarted ? "text-red-300" : "text-white/80"
 
   return (
     <div data-terminal-charge-takeover role="dialog" aria-modal="true" aria-label="Staff charge" className="fixed inset-0 z-[11000] flex items-center justify-center bg-[#13141d] px-4 text-white">

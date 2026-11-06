@@ -12,7 +12,7 @@ const isVisible = () => typeof document === "undefined" || document.visibilitySt
 /**
  * Polls the charge addressed to this tablet (terminal cookie, same origin) while the page is
  * visible. A failed or malformed read keeps the last known charge, so a transient network error
- * never closes a takeover in progress.
+ * never closes a takeover in progress; a lost terminal session (401/403) clears it.
  */
 export function useTerminalChargePoll(intervalMs = TERMINAL_CHARGE_POLL_MS) {
   const [charge, setCharge] = useState<TerminalChargeView | null>(null)
@@ -31,7 +31,7 @@ export function useTerminalChargePoll(intervalMs = TERMINAL_CHARGE_POLL_MS) {
       try {
         const res = await fetch(TERMINAL_CHARGE_PENDING_URL, { cache: "no-store", signal: controller.signal })
         const data = res.ok ? ((await res.json()) as { charge?: TerminalChargeView | null }) : null
-        const next = data?.charge
+        const next = res.status === 401 || res.status === 403 ? null : data?.charge
         if (!cancelled && (next === null || typeof next?.id === "string")) setCharge(next ?? null)
       } catch {
         // Keep the last known charge (also on a timed-out read); the next poll retries.

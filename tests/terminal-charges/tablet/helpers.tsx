@@ -25,7 +25,7 @@ export function installFetch(options: { pending?: TerminalChargeView | null } = 
     state.calls.push({ url, method: init?.method ?? "GET", body })
     const reply = (data: unknown, status = 200) => ({ ok: status < 400, status, json: async () => data })
     if (url.startsWith("/api/checkin/terminal/today-classes")) return reply({ date: "2026-11-03", classes: [] })
-    if (url === PENDING_URL) return reply({ charge: state.pending })
+    if (url === PENDING_URL) return reply({ charge: state.pending && { ...state.pending } }) // a fresh object per read, like JSON
     if (url.endsWith("/prepare")) return reply({ preparedPurchaseReference: PREPARED_REFERENCE, state: "prepared" })
     if (url.endsWith("/result")) {
       if (state.resultConflict) return reply({ error: state.resultConflict }, 409)

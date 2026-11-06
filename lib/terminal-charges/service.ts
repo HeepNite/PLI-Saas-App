@@ -63,7 +63,7 @@ const toView = (charge: ChargeRecord): TerminalChargeView => ({
   terminalId: charge.terminalId,
   terminalName: charge.terminal?.name || "",
   payerUserId: charge.payerUserId,
-  payerName: charge.payer?.name || charge.payer?.email || "",
+  payerName: charge.payer?.name || "Customer", // shown on the tablet: never the payer's email
   status: charge.status as TerminalChargeStatus,
   totalCents: charge.totalCents,
   currency: charge.currency,
@@ -118,11 +118,19 @@ export const createTerminalCharge = async (input: { staff: StaffActor; body: unk
   const totalCents = items.reduce((sum, item) => sum + item.amountCents, 0)
 
   return prisma.$transaction(async (tx) => {
-    // Serialize creates per tablet so two staff cannot both pass the one-active-charge check.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`staff-terminal-charge:${terminalId}`}))`
+    // Serialize all creates so two staff cannot both pass the one-active-charge or same-debt checks.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('staff-terminal-charge:create'))`
     await expireStalePendingCharges(tx, { terminalId })
     const active = await tx.staffTerminalCharge.findFirst({ where: { terminalId, status: { in: ACTIVE_STATUSES } }, select: { id: true } })
     if (active) throw conflict("This tablet already has a charge in progress")
+    const debts = items.flatMap<Prisma.StaffTerminalChargeItemWhereInput>(({ outstandingPurchaseId: p, outstandingAttendanceId: a }) =>
+      p ? [{ outstandingPurchaseId: p }] : a ? [{ outstandingAttendanceId: a }] : [])
+    if (debts.length) {
+      const chargeIds = (await tx.staffTerminalChargeItem.findMany({ where: { OR: debts }, select: { chargeId: true } })).map((item) => item.chargeId)
+      await expireStalePendingCharges(tx, { id: { in: chargeIds } })
+      const holder = await tx.staffTerminalCharge.findFirst({ where: { id: { in: chargeIds }, status: { in: ACTIVE_STATUSES } }, select: { id: true } })
+      if (holder) throw conflict("That debt is already in another charge")
+    }
 
     const charge = await tx.staffTerminalCharge.create({
       data: {

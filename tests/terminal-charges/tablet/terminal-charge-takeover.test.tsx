@@ -84,6 +84,57 @@ describe("TerminalChargeTakeover", () => {
     expectHome()
   })
 
+  it("keeps a declined card on screen when the report fails and retries it while polling (T4)", async () => {
+    installBridge({ pollStates: ["rejected"] })
+    const fetch = installFetch({ pending: makeCharge() })
+    fetch.state.resultConflict = "Payment received, finishing up"
+    await mount()
+    await advance(10)
+    for (let poll = 0; poll < 2; poll += 1) await advance(TERMINAL_CHARGE_POLL_MS)
+    expect(text()).toContain("Payment received, finishing up")
+    expect(onReturnHome).not.toHaveBeenCalled()
+    expect(fetch.callsTo("/result")).toHaveLength(3)
+    fetch.state.resultConflict = null
+    await advance(TERMINAL_CHARGE_POLL_MS)
+    await advance(4_000)
+    expectHome()
+  })
+
+  it("says the reader didn't respond when it rejects the hand-off, without reporting a decline (T3)", async () => {
+    installBridge({ startState: "rejected" })
+    const fetch = installFetch({ pending: makeCharge() })
+    await mount()
+    await advance(10)
+    expect(text()).toContain("The card reader didn't respond")
+    expect(fetch.callsTo("/result")).toHaveLength(0)
+    await click("Cancel")
+    expect(fetch.callsTo("/result").map((call) => call.body)).toEqual([{ outcome: "cancelled" }])
+  })
+
+  it("gives up on a hung prepare after 8 s and offers Cancel (T1)", async () => {
+    installBridge()
+    installFetch({ pending: makeCharge() })
+    const routed = globalThis.fetch
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith("/prepare")
+      ? new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))))
+      : routed(input, init)))
+    await mount()
+    expect(text()).toContain("Preparing card reader")
+    await advance(8_000)
+    expect(text()).toContain("We couldn't start the card reader")
+    expect(button("Cancel")).toBeDefined()
+  })
+
+  it("returns home when the tablet loses its terminal session (T2)", async () => {
+    removeBridge()
+    installFetch({ pending: makeCharge() })
+    await mount()
+    expect(dialog()).not.toBeNull()
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ error: "Terminal session required" }) })))
+    await advance(TERMINAL_CHARGE_POLL_MS)
+    expectHome()
+  })
+
   it.each([
     ["cancels or expires it", makeCharge({ status: "cancelled" })],
     ["drops it", null],

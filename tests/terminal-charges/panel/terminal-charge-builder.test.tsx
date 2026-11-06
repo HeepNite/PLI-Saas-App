@@ -194,6 +194,19 @@ describe("TerminalChargeBuilderModal", () => {
     expect(statusPolls()).toBe(4)
   })
 
+  it("counts a status request that hangs past 8 s as a failed poll (P1)", async () => {
+    await renderModal()
+    await sendFreeAmount()
+    const routed = globalThis.fetch
+    vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/staff/terminal-charges/chg_1"
+      ? new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))))
+      : routed(input, init)))
+    for (const ms of [3_000, 8_000, 6_000, 8_000, 12_000]) await advance(ms) // poll delay, then the 8 s timeout
+    expect(text()).not.toContain("Can't reach the server")
+    await advance(8_000)
+    expect(text()).toContain("Can't reach the server")
+  })
+
   it("asks before closing while the charge is running and refreshes the board once on close (F12)", async () => {
     const onClose = vi.fn()
     const onPaid = vi.fn()
