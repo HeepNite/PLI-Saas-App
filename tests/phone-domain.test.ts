@@ -13,6 +13,7 @@ import {
   type ParsedPhone,
   type PhoneParseResult,
 } from "@/lib/phone"
+import { isCodexDevelopClerkTestEnv } from "@/lib/phone/clerk-test-preview"
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -191,6 +192,58 @@ describe("phone domain", () => {
       vi.stubEnv("CLERK_SECRET_KEY", secret)
 
       expect(parseServerPhoneInput("+15555550111")).toEqual({ ok: false, reason: "invalid" })
+    })
+
+    describe("in the browser", () => {
+      afterEach(() => vi.unstubAllGlobals())
+
+      it("accepts Clerk's reserved range when the build-time flag is enabled", () => {
+        vi.stubGlobal("window", {})
+        vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "true")
+
+        // The international phone field hands the enroll modal an E.164 value.
+        expect(expectParsedPhone(parsePublicBookingPhoneInput("+15555550140"))).toMatchObject({
+          country: "US",
+          e164: "+15555550140",
+        })
+      })
+
+      it.each([["false"], [""]])("rejects the range when the build-time flag is %j", (flag) => {
+        vi.stubGlobal("window", {})
+        vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", flag)
+
+        expect(parsePublicBookingPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+      })
+
+      it("does not trust server env vars from browser code", () => {
+        vi.stubGlobal("window", {})
+        enableCodexDemo()
+        vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "false")
+
+        expect(parsePublicBookingPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+      })
+    })
+
+    it("ignores the public flag on the server and keeps reading the server check", () => {
+      vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "true")
+      vi.stubEnv("VERCEL_ENV", "production")
+
+      expect(parsePublicBookingPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+
+      enableCodexDemo()
+      vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "false")
+
+      expect(parsePublicBookingPhoneInput("+15555550140")).toMatchObject({ ok: true })
+    })
+
+    it.each([
+      [{ VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "codex/develop", CLERK_SECRET_KEY: "sk_test_x" }, true],
+      [{ VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "codex/develop", CLERK_SECRET_KEY: "sk_test_x" }, false],
+      [{ VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "main", CLERK_SECRET_KEY: "sk_test_x" }, false],
+      [{ VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "codex/develop", CLERK_SECRET_KEY: "sk_live_x" }, false],
+      [{}, false],
+    ])("derives the build-time flag from the server check (%j)", (env, expected) => {
+      expect(isCodexDevelopClerkTestEnv(env as NodeJS.ProcessEnv)).toBe(expected)
     })
 
     it("does not expand the exception beyond Clerk's documented range", () => {
