@@ -13,6 +13,7 @@ import {
   type ParsedPhone,
   type PhoneParseResult,
 } from "@/lib/phone"
+import { isCodexDevelopClerkTestEnv } from "@/lib/phone/clerk-test-preview"
 
 afterEach(() => vi.unstubAllEnvs())
 
@@ -194,17 +195,11 @@ describe("phone domain", () => {
     })
 
     describe("in the browser", () => {
-      const enableCodexDemoInBrowser = () => {
-        vi.stubGlobal("window", {})
-        vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "preview")
-        vi.stubEnv("NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF", "codex/develop")
-        vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk_test_example")
-      }
-
       afterEach(() => vi.unstubAllGlobals())
 
-      it("accepts Clerk's reserved range from the public codex/develop preview flags", () => {
-        enableCodexDemoInBrowser()
+      it("accepts Clerk's reserved range when the build-time flag is enabled", () => {
+        vi.stubGlobal("window", {})
+        vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "true")
 
         // The international phone field hands the enroll modal an E.164 value.
         expect(expectParsedPhone(parsePublicBookingPhoneInput("+15555550140"))).toMatchObject({
@@ -213,26 +208,42 @@ describe("phone domain", () => {
         })
       })
 
-      it.each([
-        ["production", "codex/develop", "pk_test_example"],
-        ["preview", "feature/other", "pk_test_example"],
-        ["preview", "codex/develop", "pk_live_example"],
-      ])("rejects the range outside the public demo flags", (environment, branch, publishableKey) => {
+      it.each([["false"], [""]])("rejects the range when the build-time flag is %j", (flag) => {
         vi.stubGlobal("window", {})
-        vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", environment)
-        vi.stubEnv("NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF", branch)
-        vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", publishableKey)
+        vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", flag)
 
-        expect(parseServerPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+        expect(parsePublicBookingPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+      })
+
+      it("does not trust server env vars from browser code", () => {
+        vi.stubGlobal("window", {})
+        enableCodexDemo()
+        vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "false")
+
+        expect(parsePublicBookingPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
       })
     })
 
-    it("ignores the public flags on the server", () => {
-      vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "preview")
-      vi.stubEnv("NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF", "codex/develop")
-      vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk_test_example")
+    it("ignores the public flag on the server and keeps reading the server check", () => {
+      vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "true")
+      vi.stubEnv("VERCEL_ENV", "production")
 
-      expect(parseServerPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+      expect(parsePublicBookingPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+
+      enableCodexDemo()
+      vi.stubEnv("NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED", "false")
+
+      expect(parsePublicBookingPhoneInput("+15555550140")).toMatchObject({ ok: true })
+    })
+
+    it.each([
+      [{ VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "codex/develop", CLERK_SECRET_KEY: "sk_test_x" }, true],
+      [{ VERCEL_ENV: "production", VERCEL_GIT_COMMIT_REF: "codex/develop", CLERK_SECRET_KEY: "sk_test_x" }, false],
+      [{ VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "main", CLERK_SECRET_KEY: "sk_test_x" }, false],
+      [{ VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_REF: "codex/develop", CLERK_SECRET_KEY: "sk_live_x" }, false],
+      [{}, false],
+    ])("derives the build-time flag from the server check (%j)", (env, expected) => {
+      expect(isCodexDevelopClerkTestEnv(env as NodeJS.ProcessEnv)).toBe(expected)
     })
 
     it("does not expand the exception beyond Clerk's documented range", () => {

@@ -1,6 +1,7 @@
 import type { NextConfig } from "next"
 import { withSentryConfig } from "@sentry/nextjs"
 
+import { CLERK_TEST_PHONES_PUBLIC_FLAG, isCodexDevelopClerkTestEnv } from "./lib/phone/clerk-test-preview"
 import { resolveSentryRuntimeConfig } from "./lib/sentry/runtime-config"
 
 const isDevelopment = process.env.NODE_ENV === "development"
@@ -30,10 +31,9 @@ const nextConfig: NextConfig = {
     // Only resolved, non-secret runtime identity is exposed to browser code.
     NEXT_PUBLIC_SENTRY_RELEASE: sentryRuntimeConfig.release ?? "",
     NEXT_PUBLIC_SENTRY_ENVIRONMENT: sentryRuntimeConfig.environment,
-    // Non-secret deploy identity so browser code can recognize the codex/develop
-    // Clerk test preview (lib/phone accepts Clerk's reserved test phones there).
-    NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV ?? "",
-    NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF ?? "",
+    // Only the derived yes/no reaches the browser, computed with the same
+    // server-side check (incl. the secret key) that lib/phone uses.
+    [CLERK_TEST_PHONES_PUBLIC_FLAG]: String(isCodexDevelopClerkTestEnv(process.env)),
   },
   experimental: {
     middlewareClientMaxBodySize: "220mb",
