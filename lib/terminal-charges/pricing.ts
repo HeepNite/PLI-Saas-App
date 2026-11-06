@@ -83,7 +83,7 @@ const priceOutstandingAttendance = async (db: Db, payerUserId: string, attendanc
   const courseSlug = attendance.session.courseSlug
   // An open linked purchase is the debt itself; zero-amount ones settle at the drop-in price, as bulk cash does.
   const cents = linked && linked.amount > 0 ? linked.amount : await courseDropInCents(db, courseSlug)
-  return { cents, courseSlug, title: attendance.session.title || courseSlug }
+  return { cents, courseSlug, title: attendance.session.title || courseSlug, linkedPurchaseId: linked ? linked.id : null }
 }
 
 /**
@@ -132,12 +132,14 @@ export const priceTerminalChargeItems = async (db: Db, payerUserId: string, rawI
     const purchaseId = readOptionalId(raw.outstandingPurchaseId)
     const attendanceId = readOptionalId(raw.outstandingAttendanceId)
     if (Boolean(purchaseId) === Boolean(attendanceId)) throw invalid("Outstanding item needs exactly one reference")
-    const ref = purchaseId ? `p:${purchaseId}` : `a:${attendanceId}`
+    const attendanceLine = purchaseId ? null : await priceOutstandingAttendance(db, payerUserId, attendanceId)
+    const line = attendanceLine ?? await priceOutstandingPurchase(db, payerUserId, purchaseId)
+    // An attendance with an open linked purchase is that purchase's debt: reference it by the purchase so
+    // the duplicate checks (here and across tablets) see one debt, and fulfillment settles it in place.
+    const debtPurchaseId = purchaseId || attendanceLine?.linkedPurchaseId || null
+    const ref = debtPurchaseId ? `p:${debtPurchaseId}` : `a:${attendanceId}`
     if (seen.has(ref)) throw invalid("Outstanding item is listed twice")
     seen.add(ref)
-    const line = purchaseId
-      ? await priceOutstandingPurchase(db, payerUserId, purchaseId)
-      : await priceOutstandingAttendance(db, payerUserId, attendanceId)
     if (line.cents <= 0) throw invalid("Outstanding item has no amount")
     priced.push({
       ...empty,
@@ -146,7 +148,7 @@ export const priceTerminalChargeItems = async (db: Db, payerUserId: string, rawI
       courseSlug: line.courseSlug,
       unitCents: line.cents,
       amountCents: line.cents,
-      outstandingPurchaseId: purchaseId || null,
+      outstandingPurchaseId: debtPurchaseId || null,
       outstandingAttendanceId: attendanceId || null,
       description: `Outstanding — ${line.title}`,
     })

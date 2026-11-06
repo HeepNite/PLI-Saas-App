@@ -182,6 +182,16 @@ describe("staff panel routes", () => {
     expect((await api.create([{ kind: "outstanding", outstandingPurchaseId: "debt_1" }], "terminal_b")).status).toBe(201)
   })
 
+  it("treats an attendance debt and its open linked purchase as the same debt across and within charges", async () => {
+    holder.db.tables.purchase.push({ id: "linked_1", userId: "payer_1", courseSlug: "salsa", amount: 1500, status: "pending", metadata: { paymentChannel: "cash", settlementStatus: "pending" } })
+    holder.db.tables.attendance[0].metadata = { purchaseId: "linked_1" }
+    const twice = await api.create([{ kind: "outstanding", outstandingPurchaseId: "linked_1" }, { kind: "outstanding", outstandingAttendanceId: "att_1" }])
+    expect([twice.status, (await twice.json()).error]).toEqual([400, "Outstanding item is listed twice"])
+    await createCharge([{ kind: "outstanding", outstandingPurchaseId: "linked_1" }])
+    const other = await api.create([{ kind: "outstanding", outstandingAttendanceId: "att_1" }], "terminal_b")
+    expect([other.status, (await other.json()).error]).toEqual([409, "That debt is already in another charge"])
+  })
+
   it("charges an attendance debt at its open linked purchase's amount, else the drop-in price (M3)", async () => {
     holder.db.tables.purchase.push({ id: "linked_1", userId: "payer_1", courseSlug: "salsa", amount: 1500, status: "pending", metadata: { paymentChannel: "cash", settlementStatus: "pending" } })
     holder.db.tables.attendance[0].metadata = { purchaseId: "linked_1" }
