@@ -193,6 +193,48 @@ describe("phone domain", () => {
       expect(parseServerPhoneInput("+15555550111")).toEqual({ ok: false, reason: "invalid" })
     })
 
+    describe("in the browser", () => {
+      const enableCodexDemoInBrowser = () => {
+        vi.stubGlobal("window", {})
+        vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "preview")
+        vi.stubEnv("NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF", "codex/develop")
+        vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk_test_example")
+      }
+
+      afterEach(() => vi.unstubAllGlobals())
+
+      it("accepts Clerk's reserved range from the public codex/develop preview flags", () => {
+        enableCodexDemoInBrowser()
+
+        // The international phone field hands the enroll modal an E.164 value.
+        expect(expectParsedPhone(parsePublicBookingPhoneInput("+15555550140"))).toMatchObject({
+          country: "US",
+          e164: "+15555550140",
+        })
+      })
+
+      it.each([
+        ["production", "codex/develop", "pk_test_example"],
+        ["preview", "feature/other", "pk_test_example"],
+        ["preview", "codex/develop", "pk_live_example"],
+      ])("rejects the range outside the public demo flags", (environment, branch, publishableKey) => {
+        vi.stubGlobal("window", {})
+        vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", environment)
+        vi.stubEnv("NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF", branch)
+        vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", publishableKey)
+
+        expect(parseServerPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+      })
+    })
+
+    it("ignores the public flags on the server", () => {
+      vi.stubEnv("NEXT_PUBLIC_VERCEL_ENV", "preview")
+      vi.stubEnv("NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF", "codex/develop")
+      vi.stubEnv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "pk_test_example")
+
+      expect(parseServerPhoneInput("+15555550140")).toEqual({ ok: false, reason: "invalid" })
+    })
+
     it("does not expand the exception beyond Clerk's documented range", () => {
       enableCodexDemo()
 

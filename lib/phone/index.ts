@@ -123,10 +123,18 @@ export const parseCanonicalPhone = (input: string): PhoneParseResult => {
   }
 }
 
+// Server-only env vars never reach the browser bundle, so client-side checks
+// (e.g. the enroll modal's phone gate) read the public equivalents that Next.js
+// inlines at build time. These must stay literal `process.env.NEXT_PUBLIC_*`
+// references for the inlining to work. The server keeps the secret-key check.
 const isCodexDevelopClerkTestPreview = () =>
-  process.env.VERCEL_ENV === "preview" &&
-  process.env.VERCEL_GIT_COMMIT_REF === "codex/develop" &&
-  process.env.CLERK_SECRET_KEY?.startsWith("sk_test_") === true
+  typeof window === "undefined"
+    ? process.env.VERCEL_ENV === "preview" &&
+      process.env.VERCEL_GIT_COMMIT_REF === "codex/develop" &&
+      process.env.CLERK_SECRET_KEY?.startsWith("sk_test_") === true
+    : process.env.NEXT_PUBLIC_VERCEL_ENV === "preview" &&
+      process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF === "codex/develop" &&
+      process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.startsWith("pk_test_") === true
 
 const parseGuardedClerkTestPhone = (value: string): PhoneParseResult | null => {
   if (!isCodexDevelopClerkTestPreview()) return null

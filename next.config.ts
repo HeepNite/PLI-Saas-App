@@ -30,6 +30,10 @@ const nextConfig: NextConfig = {
     // Only resolved, non-secret runtime identity is exposed to browser code.
     NEXT_PUBLIC_SENTRY_RELEASE: sentryRuntimeConfig.release ?? "",
     NEXT_PUBLIC_SENTRY_ENVIRONMENT: sentryRuntimeConfig.environment,
+    // Non-secret deploy identity so browser code can recognize the codex/develop
+    // Clerk test preview (lib/phone accepts Clerk's reserved test phones there).
+    NEXT_PUBLIC_VERCEL_ENV: process.env.VERCEL_ENV ?? "",
+    NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF: process.env.VERCEL_GIT_COMMIT_REF ?? "",
   },
   experimental: {
     middlewareClientMaxBodySize: "220mb",
