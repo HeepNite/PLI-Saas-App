@@ -71,31 +71,73 @@ describe("KioskNumericKeypad input handling", () => {
       (b) => b.textContent === label || b.getAttribute("aria-label") === label
     ) as HTMLButtonElement
 
-  const pointerDown = (el: HTMLElement) =>
+  const pointer = (el: HTMLElement, type: string, button = 0) =>
     act(() => {
-      el.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }))
+      el.dispatchEvent(new MouseEvent(type, { bubbles: true, button }))
     })
+
+  const pointerDown = (el: HTMLElement) => pointer(el, "pointerdown")
+  const pointerUp = (el: HTMLElement) => pointer(el, "pointerup")
+  const tap = (el: HTMLElement) => {
+    pointerDown(el)
+    pointerUp(el)
+  }
 
   const tapClick = (el: HTMLElement) =>
     act(() => {
       el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }))
     })
 
-  it("fires a digit on pointerdown and ignores the click that follows the tap", () => {
+  it("shows the pressed state on pointerdown without entering the digit", () => {
     render()
     pointerDown(button("7"))
+    expect(onDigit).not.toHaveBeenCalled()
+    expect(button("7").className).toContain("scale-[0.98]")
+  })
+
+  it("enters the digit on pointerup and ignores the click that follows the tap", () => {
+    render()
+    tap(button("7"))
     expect(onDigit).toHaveBeenCalledTimes(1)
     expect(onDigit).toHaveBeenCalledWith("7")
     tapClick(button("7"))
     expect(onDigit).toHaveBeenCalledTimes(1)
   })
 
-  it("fires clear and backspace on pointerdown", () => {
+  it("fires clear and backspace on pointerup", () => {
     render()
-    pointerDown(button("Clear"))
-    pointerDown(button("Delete last digit"))
+    tap(button("Clear"))
+    tap(button("Delete last digit"))
     expect(onClear).toHaveBeenCalledTimes(1)
     expect(onBackspace).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not enter the digit when the finger slides off the key", () => {
+    render()
+    pointerDown(button("4"))
+    act(() => {
+      button("4").dispatchEvent(
+        new MouseEvent("pointerout", { bubbles: true, relatedTarget: document.body })
+      )
+    })
+    pointerUp(button("4"))
+    expect(onDigit).not.toHaveBeenCalled()
+    expect(button("4").className).not.toContain("scale-[0.98]")
+  })
+
+  it("does not enter the digit when the gesture is cancelled", () => {
+    render()
+    pointerDown(button("4"))
+    pointer(button("4"), "pointercancel")
+    pointerUp(button("4"))
+    expect(onDigit).not.toHaveBeenCalled()
+  })
+
+  it("activates keys from a click that had no pointer sequence", () => {
+    render()
+    tapClick(button("8"))
+    expect(onDigit).toHaveBeenCalledTimes(1)
+    expect(onDigit).toHaveBeenCalledWith("8")
   })
 
   it("still activates keys from keyboard clicks (detail 0)", () => {
@@ -109,12 +151,11 @@ describe("KioskNumericKeypad input handling", () => {
 
   it("ignores non-primary mouse buttons and disabled keys", () => {
     render()
-    act(() => {
-      button("5").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 2 }))
-    })
+    pointer(button("5"), "pointerdown", 2)
+    pointer(button("5"), "pointerup", 2)
     expect(onDigit).not.toHaveBeenCalled()
     render(true)
-    pointerDown(button("5"))
+    tap(button("5"))
     expect(onDigit).not.toHaveBeenCalled()
   })
 

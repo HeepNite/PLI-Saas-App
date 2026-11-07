@@ -64,16 +64,47 @@ export default function KioskNumericKeypad({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [disabled, captureKeyboard, onDigit, onBackspace, onClear, triggerPress])
 
-  // Taps fire on pointerdown so feedback does not wait for the browser's click
-  // (gesture disambiguation adds visible latency on the kiosk tablet). The click
-  // that follows a tap is ignored; only keyboard activation (detail 0) uses it.
+  // Pointer taps show the pressed state on pointerdown (instant feedback on the
+  // kiosk tablet) and commit on pointerup, so a finger that slides off the key
+  // or a cancelled gesture enters nothing. The click that follows a handled
+  // pointer sequence is consumed; any other click (keyboard, assistive tech)
+  // still activates the key.
+  const armedKeyRef = React.useRef<string | null>(null)
+  const pointerHandledRef = React.useRef<{ key: string; at: number } | null>(null)
+
+  const disarm = (key: string) => {
+    if (armedKeyRef.current !== key) return
+    armedKeyRef.current = null
+    setPressedKey((current) => (current === key ? null : current))
+  }
+
   const pressHandlers = (key: string, action: () => void) => ({
     onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
       if (disabled || event.button !== 0) return
+      // Touch pointers are implicitly captured by the pressed element, which
+      // would hide a slide-off. Release it so pointerleave reaches the key.
+      const target = event.currentTarget
+      if (typeof target.hasPointerCapture === "function" && target.hasPointerCapture(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId)
+      }
+      armedKeyRef.current = key
+      pointerHandledRef.current = { key, at: Date.now() }
+      setPressedKey(key)
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (armedKeyRef.current !== key || event.button !== 0) return
+      armedKeyRef.current = null
       triggerPress(key, action)
     },
-    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-      if (event.detail === 0) triggerPress(key, action)
+    onPointerLeave: () => disarm(key),
+    onPointerCancel: () => disarm(key),
+    onClick: () => {
+      const handled = pointerHandledRef.current
+      if (handled && handled.key === key && Date.now() - handled.at < 1000) {
+        pointerHandledRef.current = null
+        return
+      }
+      triggerPress(key, action)
     },
   })
 

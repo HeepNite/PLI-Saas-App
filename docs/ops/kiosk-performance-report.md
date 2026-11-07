@@ -64,7 +64,7 @@ Why 1 to 3 matter on this device: a backdrop blur is recomputed every frame wher
 1. Replace `backdrop-filter` blur on overlays with a plain semi-transparent background, for example `background: rgba(0,0,0,.6)`. Check every modal, dialog and sheet.
 2. On the PIN pad keys and container:
    - add `touch-action: manipulation`;
-   - handle `pointerdown` (or `touchstart`) instead of `click`, so feedback is immediate;
+   - show the pressed state on `pointerdown`, so feedback is immediate, and enter the digit on `pointerup`, so a finger that slides off the key or a cancelled gesture enters nothing;
    - use `transform` and `opacity` for the pressed-state animation, never `box-shadow`, `filter` or layout properties.
 3. Reduce or simplify large `box-shadow` values and continuously animated elements (such as the pulsing caret). Add `will-change: transform` only to elements that actually animate, not globally.
 4. Profile first, then memoize or isolate the PIN pad if a keypress re-renders the modal or page.
