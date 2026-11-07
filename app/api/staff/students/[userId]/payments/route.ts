@@ -6,6 +6,7 @@ import { buildRateLimitKey, getClientIp } from "@/lib/security/rate-limit"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { asObject, asText } from "@/lib/shared"
 import { VALID_PAYMENT_METHODS, PAYMENT_CHANNEL } from "@/lib/payment-constants"
+import { EXCLUDE_TERMINAL_CHARGE_CARRIERS } from "@/app/api/staff/payments/shared"
 
 export const runtime = "nodejs"
 
@@ -29,7 +30,8 @@ export async function GET(req: Request, context: { params: Promise<{ userId: str
     const [student, purchases] = await Promise.all([
       prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
       prisma.purchase.findMany({
-        where: { userId },
+        // Terminal-charge carriers are payment plumbing; their line-item children are listed instead.
+        where: { userId, ...EXCLUDE_TERMINAL_CHARGE_CARRIERS },
         orderBy: { createdAt: "desc" },
         select: {
           id: true,

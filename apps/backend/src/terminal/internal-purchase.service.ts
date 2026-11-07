@@ -238,8 +238,11 @@ const bindPreparedPaymentIntent = async (purchase: PreparedNativePaymentPurchase
     throw new InternalPurchaseError("Prepared payment identity mismatch", 409)
   }
   if (!current.stripePaymentIntentId) {
+    // A fresh PaymentIntent binds only to a still-pending Purchase: one closed while the intent was
+    // being created (e.g. a cancelled staff charge) must never become collectible.
+    if (current.status !== "pending") throw new InternalPurchaseError("Prepared purchase is no longer pending", 409)
     await prisma.purchase.updateMany({
-      where: { id: purchase.id, stripePaymentIntentId: null }, data: { stripePaymentIntentId: paymentIntentId },
+      where: { id: purchase.id, stripePaymentIntentId: null, status: "pending" }, data: { stripePaymentIntentId: paymentIntentId },
     })
   }
   const rebound = await prisma.purchase.findUnique({ where: { id: purchase.id } })

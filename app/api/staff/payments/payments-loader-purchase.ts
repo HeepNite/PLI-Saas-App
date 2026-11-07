@@ -9,6 +9,7 @@ import {
   asObject,
   asText,
   isCompletedPaymentStatus,
+  isTerminalChargeCarrier,
   isUnchargedCardAttempt,
   isVerifyCardAttempt,
   normalizeSettlementStatus,
@@ -341,13 +342,15 @@ export const loadStaffPaymentsPurchases = async (
   paymentsRequest: StaffPaymentsRequest,
   todayWindow: StaffPaymentsTodayWindow,
 ) => {
-  const purchases = await prisma.purchase.findMany(buildStaffPaymentsFindManyArgs(paymentsRequest, {
+  const fetchedPurchases = await prisma.purchase.findMany(buildStaffPaymentsFindManyArgs(paymentsRequest, {
     todayNY: todayWindow.todayNY,
     startOfTodayNY: todayWindow.startOfTodayNY,
     endOfTodayNY: todayWindow.endOfTodayNY,
   }))
-
-  const historyTruncated = paymentsRequest.mode === "history" && purchases.length > HISTORY_MODE_TAKE_LIMIT
+  // Decided on what the database returned, so dropping carriers never hides a truncation.
+  const historyTruncated = paymentsRequest.mode === "history" && fetchedPurchases.length > HISTORY_MODE_TAKE_LIMIT
+  // A terminal-charge carrier only transports the card payment; its line-item children are the board rows.
+  const purchases = fetchedPurchases.filter((purchase) => !isTerminalChargeCarrier(purchase))
   const scopedBasePurchases = historyTruncated ? purchases.slice(0, HISTORY_MODE_TAKE_LIMIT) : purchases
   const normalizedPurchases = normalizeConsecutivePurchases(scopedBasePurchases)
   const enrichedPurchases = enrichPurchases(normalizedPurchases) as EnrichedPurchase[]
