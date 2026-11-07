@@ -16,7 +16,7 @@ export function PhoneSignInModal({
   onClose: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/70 px-4">
       <div className="w-full max-w-[23rem] rounded-[1.5rem] border border-white/10 bg-[radial-gradient(circle_at_top_right,rgba(210,52,52,0.18),transparent_52%),linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-4 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)] sm:p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
