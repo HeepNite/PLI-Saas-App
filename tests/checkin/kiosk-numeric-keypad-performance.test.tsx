@@ -104,6 +104,17 @@ describe("KioskNumericKeypad input handling", () => {
     expect(onDigit).toHaveBeenCalledTimes(1)
   })
 
+  it("enters the digit once when the key is held longer than a second", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(10_000)
+    render()
+    pointerDown(button("7"))
+    now.mockReturnValue(11_500)
+    pointerUp(button("7"))
+    tapClick(button("7"))
+    expect(onDigit).toHaveBeenCalledTimes(1)
+    now.mockRestore()
+  })
+
   it("fires clear and backspace on pointerup", () => {
     render()
     tap(button("Clear"))
