@@ -126,4 +126,16 @@ describe("Stripe webhook for a carrier", () => {
     expect(mocks.syncAttendance).toHaveBeenCalledWith(expect.objectContaining({ purchaseId: "kiosk_1" }))
     expect((holder.db.staffTerminalCharge as { findUnique: ReturnType<typeof vi.fn> }).findUnique).not.toHaveBeenCalled()
   })
+
+  it.each([
+    ["payment_intent.canceled ends a collecting charge", "payment_intent.canceled", "canceled", "collecting", "cancelled"],
+    ["payment_failed leaves it collecting: the PaymentIntent stays retryable (F2)", "payment_intent.payment_failed", "requires_payment_method", "collecting", "collecting"],
+    ["a late cancel never overrides a paid charge", "payment_intent.canceled", "canceled", "paid", "paid"],
+  ])("%s", async (_label, type, intentStatus, before, after) => {
+    await createAndPrepare()
+    chargeRow().status = before
+    expect((await deliver(type, intentStatus)).status).toBe(200)
+    expect((await deliver(type, intentStatus)).status).toBe(200)
+    expect(chargeRow().status).toBe(after)
+  })
 })
