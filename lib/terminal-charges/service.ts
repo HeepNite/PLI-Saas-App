@@ -3,10 +3,15 @@ import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
+import { createOrReuseNativePreparedPurchase } from "@/lib/checkout/prepared-native-purchase-create"
+import { issuePreparedNativePurchase } from "@/lib/stripe/prepared-native-purchase"
 import { canCreateTerminalCharge } from "@/lib/security/staff-access"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
+import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { asObject } from "@/lib/shared"
 import {
+  TERMINAL_CHARGE_CARRIER_COURSE_SLUG,
+  TERMINAL_CHARGE_METADATA,
   TERMINAL_CHARGE_TTL_MS,
   type TerminalChargeItemKind,
   type TerminalChargeStatus,
@@ -29,6 +34,21 @@ export const authorizeTerminalChargeRequest = async () => {
   const auth = await authorizeStaffPortalBaseRequest()
   if (auth.ok && !canCreateTerminalCharge(auth.role, auth.category)) return { ok: false as const, status: 403, error: "Insufficient role" }
   return auth
+}
+
+/** Tablet auth: the terminal session cookie; every tablet route is scoped to its own terminal. */
+export const authorizeTerminalCaller = async () => {
+  const auth = await authorizeStaffTerminalSession({ touchLastSeen: false })
+  if (!auth.ok) return { ok: false as const, status: 401, error: "Terminal session required" }
+  return { ok: true as const, terminalId: auth.terminal.id, sessionId: auth.sessionId }
+}
+
+/** Rollout gate for the tablet routes: is this terminal's slug in TERMINAL_CHARGE_TERMINALS? */
+const chargingEnabled = async (terminalId: string) =>
+  isTerminalChargeEnabled((await prisma.staffTerminal.findUnique({ where: { id: terminalId }, select: { slug: true } }))?.slug)
+
+export const assertTerminalChargingEnabled = async (terminalId: string) => {
+  if (!(await chargingEnabled(terminalId))) throw conflict(TERMINAL_CHARGE_NOT_ENABLED)
 }
 
 /** Maps a known charge error to its JSON response; rethrows anything else. */
@@ -153,4 +173,77 @@ export const createTerminalCharge = async (input: { staff: StaffActor; body: unk
 export const getTerminalCharge = async (id: string) => {
   await expireStalePendingCharges(prisma, { id })
   return requireChargeView(prisma, { id })
+}
+
+/** The charge this tablet must show now (pending or collecting), or null. */
+export const getPendingTerminalCharge = async (terminalId: string) => {
+  if (!(await chargingEnabled(terminalId))) return null
+  await expireStalePendingCharges(prisma, { terminalId })
+  const charge = await prisma.staffTerminalCharge.findFirst({ where: { terminalId, status: { in: ACTIVE_STATUSES } }, include: VIEW_INCLUDE })
+  return charge ? toView(charge) : null
+}
+
+/**
+ * Starts collection on the tablet: pending -> collecting (guarded on status and expiry), then
+ * one carrier Purchase shaped exactly like a native M2 prepared purchase and a single-use
+ * prepared reference bound to this terminal session (the kiosk's own prepare response shape).
+ */
+export const prepareTerminalCharge = async (input: { terminalId: string; sessionId: string; id: string }) => {
+  const { terminalId, sessionId } = input
+  await assertTerminalChargingEnabled(terminalId)
+  await expireStalePendingCharges(prisma, { id: input.id, terminalId })
+  const charge = await prisma.staffTerminalCharge.findFirst({
+    where: { id: input.id, terminalId },
+    include: { payer: { select: { name: true, email: true, phone: true } } },
+  })
+  if (!charge) throw notFound()
+
+  let claimed = false
+  if (charge.status === "pending") {
+    const now = new Date()
+    const claim = await prisma.staffTerminalCharge.updateMany({
+      where: { id: charge.id, terminalId, status: "pending", expiresAt: { gt: now } },
+      data: { status: "collecting", collectingAt: now },
+    })
+    claimed = claim.count === 1
+  }
+  if (!claimed && charge.status !== "collecting") throw conflict("This charge is no longer available")
+
+  try {
+    const carrier = await createOrReuseNativePreparedPurchase({
+      preparedContextId: charge.id,
+      recipient: { userId: charge.payerUserId, email: charge.payer.email, name: charge.payer.name, phone: charge.payer.phone },
+      selection: {
+        courseSlug: TERMINAL_CHARGE_CARRIER_COURSE_SLUG,
+        courseTitle: "Staff charge",
+        amount: charge.totalCents,
+        currency: charge.currency,
+        packageId: "",
+        serviceId: "",
+        addons: [],
+        participants: 1,
+        coupon: "",
+      },
+      fulfillmentMetadata: {
+        [TERMINAL_CHARGE_METADATA.chargeId]: charge.id,
+        [TERMINAL_CHARGE_METADATA.lineKind]: "carrier",
+        source: "staff_terminal_charge",
+        terminalId,
+      },
+    })
+    const bound = await prisma.staffTerminalCharge.updateMany({
+      where: { id: charge.id, status: "collecting", OR: [{ carrierPurchaseId: null }, { carrierPurchaseId: carrier.id }] },
+      data: { carrierPurchaseId: carrier.id },
+    })
+    if (bound.count !== 1) throw conflict("This charge is no longer available")
+    const preparedPurchaseReference = await issuePreparedNativePurchase({ purchaseId: carrier.id, terminalId, sessionId })
+    return { preparedPurchaseReference, state: "prepared" as const }
+  } catch (error) {
+    // No reference reached the tablet, so no payment can start: hand the charge back.
+    if (claimed) {
+      await prisma.staffTerminalCharge.updateMany({ where: { id: charge.id, status: "collecting" }, data: { status: "pending", collectingAt: null } })
+    }
+    if (error instanceof TerminalChargeError) throw error
+    throw conflict("Card reader preparation is unavailable")
+  }
 }
