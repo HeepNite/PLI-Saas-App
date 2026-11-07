@@ -88,12 +88,14 @@ export default function KioskNumericKeypad({
         target.releasePointerCapture(event.pointerId)
       }
       armedKeyRef.current = key
-      pointerHandledRef.current = { key, at: Date.now() }
       setPressedKey(key)
     },
     onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
       if (armedKeyRef.current !== key || event.button !== 0) return
       armedKeyRef.current = null
+      // Stamp at commit time so the trailing click is consumed however long
+      // the key was held.
+      pointerHandledRef.current = { key, at: Date.now() }
       triggerPress(key, action)
     },
     onPointerLeave: () => disarm(key),
