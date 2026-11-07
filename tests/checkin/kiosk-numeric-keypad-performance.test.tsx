@@ -115,6 +115,14 @@ describe("KioskNumericKeypad input handling", () => {
     now.mockRestore()
   })
 
+  it("does not enter the digit when the keypad is disabled mid-press", () => {
+    render()
+    pointerDown(button("2"))
+    render(true)
+    pointerUp(button("2"))
+    expect(onDigit).not.toHaveBeenCalled()
+  })
+
   it("fires clear and backspace on pointerup", () => {
     render()
     tap(button("Clear"))

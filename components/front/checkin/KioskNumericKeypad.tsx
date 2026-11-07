@@ -92,6 +92,10 @@ export default function KioskNumericKeypad({
     },
     onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
       if (armedKeyRef.current !== key || event.button !== 0) return
+      if (disabled) {
+        disarm(key)
+        return
+      }
       armedKeyRef.current = null
       // Stamp at commit time so the trailing click is consumed however long
       // the key was held.
