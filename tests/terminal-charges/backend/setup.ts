@@ -18,6 +18,13 @@ vi.mock("@/lib/catalog-courses", () => ({
     ? { slug, title: "Salsa On1", enrollment: { services: [{ id: "dropin", label: "Drop-in", price: 20 }], packages: [{ id: "ten-pack", label: "10 classes", price: 150 }], addons: [] } }
     : null),
 }))
+vi.mock("stripe", () => ({
+  default: class Stripe {
+    constructor(secret: string) { mocks.stripeSecret(secret) }
+    webhooks = { constructEvent: (...args: unknown[]) => mocks.constructEvent(...args) }
+    paymentIntents = { retrieve: (...args: unknown[]) => mocks.retrieve(...args), cancel: (...args: unknown[]) => mocks.cancel(...args) }
+  },
+}))
 
 export type Row = Record<string, unknown>
 export const meta = (row: Row) => (row.metadata || {}) as Row
@@ -31,13 +38,20 @@ export const api = {
   create: async (items: unknown[], terminalId = "terminal_a", payerUserId = "payer_1") =>
     (await import("@/app/api/staff/terminal-charges/route")).POST(req({ terminalId, payerUserId, items })),
   get: async (id: string) => (await import("@/app/api/staff/terminal-charges/[id]/route")).GET(new Request("http://localhost/x"), params(id)),
+  cancel: async (id: string) => (await import("@/app/api/staff/terminal-charges/[id]/cancel/route")).POST(req(), params(id)),
   pending: async () => (await import("@/app/api/staff/terminal/charges/pending/route")).GET(new Request("http://localhost/x")),
   prepare: async (id: string) => (await import("@/app/api/staff/terminal/charges/[id]/prepare/route")).POST(req(), params(id)),
+  result: async (id: string, outcome: unknown) => (await import("@/app/api/staff/terminal/charges/[id]/result/route")).POST(req({ outcome }), params(id)),
 }
 export const createCharge = async (items: unknown[] = [free(3500)]) => {
   const response = await api.create(items)
   expect(response.status).toBe(201)
   return (await response.json()).charge.id as string
+}
+export const createAndPrepare = async (items?: unknown[]) => {
+  const id = await createCharge(items)
+  expect((await api.prepare(id)).status).toBe(200)
+  return id
 }
 export const chargeRow = () => holder.db.tables.staffTerminalCharge[0]
 export const carrierRow = () => holder.db.tables.purchase.find((row) => meta(row).lineKind === "carrier")!
@@ -52,6 +66,7 @@ export const intentFor = async (status: string, purchase: Row = carrierRow()) =>
     customer: null, receipt_email: null, payment_method_types: ["card_present"], metadata: proof.preparedNativePaymentMetadata(ticket, prepared), canceled_at: null, last_payment_error: null,
   }
 }
+export const bindIntent = () => { carrierRow().stripePaymentIntentId = "pi_charge_1" }
 
 beforeEach(() => {
   vi.resetModules()
