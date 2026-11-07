@@ -64,11 +64,24 @@ export default function KioskNumericKeypad({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [disabled, captureKeyboard, onDigit, onBackspace, onClear, triggerPress])
 
+  // Taps fire on pointerdown so feedback does not wait for the browser's click
+  // (gesture disambiguation adds visible latency on the kiosk tablet). The click
+  // that follows a tap is ignored; only keyboard activation (detail 0) uses it.
+  const pressHandlers = (key: string, action: () => void) => ({
+    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (disabled || event.button !== 0) return
+      triggerPress(key, action)
+    },
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+      if (event.detail === 0) triggerPress(key, action)
+    },
+  })
+
   const getButtonClassName = React.useCallback(
     (key: string) =>
-      `rounded-[1.15rem] border px-3 transition disabled:opacity-50 motion-reduce:transition-none motion-reduce:transform-none ${
+      `touch-manipulation select-none rounded-[1.15rem] border px-3 transition-[transform,background-color,border-color,color] disabled:opacity-50 motion-reduce:transition-none motion-reduce:transform-none ${
         pressedKey === key || activeKey === key
-          ? "border-white/40 bg-white/[0.12] text-white scale-[0.98] shadow-[0_0_0_1px_rgba(255,255,255,0.16)]"
+          ? "border-white/40 bg-white/[0.12] text-white scale-[0.98]"
           : "border-white/12 bg-white/[0.04] text-white hover:border-[rgba(182,22,22,0.72)] hover:bg-[rgba(182,22,22,0.12)] hover:text-white"
       }`,
     [activeKey, pressedKey]
@@ -117,7 +130,7 @@ export default function KioskNumericKeypad({
           <button
             key={digit}
             type="button"
-            onClick={() => triggerPress(digit, () => onDigit(digit))}
+            {...pressHandlers(digit, () => onDigit(digit))}
             disabled={disabled}
             className={`${getButtonClassName(digit)} ${digitClassName}`}
           >
@@ -126,7 +139,7 @@ export default function KioskNumericKeypad({
         ))}
         <button
           type="button"
-          onClick={() => triggerPress("clear", onClear)}
+          {...pressHandlers("clear", onClear)}
           disabled={disabled}
           className={`${getButtonClassName("clear")} ${clearClassName}`}
         >
@@ -134,7 +147,7 @@ export default function KioskNumericKeypad({
         </button>
         <button
           type="button"
-          onClick={() => triggerPress("0", () => onDigit("0"))}
+          {...pressHandlers("0", () => onDigit("0"))}
           disabled={disabled}
           className={`${getButtonClassName("0")} ${digitClassName}`}
         >
@@ -142,7 +155,7 @@ export default function KioskNumericKeypad({
         </button>
         <button
           type="button"
-          onClick={() => triggerPress("backspace", onBackspace)}
+          {...pressHandlers("backspace", onBackspace)}
           disabled={disabled}
           aria-label="Delete last digit"
           className={`inline-flex items-center justify-center ${getButtonClassName("backspace")} ${backspaceClassName}`}

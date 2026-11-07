@@ -497,13 +497,13 @@ function CourseCardContent({
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.16)_0%,rgba(0,0,0,0.08)_30%,rgba(0,0,0,0.36)_58%,rgba(0,0,0,0.94)_100%)]" />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2/3 bg-[radial-gradient(90%_95%_at_50%_100%,rgba(0,0,0,0.88),transparent_72%)]" />
             <div className="absolute left-3 top-3 flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-[color-mix(in_oklab,var(--color-sky-300)_30%,transparent)] bg-[color-mix(in_oklab,oklch(0.34_0.09_239.14)_70%,transparent)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-sky-100/90 backdrop-blur-sm">
+              <span className="rounded-full border border-[color-mix(in_oklab,var(--color-sky-300)_30%,transparent)] bg-[color-mix(in_oklab,oklch(0.34_0.09_239.14)_70%,transparent)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-sky-100/90">
                 {duration}
               </span>
-              <span className="rounded-full border border-[color-mix(in_oklab,var(--color-emerald-300)_30%,transparent)] bg-[color-mix(in_oklab,oklch(0.34_0.08_163.27)_70%,transparent)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-emerald-100/90 backdrop-blur-sm">
+              <span className="rounded-full border border-[color-mix(in_oklab,var(--color-emerald-300)_30%,transparent)] bg-[color-mix(in_oklab,oklch(0.34_0.08_163.27)_70%,transparent)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-emerald-100/90">
                 {students}
               </span>
-              <span className="rounded-full border border-[color-mix(in_oklab,#ff4242_30%,transparent)] bg-[color-mix(in_oklab,oklch(0.37_0.16_28.11)_70%,transparent)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-red-100/90 backdrop-blur-sm">
+              <span className="rounded-full border border-[color-mix(in_oklab,#ff4242_30%,transparent)] bg-[color-mix(in_oklab,oklch(0.37_0.16_28.11)_70%,transparent)] px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-red-100/90">
                 {teacher}
               </span>
             </div>

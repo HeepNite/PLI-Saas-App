@@ -17,7 +17,7 @@ export function StripePaymentModal({ clientSecret, onClose, onSuccess, email, na
   if (!clientSecret) return null
 
   return (
-    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 backdrop-blur-md p-3">
+    <div className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 p-3">
       <div className="relative w-full sm:max-w-md rounded-2xl bg-white shadow-2xl max-h-[90dvh] flex flex-col overflow-hidden">
         <button
           type="button"
