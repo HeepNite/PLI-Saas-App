@@ -956,6 +956,30 @@ describe("StaffStudentsBoardPanel", () => {
     expect(controls.setHistoryEventKindFilter).toHaveBeenCalledWith("special")
   })
 
+  it("lets history mode select dates after today to review upcoming bookings", async () => {
+    const onHistoryRangeChange = vi.fn()
+    const controls = createControls()
+    const node = await renderPanel(createProps({
+      controls: {
+        ...controls,
+        isHistoryMode: true,
+        paymentCategoryFilter: "history",
+        todayDateIso: "2026-05-26",
+        historyFrom: "2026-05-26",
+        historyTo: "2026-05-26",
+        onHistoryRangeChange,
+      },
+    }))
+
+    const futureDay = Array.from(node.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "28"
+    )
+
+    expect(futureDay).toBeDefined()
+    expect(futureDay!.disabled).toBe(false)
+    expect(node.textContent).not.toContain("History mode only supports today or past dates.")
+  })
+
   it("shows a yellow Verify pill with count and amount next to Pending", async () => {
     const controls = createControls()
     const node = await renderPanel(createProps({

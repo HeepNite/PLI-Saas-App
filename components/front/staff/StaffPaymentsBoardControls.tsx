@@ -117,7 +117,6 @@ export default function StaffPaymentsBoardControls({
   historyFrom,
   historyTo,
   onHistoryRangeChange,
-  todayDateIso,
   historyReadableRange,
   historyClassKey,
   setHistoryClassKey,
@@ -294,10 +293,6 @@ export default function StaffPaymentsBoardControls({
                 compact
                 timezone="America/New_York"
                 minDate="1900-01-01"
-                isDateDisabled={(isoDate) => isoDate > todayDateIso}
-                getDateDisabledReason={(isoDate) =>
-                  isoDate > todayDateIso ? "History mode only supports today or past dates." : undefined
-                }
               />
             </div>
 
