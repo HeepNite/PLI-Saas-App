@@ -23,9 +23,10 @@ import {
   resolveRecentVerifyAmountCents,
   splitCustomerName,
 } from "@/components/front/staff/staffPaymentCardPresentation"
-import { canOperateStudentEdits } from "@/lib/security/staff-access"
+import { canCreateTerminalCharge, canOperateStudentEdits } from "@/lib/security/staff-access"
 import { isOpenSettlementRow } from "@/components/front/staff/staffPaymentFilters"
 import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
+import { ChargeOnTabletButton } from "@/components/front/staff/terminal-charge-builder/TerminalChargeBuilderModal"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
 import { VerifyResolutionControl } from "./VerifyResolutionControl"
@@ -110,6 +111,8 @@ export function PaymentStudentCard({
     ),
   ]
   const studentOpenIds = getOpenPaymentIds(student.allPayments)
+  const studentOpenRows = student.allPayments.filter((row) => studentOpenIds.includes(row.id))
+  const showChargeOnTablet = canCreateTerminalCharge(currentRole, currentCategory) && Boolean(payment.userId)
   const historyOpenRows =
     cardVariant.context === "history" ? student.allPayments.filter(isOpenSettlementRow) : []
   const historyOpenSettlementIds = historyOpenRows.map((p) => p.id)
@@ -514,6 +517,19 @@ export function PaymentStudentCard({
           </button>
         ) : null}
       </div>
+
+      {showChargeOnTablet ? (
+        <div className="mt-2.5">
+          <ChargeOnTabletButton
+            payerUserId={payment.userId}
+            payerName={identity.fullName}
+            openPayments={studentOpenRows}
+            disabled={paymentsLoading}
+            formatMoney={formatMoney}
+            onPaid={onRefreshPaymentsBoard}
+          />
+        </div>
+      ) : null}
 
       {canEditStudentInfo &&
         payment.userId &&
