@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { TerminalChargeBuilderModal } from "@/components/front/staff/terminal-charge-builder/TerminalChargeBuilderModal"
 import { PaymentStudentCard } from "@/components/front/staff/cards/PaymentStudentCard"
+import { ProfileStudentCard } from "@/components/front/staff/cards/ProfileStudentCard"
 import { CARD_VARIANT_CONFIGS, buildHistoryStudentCard } from "@/components/front/staff/historyCardAggregates"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
 import { TERMINAL_CHARGE_POLL_MS, type TerminalChargeView } from "@/lib/terminal-charges/contract"
@@ -244,6 +245,37 @@ describe("PaymentStudentCard charge on tablet action", () => {
     await renderCard("owner", null)
     await click("Charge on tablet")
     expect(text()).toContain("Charge on tablet")
+    expect(button("Send to tablet")).toBeDefined()
+  })
+})
+
+// Search results show students without recent payments as profile cards; staff must be able to charge them too.
+describe("ProfileStudentCard charge on tablet action", () => {
+  const renderProfileCard = (currentRole: string, currentCategory: string | null) => {
+    const student = {
+      source: "profile", key: "profile-user_1", userId: "user_1", displayName: "Elvira Gutierrez", email: "elvira@example.com", phone: null,
+      avatarUrl: null, registeredAt: "2026-05-09T12:00:00.000Z", checkInStatus: "none", latestClassAttended: null, latestCheckInAt: null,
+      lastPayment: null, lastCourse: null, paymentStatus: null, activePackage: null, remainingCredits: null, outstandingBalance: null,
+      pinStatus: "none", heritagePin: null, cashSettlement: null, pendingSettlement: null, pointsBalance: 0,
+    }
+    const props = {
+      student, selectedPaymentIds: [], usersWithAuditEntries: new Set<string>(), currentRole, currentCategory,
+      formatMoney: (cents: number) => `$${cents / 100}`, paymentsLoading: false, onRefreshPaymentsBoard: () => undefined,
+    }
+    return render(<ProfileStudentCard {...(props as unknown as React.ComponentProps<typeof ProfileStudentCard>)} />)
+  }
+
+  it.each([["owner", null, true], ["admin", null, false], ["staff", "front_desk", false]])(
+    "%s/%s sees the action: %s",
+    async (role, category, visible) => {
+      await renderProfileCard(role, category)
+      expect(Boolean(button("Charge on tablet"))).toBe(visible)
+    },
+  )
+
+  it("opens the builder for a student without recent payments", async () => {
+    await renderProfileCard("owner", null)
+    await click("Charge on tablet")
     expect(button("Send to tablet")).toBeDefined()
   })
 })

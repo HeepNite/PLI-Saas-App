@@ -13,7 +13,8 @@ import {
   getInitials,
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { formatIsoDateLong } from "@/components/front/staff/studentPaymentCardFormatters"
-import { canOperateStudentEdits } from "@/lib/security/staff-access"
+import { canCreateTerminalCharge, canOperateStudentEdits } from "@/lib/security/staff-access"
+import { ChargeOnTabletButton } from "@/components/front/staff/terminal-charge-builder/TerminalChargeBuilderModal"
 import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
@@ -42,8 +43,11 @@ export function ProfileStudentCard({
   currentCategory,
   paymentsLoading,
   onRefreshPaymentsBoard,
+  formatMoney,
 }: ProfileStudentCardProps) {
   const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
+  // Search results show students without recent payments here, so staff can charge them too.
+  const showChargeOnTablet = canCreateTerminalCharge(currentRole, currentCategory) && Boolean(student.userId)
 
   // Mirror legacy logic: identity, badges, detail rows and settlement control.
   const identity = splitCustomerName(student.displayName, student.email)
@@ -202,6 +206,19 @@ export function ProfileStudentCard({
           </button>
         ) : null}
       </div>
+
+      {showChargeOnTablet ? (
+        <div className="mt-2.5">
+          <ChargeOnTabletButton
+            payerUserId={student.userId}
+            payerName={student.displayName}
+            openPayments={[]}
+            disabled={paymentsLoading}
+            formatMoney={formatMoney}
+            onPaid={onRefreshPaymentsBoard}
+          />
+        </div>
+      ) : null}
 
       {canEditStudentInfo &&
         student.userId &&
