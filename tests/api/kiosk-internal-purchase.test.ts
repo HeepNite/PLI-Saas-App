@@ -451,6 +451,21 @@ describe("internal LIVE connection-token and prepared purchase boundary", () => 
         expect(mocks.create).toHaveBeenCalledTimes(1)
       })
 
+      it("never binds or hands out a fresh PaymentIntent for a Purchase closed while it was being created", async () => {
+        preparePurchase()
+        const { ticket } = await admit()
+        const createIntent = mocks.create.getMockImplementation()!
+        mocks.create.mockImplementationOnce(async (...args: unknown[]) => {
+          const intent = await createIntent(...(args as [never]))
+          boundPurchase = { ...boundPurchase!, status: "failed" }
+          return intent
+        })
+        const response = await request({ action: "prepared-payment-intent", ticket })
+        expect(response.status).toBe(409)
+        expect(await response.text()).not.toContain("pi_fixture_secret")
+        expect(boundPurchase!.stripePaymentIntentId).toBeNull()
+      })
+
       it("creates a fresh PaymentIntent for a canceled attempt reopened on re-prepare", async () => {
         preparePurchase()
         boundPurchase = { ...boundPurchase!, metadata: { ...(boundPurchase!.metadata as Record<string, unknown>), paymentAttemptGeneration: "1" } }
