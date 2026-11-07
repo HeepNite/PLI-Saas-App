@@ -13,10 +13,23 @@ vi.mock("@/lib/security/staff-terminal", () => ({ authorizeStaffTerminalSession:
 vi.mock("@/lib/stripe/prepared-native-purchase", () => ({ issuePreparedNativePurchase: (...args: unknown[]) => mocks.issue(...args), PreparedNativePurchaseError: class extends Error {} }))
 vi.mock("@/lib/security/rate-limit", () => ({ buildRateLimitKey: vi.fn(() => "key"), consumeRateLimit: vi.fn(() => ({ ok: true })), getClientIp: vi.fn(() => "127.0.0.1") }))
 vi.mock("@/lib/audit/student-data-audit", () => ({ writeStudentDataAudit: (...args: unknown[]) => mocks.audit(...args) }))
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => ({ get: (name: string) => (name === "stripe-signature" ? "sig" : null) })) }))
+vi.mock("@clerk/nextjs/server", () => ({ clerkClient: vi.fn() }))
+vi.mock("@/lib/users", () => ({ upsertUserByIdentifiers: vi.fn() }))
+vi.mock("@/lib/packages", () => ({
+  syncPackagePurchaseFromPaidPurchase: (...args: unknown[]) => mocks.syncPackage(...args),
+  revokeUnusedInternalPackagePurchaseTx: vi.fn(), reservePackageCreditForAttendance: vi.fn(), reservePackageCreditForAttendanceTx: vi.fn(),
+}))
 vi.mock("@/lib/catalog-courses", () => ({
   getCatalogCourseBySlug: vi.fn(async (slug: string) => slug === "salsa"
     ? { slug, title: "Salsa On1", enrollment: { services: [{ id: "dropin", label: "Drop-in", price: 20 }], packages: [{ id: "ten-pack", label: "10 classes", price: 150 }], addons: [] } }
     : null),
+}))
+vi.mock("@/lib/bookings", () => ({ syncScheduledAttendanceFromPurchase: (...args: unknown[]) => mocks.syncAttendance(...args) }))
+vi.mock("@/lib/points/service", () => ({ awardPointsFromRule: vi.fn() }))
+vi.mock("@/lib/stripe/webhook-event-store", () => ({
+  claimStripeWebhookEvent: (...args: unknown[]) => mocks.claim(...args),
+  completeStripeWebhookEvent: vi.fn(), markStripeWebhookEventFailed: vi.fn(), markStripeWebhookEventManualResolutionTx: vi.fn(), touchStripeWebhookEventHeartbeat: vi.fn(),
 }))
 vi.mock("stripe", () => ({
   default: class Stripe {
@@ -55,6 +68,8 @@ export const createAndPrepare = async (items?: unknown[]) => {
 }
 export const chargeRow = () => holder.db.tables.staffTerminalCharge[0]
 export const carrierRow = () => holder.db.tables.purchase.find((row) => meta(row).lineKind === "carrier")!
+export const debtRow = () => holder.db.tables.purchase.find((row) => row.id === "debt_1")!
+export const children = () => holder.db.tables.purchase.filter((row) => meta(row).lineKind && meta(row).lineKind !== "carrier")
 
 /** A PaymentIntent exactly as the tablet's prepared attempt creates it for `purchase`. */
 export const intentFor = async (status: string, purchase: Row = carrierRow()) => {
@@ -66,6 +81,13 @@ export const intentFor = async (status: string, purchase: Row = carrierRow()) =>
     customer: null, receipt_email: null, payment_method_types: ["card_present"], metadata: proof.preparedNativePaymentMetadata(ticket, prepared), canceled_at: null, last_payment_error: null,
   }
 }
+export const deliver = async (type: string, status: string, eventId = "evt_1", purchase?: Row) => {
+  const event = { id: eventId, type, livemode: true, created: Math.floor(Date.now() / 1000), data: { object: await intentFor(status, purchase) } }
+  if (!holder.db.tables.stripeWebhookEvent.some((row) => row.eventId === eventId)) holder.db.tables.stripeWebhookEvent.push({ id: `swe_${eventId}`, eventId, status: "processing" })
+  mocks.constructEvent.mockReturnValue(event)
+  return (await import("@/app/api/stripe/webhook/route")).POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed" }))
+}
+export const paid = (eventId?: string, purchase?: Row) => deliver("payment_intent.succeeded", "succeeded", eventId, purchase)
 export const bindIntent = () => { carrierRow().stripePaymentIntentId = "pi_charge_1" }
 
 beforeEach(() => {
