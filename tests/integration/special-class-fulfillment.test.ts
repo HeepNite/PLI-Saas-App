@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import {
   admitSpecialClassAuthorization,
@@ -6,13 +6,13 @@ import {
   finalizeSpecialClassNoCapacityCancellation,
   finalizeSpecialClassPaymentFailure,
 } from "@/lib/special-classes/fulfillment"
-import { setupIntegrationDb } from "./db-test-utils"
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 import { findSelectableClassSessions } from "@/app/api/staff/students/sessions/selectable-sessions"
 
 let prisma: PrismaClient
 let cleanup: (() => Promise<void>) | null = null
 
-describe("special class webhook fulfillment", () => {
+describeWithPostgres("special class webhook fulfillment", () => {
   beforeAll(async () => { const context = await setupIntegrationDb(); prisma = context.prisma; cleanup = context.cleanup }, 120_000)
   afterAll(async () => { if (cleanup) await cleanup() }, 120_000)
 

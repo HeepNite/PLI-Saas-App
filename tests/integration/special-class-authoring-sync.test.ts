@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { SpecialClassAuthoringError, synchronizeSpecialClassAuthoring } from "@/lib/special-classes/authoring-sync"
-import { setupIntegrationDb } from "./db-test-utils"
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 
 let prisma: PrismaClient
 let cleanup: (() => Promise<void>) | null = null
@@ -31,7 +31,7 @@ const mutationCounts = () => Promise.all([
   prisma.courseCatalogAuthoringOperation.count(),
 ])
 
-describe("Course Studio special-class synchronization", () => {
+describeWithPostgres("Course Studio special-class synchronization", () => {
   beforeAll(async () => { const context = await setupIntegrationDb(); prisma = context.prisma; cleanup = context.cleanup }, 120_000)
   afterAll(async () => { if (cleanup) await cleanup() }, 120_000)
 

@@ -1,13 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { backfillSpecialSalsa } from "@/lib/special-classes/backfill-special-salsa"
 import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
-import { setupIntegrationDb } from "./db-test-utils"
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 
 let prisma: PrismaClient
 let cleanup: (() => Promise<void>) | null = null
 
-describe("special Salsa backfill", () => {
+describeWithPostgres("special Salsa backfill", () => {
   beforeAll(async () => { const context = await setupIntegrationDb(); prisma = context.prisma; cleanup = context.cleanup }, 120_000)
   afterAll(async () => { if (cleanup) await cleanup() }, 120_000)
 

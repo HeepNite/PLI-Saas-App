@@ -1,13 +1,13 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
-import { setupMigratedIntegrationDb, setupMigrationRehearsalDb } from "./db-test-utils"
+import { describeWithPostgres, setupMigratedIntegrationDb, setupMigrationRehearsalDb } from "./db-test-utils"
 
 const LATEST_MIGRATION = "20260903160000_school_builder_special_class_authoring"
 
 let prisma: PrismaClient
 let cleanup: (() => Promise<void>) | null = null
 
-describe("special class migration on an isolated PostgreSQL schema", () => {
+describeWithPostgres("special class migration on an isolated PostgreSQL schema", () => {
   beforeAll(async () => {
     const context = await setupMigratedIntegrationDb()
     prisma = context.prisma
@@ -84,7 +84,7 @@ describe("special class migration on an isolated PostgreSQL schema", () => {
   })
 })
 
-describe("special class migration with representative legacy rows", () => {
+describeWithPostgres("special class migration with representative legacy rows", () => {
   it("preserves disabled courses and standalone special classes without inferred links", async () => {
     const context = await setupMigrationRehearsalDb(LATEST_MIGRATION)
     try {

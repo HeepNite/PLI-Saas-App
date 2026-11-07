@@ -1,21 +1,21 @@
-import { beforeAll, afterAll, describe, expect, it } from "vitest"
+import { beforeAll, afterAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
-import { setupIntegrationDb } from "./db-test-utils"
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 
 let prisma: PrismaClient
 let cleanupDb: (() => Promise<void>) | null = null
 
-beforeAll(async () => {
-  const ctx = await setupIntegrationDb()
-  prisma = ctx.prisma
-  cleanupDb = ctx.cleanup
-}, 120_000)
+describeWithPostgres("prisma integration security constraints", () => {
+  beforeAll(async () => {
+    const ctx = await setupIntegrationDb()
+    prisma = ctx.prisma
+    cleanupDb = ctx.cleanup
+  }, 120_000)
 
-afterAll(async () => {
-  if (cleanupDb) await cleanupDb()
-}, 120_000)
+  afterAll(async () => {
+    if (cleanupDb) await cleanupDb()
+  }, 120_000)
 
-describe("prisma integration security constraints", () => {
   it("enforces unique user email and unique points event key", async () => {
     const user = await prisma.user.create({
       data: {

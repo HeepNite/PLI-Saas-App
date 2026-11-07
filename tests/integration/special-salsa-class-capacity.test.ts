@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { admitSpecialClassReservation, getSpecialClassAvailability } from "@/lib/checkout/special-class-reservation"
 import { SPECIAL_SALSA_CLASS } from "@/lib/special-salsa-class/config"
-import { setupIntegrationDb } from "./db-test-utils"
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 import { updatePublishedSpecialClassCapacity } from "@/lib/special-classes/management"
 import { admitSpecialClassCashWalkIn } from "@/lib/special-classes/fulfillment"
 import { CAPACITY_STATUSES } from "@/lib/special-classes/policy"
@@ -29,7 +29,7 @@ const createCashUser = (label: string) => prisma.user.create({ data: { email: `$
 const admitCash = (specialClassId: string, dbUserId: string, eventId = randomUUID()) =>
   admitSpecialClassCashWalkIn(prisma, { specialClassId, dbUserId, source: "test_cash_walk_in", eventId, now })
 
-describe("special class PostgreSQL capacity invariants", () => {
+describeWithPostgres("special class PostgreSQL capacity invariants", () => {
   beforeAll(async () => {
     const context = await setupIntegrationDb()
     prisma = context.prisma
