@@ -64,6 +64,7 @@ import {
   applyTerminalChargeOutstandingSideEffects,
   fulfillTerminalChargeCarrierTx,
   readStaffChargeId,
+  recordTerminalChargeCarrierFailureTx,
 } from "@/lib/terminal-charges/fulfillment"
 
 export const runtime = "nodejs"
@@ -1139,6 +1140,8 @@ async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, 
     // Every attempt is logged (History), including a repeat decline on an already failed row.
     // Paid, reversed, or any other non-attempt status is never overwritten.
     await recordPreparedNativeAttemptFailure(tx, purchase, intent, event, status)
+    // A canceled staff terminal charge carrier also ends its charge if it is still collecting.
+    await recordTerminalChargeCarrierFailureTx(tx, { carrier: purchase, status, paymentIntentId: intent.id })
     await completeInternalWebhookEventTx(tx, event.id, purchase.id)
   })
 }
