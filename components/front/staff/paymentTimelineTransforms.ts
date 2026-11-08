@@ -132,18 +132,15 @@ export function transformPaymentRowsToAttendance(
     const isCashPendingSettlement = row.paymentChannel === "cash" && row.settlementStatus === "pending"
 
     let status: AttendanceEvent["status"]
-    if (isCashPendingSettlement) {
+    // A reserved class has not happened yet: a paid booking is not attendance.
+    if (isCashPendingSettlement || row.checkInStatus === "scheduled") {
       status = "booked"
     } else if (isPackageCredit && hasRealAttendanceEvidence && hasCheckInTimestamp) {
       status = "attended"
-    } else if (isPackageCredit && row.checkInStatus === "scheduled") {
-      status = "booked"
     } else if (hasAttendedStatus && (hasCheckInTimestamp || isPaidDirectClassWithoutTimestamp)) {
       status = "attended"
     } else if (isPaidDirectClassWithoutTimestamp) {
       status = "attended"
-    } else if (row.checkInStatus === "scheduled") {
-      status = "booked"
     } else {
       status = "no-show"
     }
@@ -164,6 +161,10 @@ export function transformPaymentRowsToAttendance(
       if (!row.checkInAt) return row.classTime || "00:00"
       const parsed = new Date(row.checkInAt)
       if (Number.isNaN(parsed.getTime())) return row.classTime || "00:00"
+      // Bookings store the class start (New York wall clock written as UTC) as the check-in time;
+      // that is not a real arrival, so show the class time instead of shifting it by the browser's zone.
+      const storedClassStart = `${String(parsed.getUTCHours()).padStart(2, "0")}:${String(parsed.getUTCMinutes()).padStart(2, "0")}`
+      if (row.classTime && storedClassStart === row.classTime) return row.classTime
       const hours = String(parsed.getHours()).padStart(2, "0")
       const minutes = String(parsed.getMinutes()).padStart(2, "0")
       return `${hours}:${minutes}`
