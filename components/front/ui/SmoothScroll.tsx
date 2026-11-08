@@ -11,7 +11,10 @@ export default function SmoothScroll() {
     if (typeof window === "undefined") return
     const media = window.matchMedia("(min-width: 1024px)")
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)")
-    if (!media.matches || reducedMotion.matches) return
+    // Lenis only smooths mouse-wheel scrolling, but its frame loop runs on every
+    // vsync. Skip it when the primary pointer is touch (kiosk tablet, iPad).
+    const finePointer = window.matchMedia("(hover: hover) and (pointer: fine)")
+    if (!media.matches || reducedMotion.matches || !finePointer.matches) return
 
     const lenis = new Lenis({
       smoothWheel: true,
