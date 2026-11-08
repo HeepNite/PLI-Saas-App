@@ -6,18 +6,21 @@ import React from "react"
 // - img: optional background image path (public). It renders with very low opacity.
 // - className: additional Tailwind classes.
 // - children: card content.
+// - blur: backdrop blur behind the card (default true). Disable it on low-end
+//   GPUs such as the kiosk tablet, which recompute it on every frame.
 type GlassyCardProps = React.HTMLAttributes<HTMLDivElement> & {
   img?: string
+  blur?: boolean
   children: React.ReactNode
 }
 
-export default function GlassyCard({ img, className = "", children, ...rest }: GlassyCardProps) {
+export default function GlassyCard({ img, blur = true, className = "", children, ...rest }: GlassyCardProps) {
   return (
     <div
       {...rest}
       className={[
         // Base glass look in both light and dark themes
-        "relative rounded-2xl border backdrop-blur",
+        blur ? "relative rounded-2xl border backdrop-blur" : "relative rounded-2xl border",
         "border-black/10 dark:border-white/10",
         "bg-white/60 dark:bg-white/5",
         "shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35)]",
