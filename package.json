@@ -83,5 +83,9 @@
     "typescript": "^5",
     "vite-tsconfig-paths": "^4.3.2",
     "vitest": "^4.0.18"
+  },
+  "overrides": {
+    "postcss": "^8.5.23",
+    "flatted": "^3.4.2"
   }
 }
