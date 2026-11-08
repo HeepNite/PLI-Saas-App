@@ -50,7 +50,7 @@ export default function KioskQrPaymentPanel({ checkoutState, onCancel, onRetry }
   const body = getBody(checkoutState)
 
   return (
-    <div className="fixed inset-0 z-[10012] flex items-center justify-center bg-black/75 px-4 py-4 backdrop-blur-sm sm:px-6 sm:py-6">
+    <div className="fixed inset-0 z-[10012] flex items-center justify-center bg-black/75 px-4 py-4 sm:px-6 sm:py-6">
       <button
         type="button"
         aria-label="Close QR overlay"
