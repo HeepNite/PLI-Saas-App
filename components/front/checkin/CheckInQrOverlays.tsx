@@ -189,6 +189,7 @@ export function CheckInQrOverlays({
           courseTitle={bootstrap?.context?.courseTitle}
           remainingCredits={bootstrap?.package?.remainingCredits ?? null}
           hasConsecutiveOffer={Boolean(bootstrap?.consecutiveOffer || consecutiveOffer)}
+          justCheckedIn={Boolean(bootstrap?.checkedInReservation)}
           autoDoneMs={10_000}
           onDone={onDuplicateDone}
         />

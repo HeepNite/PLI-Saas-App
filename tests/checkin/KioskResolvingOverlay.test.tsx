@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  KioskDuplicatePurchaseOverlay,
   KioskPackageCheckInFailureOverlay,
   KioskResolvingOverlay,
 } from "@/components/front/checkin/KioskResolvingOverlay"
@@ -138,5 +139,42 @@ describe("KioskPackageCheckInFailureOverlay", () => {
     root = null
 
     expect(clearTimeoutSpy).toHaveBeenCalled()
+  })
+})
+
+describe("KioskDuplicatePurchaseOverlay", () => {
+  let root: Root | null = null
+  let container: HTMLDivElement | null = null
+
+  afterEach(async () => {
+    if (root) await act(async () => root?.unmount())
+    container?.remove()
+    root = null
+    container = null
+  })
+
+  const render = async (node: React.ReactElement) => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    await act(async () => root!.render(node))
+    return container
+  }
+
+  it("confirms the check-in when the kiosk just checked in a reserved class", async () => {
+    const view = await render(
+      <KioskDuplicatePurchaseOverlay customerName="Jane" courseTitle="Salsa" justCheckedIn onDone={vi.fn()} />
+    )
+
+    expect(view.textContent).toContain("You\u2019re checked in!")
+    expect(view.textContent).toContain("Jane, you are checked in for Salsa.")
+    expect(view.textContent).not.toContain("Already checked in!")
+  })
+
+  it("keeps the already-checked-in message otherwise", async () => {
+    const view = await render(<KioskDuplicatePurchaseOverlay customerName="Jane" courseTitle="Salsa" onDone={vi.fn()} />)
+
+    expect(view.textContent).toContain("Already checked in!")
+    expect(view.textContent).toContain("Jane, you are already checked in for Salsa.")
   })
 })
