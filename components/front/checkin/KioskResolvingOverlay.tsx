@@ -7,7 +7,7 @@ export function KioskResolvingOverlay({ message }: { message?: string }) {
       aria-live="polite"
       aria-busy="true"
       aria-label="Loading"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72"
     >
       <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] p-6 text-center shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 sm:p-8">
       <svg
@@ -57,7 +57,7 @@ export function KioskDuplicatePurchaseOverlay({
     <div
       aria-live="polite"
       aria-label="Already purchased"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="flex max-w-md flex-col items-center rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] p-6 text-center shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 sm:p-8">
         <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-400" />
@@ -101,7 +101,7 @@ export function KioskPackageSuccessOverlay({
     <div
       aria-live="polite"
       aria-label="Check-in complete"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="flex flex-col items-center rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 sm:p-8">
       <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-400" />
@@ -166,7 +166,7 @@ export function KioskPackageCheckInFailureOverlay({
     <div
       aria-live="assertive"
       aria-label="Check-in failed"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="flex max-w-md flex-col items-center rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] p-6 text-center shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 sm:p-8">
         <AlertTriangle className="mx-auto h-14 w-14 text-amber-400" />

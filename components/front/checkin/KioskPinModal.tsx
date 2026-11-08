@@ -44,7 +44,7 @@ export function KioskPinModal({
   success: string | null
 }) {
   return (
-    <div className="fixed inset-0 z-[12000] flex items-start justify-center bg-black/72 px-4 pb-4 pt-24 backdrop-blur-sm sm:px-6 sm:pb-5 sm:pt-28 md:pb-6 md:pt-32 lg:items-center lg:pt-10">
+    <div className="fixed inset-0 z-[12000] flex items-start justify-center bg-black/72 px-4 pb-4 pt-24 sm:px-6 sm:pb-5 sm:pt-28 md:pb-6 md:pt-32 lg:items-center lg:pt-10">
       <div
         role="dialog"
         aria-modal="true"

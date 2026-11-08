@@ -20,7 +20,7 @@ export function NativeTapToPayPopup() {
       role="dialog"
       aria-modal="true"
       aria-label="Card payment"
-      className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/80 px-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/80 px-4"
     >
       <div className="w-full max-w-sm rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] p-6 text-center text-white shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)]">
         <div className="mx-auto flex h-48 w-full items-center justify-center overflow-hidden rounded-2xl bg-white/5">

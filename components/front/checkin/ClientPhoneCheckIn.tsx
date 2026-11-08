@@ -181,7 +181,7 @@ function ConsecutiveOfferOverlay({
     }
   }
 
-  const overlayBase = "fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+  const overlayBase = "fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
   const cardBase = "rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 max-w-sm w-full"
 
   // ─── Processing ─────────────────────────────────

@@ -73,7 +73,7 @@ export function ConsecutiveClassOffer({
       <div
         aria-live="polite"
         aria-label="Payment method selection"
-        className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+        className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
       >
         <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 sm:p-8 max-w-lg w-full">
           {/* Title */}
@@ -117,7 +117,7 @@ export function ConsecutiveClassOffer({
     <div
       aria-live="polite"
       aria-label="Consecutive class offer"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 sm:p-8 max-w-lg w-full">
         {/* Discount badge */}
@@ -176,7 +176,7 @@ export function ConsecutiveOfferSuccess({
     <div
       aria-live="polite"
       aria-label="Consecutive class added"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 sm:p-8 max-w-md">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/15 ring-1 ring-emerald-400/20">
@@ -219,7 +219,7 @@ export function ConsecutiveOfferError({
     <div
       aria-live="polite"
       aria-label="Error adding consecutive class"
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 backdrop-blur-sm px-4 text-center"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 p-6 sm:p-8 max-w-md">
         <XCircle className="mx-auto h-14 w-14 text-red-400" />

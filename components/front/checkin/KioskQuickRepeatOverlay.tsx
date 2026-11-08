@@ -73,7 +73,7 @@ export function KioskQuickRepeatOverlay({
 
   return (
     <div
-      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/75 px-4 py-6 backdrop-blur-sm"
+      className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/75 px-4 py-6"
       aria-modal="true"
       role="dialog"
       aria-label="Quick check-in offer"
