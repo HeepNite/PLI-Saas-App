@@ -94,6 +94,8 @@ export type BootstrapResponse = {
   hasAnyCompletedPurchase: boolean
   /** True if user already has a successful purchase for this exact class session (date + time) */
   hasExistingPurchaseForSession?: boolean
+  /** True when the kiosk identification just checked in the student's reserved (scheduled) class */
+  checkedInReservation?: boolean
   /** True if user has any valid active package (not necessarily scoped to current course) */
   hasAnyActivePackage?: boolean
   /** Consecutive class offer, present when student attended Class A and a CourseLink exists */
