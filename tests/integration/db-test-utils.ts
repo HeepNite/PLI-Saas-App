@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { execSync } from "node:child_process"
 import { PrismaClient } from "@prisma/client"
 import dotenv from "dotenv"
+import { describe } from "vitest"
 
 type IntegrationDbContext = {
   prisma: PrismaClient
@@ -14,6 +15,18 @@ const loadEnvForDb = () => {
   dotenv.config({ path: ".env" })
   dotenv.config({ path: ".env.local", override: true })
 }
+
+/**
+ * True when a PostgreSQL DATABASE_URL is available (from the environment, .env or .env.local).
+ * Suites that need a real database wrap themselves in `describeWithPostgres`, so a plain
+ * `npm test` without a database skips them instead of failing on "Missing DATABASE_URL".
+ */
+export const hasIntegrationDatabase = (): boolean => {
+  loadEnvForDb()
+  return Boolean(process.env.DATABASE_URL)
+}
+
+export const describeWithPostgres = describe.skipIf(!hasIntegrationDatabase())
 
 const withSchema = (databaseUrl: string, schema: string) => {
   const url = new URL(databaseUrl)

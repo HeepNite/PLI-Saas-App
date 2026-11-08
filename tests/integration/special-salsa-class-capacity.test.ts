@@ -1,11 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { admitSpecialClassReservation } from "@/lib/checkout/special-class-reservation"
 import { SPECIAL_SALSA_CLASS, getSpecialClassHoldCutoff } from "@/lib/special-salsa-class/config"
-import { setupIntegrationDb } from "./db-test-utils"
-
-const hasDatabaseUrl = Boolean(process.env.DATABASE_URL)
-const describeWithPostgres = hasDatabaseUrl ? describe : describe.skip
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 
 let prisma: PrismaClient
 let cleanupDb: (() => Promise<void>) | null = null
