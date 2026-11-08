@@ -12,10 +12,56 @@ import { findRoomAvailabilityConflict } from "@/lib/room-availability"
 import { buildCheckInUserLookupCriteria } from "./shared"
 import { ATTENDANCE_STATUS, ATTENDANCE_POINT_STATUSES, CHECKOUT_ELIGIBLE_STATUSES } from "@/lib/attendance-constants"
 import { PAYMENT_CHANNEL, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { asObject, asText, isOpenPurchase, isRefundedCardPurchase } from "@/app/api/staff/payments/shared"
 
 export const runtime = "nodejs"
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
+
+/**
+ * True when the student already paid this class (card via booking link / QR / M2, or settled
+ * cash): the attendance links a paid purchase, or a paid drop-in exists for the same user,
+ * course and class date (and time, when the purchase records one).
+ */
+const findPaidPurchaseForClass = async (input: {
+  userId: string
+  courseSlug: string
+  linkedPurchaseId: string
+  date: string
+  time: string
+}) => {
+  const candidates = await prisma.purchase.findMany({
+    where: {
+      userId: input.userId,
+      OR: [
+        ...(input.linkedPurchaseId ? [{ id: input.linkedPurchaseId }] : []),
+        { courseSlug: input.courseSlug, metadata: { path: ["date"], equals: input.date } },
+      ],
+    },
+    select: {
+      id: true,
+      userId: true,
+      amount: true,
+      status: true,
+      courseSlug: true,
+      stripePaymentIntentId: true,
+      stripeCheckoutSessionId: true,
+      metadata: true,
+    },
+  })
+
+  return (
+    candidates.find((purchase) => {
+      if (isOpenPurchase(purchase).isOpen || isRefundedCardPurchase(purchase)) return false
+      if (purchase.id === input.linkedPurchaseId) return true
+      const metadata = asObject(purchase.metadata)
+      if (asText(metadata.packageId)) return false
+      if (purchase.courseSlug !== input.courseSlug || asText(metadata.date) !== input.date) return false
+      const time = asText(metadata.time)
+      return !time || time === input.time
+    }) ?? null
+  )
+}
 
 const roomDelegate = (prisma as typeof prisma & {
   room: {
@@ -308,7 +354,16 @@ export async function POST(req: Request) {
       data: { status: ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE },
     })
 
-    await prisma.purchase.create({
+    const paidPurchase = await findPaidPurchaseForClass({
+      userId: user.id,
+      courseSlug: parsed.courseSlug,
+      linkedPurchaseId: asText(asObject(attendance.metadata).purchaseId),
+      date: purchaseDate,
+      time: purchaseTime,
+    })
+
+    // Already paid (card or settled cash): keep the check-in without a second cash debt.
+    if (!paidPurchase) await prisma.purchase.create({
       data: {
         userId: user.id,
         courseSlug: parsed.courseSlug,

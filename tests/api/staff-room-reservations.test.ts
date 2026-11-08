@@ -11,7 +11,7 @@ const mockPrisma = {
   attendance: { upsert: vi.fn(), count: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
   user: { findFirst: vi.fn() },
   courseCatalog: { findUnique: vi.fn(), findMany: vi.fn() },
-  purchase: { create: vi.fn() },
+  purchase: { create: vi.fn(), findMany: vi.fn(async () => []) },
   $transaction: vi.fn(),
 }
 

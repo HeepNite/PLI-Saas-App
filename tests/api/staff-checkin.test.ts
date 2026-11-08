@@ -17,6 +17,7 @@ const mockPrisma = {
   },
   purchase: {
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     create: vi.fn(),
   },
   room: {
@@ -81,6 +82,8 @@ describe("staff checkin route", () => {
     mockPrisma.purchase.findFirst.mockReset()
     mockPrisma.purchase.create.mockResolvedValue({ id: "mock-purchase" })
     mockPrisma.purchase.findFirst.mockResolvedValue(null)
+    mockPrisma.purchase.findMany.mockReset()
+    mockPrisma.purchase.findMany.mockResolvedValue([])
     mockPrisma.pointsRule.findUnique.mockReset()
     mockPrisma.pointsLedger.create.mockReset()
     mockPrisma.$executeRaw.mockReset()
@@ -214,6 +217,118 @@ describe("staff checkin route", () => {
     expect(mockPrisma.attendance.update).toHaveBeenCalled()
     const data = await res.json()
     expect(data.attendance.status).toBe("checked_in_no_package")
+  })
+
+  describe("class already paid", () => {
+    // 2026-02-14 19:00 America/New_York
+    const startsAt = "2026-02-15T00:00:00.000Z"
+    const postCheckIn = async () => {
+      const { POST } = await import("@/app/api/staff/checkin/route")
+      return POST(
+        new Request("http://localhost/api/staff/checkin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-staff-token": "test-token" },
+          body: JSON.stringify({ courseSlug: "salsa-femenina-matutina", email: "test@example.com", startsAt }),
+        })
+      )
+    }
+    const paidCardPurchase = (overrides: Record<string, unknown> = {}) => ({
+      id: "paid_card",
+      status: "paid",
+      courseSlug: "salsa-femenina-matutina",
+      stripePaymentIntentId: "pi_1",
+      stripeCheckoutSessionId: null,
+      metadata: { paymentChannel: "card", settlementStatus: "paid", date: "2026-02-14", time: "19:00" },
+      ...overrides,
+    })
+
+    beforeEach(() => {
+      mockPrisma.user.findFirst.mockResolvedValue({ id: "db_user" })
+      mockPrisma.classSession.upsert.mockResolvedValue({ id: "session_1" })
+      mockPrisma.attendance.count.mockResolvedValue(1)
+      mockConsumePackageCredit.mockResolvedValue({ packagePurchase: null, consumed: false })
+    })
+
+    it("does not create a cash debt when the attendance is linked to a paid card purchase", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({
+        id: "att_1",
+        checkedInAt: new Date(startsAt),
+        metadata: { purchaseId: "paid_card" },
+      })
+      mockPrisma.purchase.findMany.mockResolvedValue([paidCardPurchase({ metadata: { paymentChannel: "card" } })])
+
+      const res = await postCheckIn()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+      expect(mockPrisma.attendance.update).toHaveBeenCalledWith({
+        where: { id: "att_1" },
+        data: { status: "checked_in_no_package" },
+      })
+      const data = await res.json()
+      expect(data.attendance.status).toBe("checked_in_no_package")
+    })
+
+    it("does not create a cash debt when a paid purchase exists for the same user, course and class date", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt) })
+      mockPrisma.purchase.findMany.mockResolvedValue([paidCardPurchase()])
+
+      const res = await postCheckIn()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.purchase.create).not.toHaveBeenCalled()
+      const data = await res.json()
+      expect(data.attendance.status).toBe("checked_in_no_package")
+    })
+
+    it("still creates the cash debt when the only same-day purchase is for another class time", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt) })
+      mockPrisma.purchase.findMany.mockResolvedValue([
+        paidCardPurchase({ metadata: { paymentChannel: "card", date: "2026-02-14", time: "10:00" } }),
+      ])
+
+      const res = await postCheckIn()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it("still creates the cash debt when the matching purchase is not paid", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt) })
+      mockPrisma.purchase.findMany.mockResolvedValue([
+        paidCardPurchase({ status: "refunded", metadata: { paymentChannel: "card", date: "2026-02-14", time: "19:00" } }),
+        paidCardPurchase({ id: "cash_pending", status: "pending", stripePaymentIntentId: null, metadata: { paymentChannel: "cash", settlementStatus: "pending", date: "2026-02-14", time: "19:00" } }),
+      ])
+
+      const res = await postCheckIn()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it("creates the pending cash debt when there is no paid purchase", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt) })
+
+      const res = await postCheckIn()
+
+      expect(res.status).toBe(200)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: "db_user",
+          courseSlug: "salsa-femenina-matutina",
+          amount: 2000,
+          status: "pending",
+          metadata: expect.objectContaining({
+            paymentChannel: "cash",
+            settlementStatus: "pending",
+            date: "2026-02-14",
+            time: "19:00",
+            source: "staff_checkin_no_package",
+            attendanceId: "att_1",
+          }),
+        }),
+      })
+    })
   })
 
   it("rejects missing or inactive assigned rooms", async () => {
