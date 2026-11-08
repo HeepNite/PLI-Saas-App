@@ -59,6 +59,20 @@ The hypotheses came from screenshots of the running app. Each one was then check
 
 Why 1 to 3 matter on this device: a backdrop blur is recomputed every frame where something under or over it changes (key highlight, caret). This is very expensive on Adreno 512 and matches the slow draw commands and missed deadlines. Keys that wait for `click` add gesture-disambiguation delay, which matches the high-input-latency count.
 
+## Follow-up: after PR #850 (2026-11-07)
+
+PR #850 removed the overlay blur and moved the keypad to pointer events. The app felt smoother and drew about 5 times fewer frames per second. A controlled 32 s PIN run still showed 87% janky frames, with p50 at 30 ms and p90 at 81 ms.
+
+A 60 s Chrome performance trace was then recorded on the tablet over USB (`adb forward tcp:9222 localabstract:chrome_devtools_remote`). It found:
+
+| Finding | Share of busy CPU samples | Source |
+|---|---|---|
+| The Lenis smooth-scroll `requestAnimationFrame` loop runs on every vsync, wrapped by Sentry | ~35% self, plus frame commits | `components/front/ui/SmoothScroll.tsx`, mounted in `app/layout.tsx` |
+| QR code re-encoding (`getPenaltyScore`, `encodeSegments`) | ~4% | `components/front/checkin/KioskClassQrCode.tsx` |
+| Keypad input handling | small (`pointerup` averages 9 ms) | `KioskNumericKeypad.tsx` |
+
+Lenis only smooths mouse-wheel scrolling. Its loop was active on the tablet because the screen is 1137 px wide, over the 1024 px threshold. It is now skipped unless the primary pointer is a mouse (`(hover: hover) and (pointer: fine)`).
+
 ## Recommended changes (in priority order)
 
 1. Replace `backdrop-filter` blur on overlays with a plain semi-transparent background, for example `background: rgba(0,0,0,.6)`. Check every modal, dialog and sheet.
