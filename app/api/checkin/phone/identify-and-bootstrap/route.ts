@@ -15,6 +15,7 @@ import { getCatalogCourseBySlug } from "@/lib/catalog-courses"
 import { findClerkUserByIdentifiers, resolveAvatarState, type ClerkUser } from "@/lib/clerk-users"
 import { SUCCESSFUL_PURCHASE_STATUSES } from "@/lib/purchase-status"
 import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
+import { checkInReservedAttendanceAtKiosk } from "@/lib/checkin/flip-scheduled-attendance"
 import type { CourseData } from "@/constants/courses"
 import type {
   FastPathResponse,
@@ -400,15 +401,12 @@ export async function POST(req: Request) {
   const isFastPath = Boolean(activePackageForCourse) && Boolean(existingSessionResult)
 
   if (isFastPath && activePackageForCourse && existingSessionResult) {
-    // Check for existing attendance (already checked in)
-    const existingAttendance = await prisma.attendance.findUnique({
-      where: {
-        userId_sessionId: {
-          userId: dbUser.id,
-          sessionId: existingSessionResult.id,
-        },
-      },
-      select: { id: true },
+    // Existing attendance (already checked in); a reservation is checked in now.
+    const attendanceState = await checkInReservedAttendanceAtKiosk({
+      userId: dbUser.id,
+      sessionId: existingSessionResult.id,
+      now,
+      allowCheckIn: isWindowOpen,
     })
 
     const bootstrapContext = buildBootstrapContext(
@@ -435,7 +433,8 @@ export async function POST(req: Request) {
       },
       package: serializePackage(activePackageForCourse),
       context: bootstrapContext,
-      hasExistingPurchaseForSession: Boolean(existingAttendance),
+      hasExistingPurchaseForSession: attendanceState.hasAttendance,
+      ...(attendanceState.checkedIn ? { checkedInReservation: true } : {}),
       hasAnyActivePackage: true,
       consecutiveOffer: null,
       quickCheckout: null,
@@ -586,18 +585,16 @@ export async function POST(req: Request) {
     packages: activePackages,
   })
 
-  // Check attendance for session
-  const hasExistingPurchaseForSession =
-    classSession
-      ? Boolean(
-          await prisma.attendance.findUnique({
-            where: {
-              userId_sessionId: { userId: dbUser.id, sessionId: classSession.id },
-            },
-            select: { id: true },
-          })
-        )
-      : false
+  // Check attendance for session; a reservation is checked in now.
+  const attendanceState = classSession
+    ? await checkInReservedAttendanceAtKiosk({
+        userId: dbUser.id,
+        sessionId: classSession.id,
+        now,
+        allowCheckIn: isWindowOpen,
+      })
+    : { hasAttendance: false, checkedIn: false }
+  const hasExistingPurchaseForSession = attendanceState.hasAttendance
 
   const lastPurchase = recentPurchasesResult[0] || null
   const purchaseMetadata = asRecord(lastPurchase?.metadata)
@@ -659,6 +656,7 @@ export async function POST(req: Request) {
     package: preferredPackage ? serializePackage(preferredPackage) : null,
     context: bootstrapContext,
     hasExistingPurchaseForSession,
+    ...(attendanceState.checkedIn ? { checkedInReservation: true } : {}),
     hasAnyActivePackage: allActivePackagesResult.length > 0,
     consecutiveOffer: consecutiveOfferResult,
     quickCheckout: quickTemplate

@@ -13,6 +13,8 @@ import { getNestGatewayQrDecision } from "@/lib/nest-gateway/client"
 import type { CheckinQrDecisionGatewayRequest } from "@/lib/nest-gateway/contracts/checkin-qr-decision"
 import { asRecord, asText, normalizePhoneDigits } from "@/lib/shared"
 import { FLOW_CONTEXT } from "@/lib/payment-constants"
+import { prisma } from "@/lib/prisma"
+import { checkInReservedAttendanceAtKiosk } from "@/lib/checkin/flip-scheduled-attendance"
 
 export const runtime = "nodejs"
 
@@ -62,6 +64,7 @@ const createTerminalSafeBootstrapResponse = (bootstrap: BootstrapResponse): Term
   package: bootstrap.package,
   quickCheckout: bootstrap.quickCheckout,
   hasExistingPurchaseForSession: bootstrap.hasExistingPurchaseForSession,
+  ...(bootstrap.checkedInReservation ? { checkedInReservation: true } : {}),
   hasAnyActivePackage: bootstrap.hasAnyActivePackage,
   consecutiveOffer: bootstrap.consecutiveOffer,
   quickRepeatEligible: bootstrap.quickRepeatEligible,
@@ -290,6 +293,24 @@ export async function POST(req: Request) {
       }
     } else {
       bootstrap = gatewayResult as BootstrapResponse
+    }
+
+    // Kiosk identification of a student with a reserved (scheduled) class for
+    // this session checks them in now, without charging or using another credit.
+    // Optional step: a failure here must never fail the kiosk bootstrap itself.
+    if (isTerminalFlow && kioskSessionResult?.ok && bootstrap.hasExistingPurchaseForSession && bootstrap.context.checkInWindow?.isOpen) {
+      try {
+        const classSession = await prisma.classSession.findUnique({
+          where: { courseSlug_startsAt: { courseSlug: context.courseSlug, startsAt: context.startsAt } },
+          select: { id: true },
+        })
+        const attendanceState = classSession
+          ? await checkInReservedAttendanceAtKiosk({ userId: dbUser.id, sessionId: classSession.id, now: new Date(), allowCheckIn: true })
+          : null
+        if (attendanceState?.checkedIn) bootstrap = { ...bootstrap, checkedInReservation: true }
+      } catch (error) {
+        console.error("[kiosk-reserved-checkin] reservation lookup failed during bootstrap", error)
+      }
     }
 
     if (flowContext === FLOW_CONTEXT.KIOSK_TERMINAL && kioskSessionResult?.ok && isPreparedCheckoutContextEnabled()) {
