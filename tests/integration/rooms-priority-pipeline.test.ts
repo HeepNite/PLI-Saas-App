@@ -13,7 +13,7 @@ const mockPrisma = {
   attendance: { upsert: vi.fn(), count: vi.fn(), update: vi.fn(), findUnique: vi.fn() },
   user: { findFirst: vi.fn() },
   courseCatalog: { findUnique: vi.fn(), findMany: vi.fn() },
-  purchase: { create: vi.fn() },
+  purchase: { create: vi.fn(), findMany: vi.fn() },
   $transaction: vi.fn(),
 }
 
@@ -57,6 +57,9 @@ describe("Integration: Full rooms-priority conflict pipeline", () => {
     mockPrisma.attendance.upsert.mockReset()
     mockPrisma.attendance.count.mockReset()
     mockPrisma.purchase.create.mockReset()
+    // Staff check-in looks for an already-paid purchase of the class before creating a cash debt.
+    mockPrisma.purchase.findMany.mockReset()
+    mockPrisma.purchase.findMany.mockResolvedValue([])
     mockPrisma.$transaction.mockReset()
     mockPrisma.$transaction.mockImplementation(async (cb: (tx: typeof mockPrisma) => Promise<unknown>) => cb(mockPrisma))
   })
