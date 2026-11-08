@@ -53,12 +53,17 @@ const findPaidPurchaseForClass = async (input: {
   return (
     candidates.find((purchase) => {
       if (isOpenPurchase(purchase).isOpen || isRefundedCardPurchase(purchase)) return false
-      if (purchase.id === input.linkedPurchaseId) return true
       const metadata = asObject(purchase.metadata)
-      if (asText(metadata.packageId)) return false
-      if (purchase.courseSlug !== input.courseSlug || asText(metadata.date) !== input.date) return false
+      // A package sale or a purchase for another class never pays for this drop-in check-in.
+      if (asText(metadata.packageId) || purchase.courseSlug !== input.courseSlug) return false
+      const date = asText(metadata.date)
       const time = asText(metadata.time)
-      return !time || time === input.time
+      if (purchase.id === input.linkedPurchaseId) {
+        // The attendance's own purchase: only its recorded class date/time, when present, must match.
+        return (!date || date === input.date) && (!time || time === input.time)
+      }
+      // An unlinked purchase must name this exact class, so one paid purchase never covers another session.
+      return date === input.date && time === input.time
     }) ?? null
   )
 }

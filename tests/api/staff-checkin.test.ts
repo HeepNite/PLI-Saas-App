@@ -293,6 +293,31 @@ describe("staff checkin route", () => {
       expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
     })
 
+    it("still creates the cash debt when the linked paid purchase is for another course or date", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt), metadata: { purchaseId: "paid_card" } })
+      mockPrisma.purchase.findMany.mockResolvedValue([paidCardPurchase({ courseSlug: "bachata-beginners" })])
+      expect((await postCheckIn()).status).toBe(200)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+
+      vi.clearAllMocks()
+      mockPrisma.user.findFirst.mockResolvedValue({ id: "db_user" })
+      mockPrisma.classSession.upsert.mockResolvedValue({ id: "session_1" })
+      mockPrisma.attendance.count.mockResolvedValue(1)
+      mockConsumePackageCredit.mockResolvedValue({ packagePurchase: null, consumed: false })
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt), metadata: { purchaseId: "paid_card" } })
+      mockPrisma.purchase.findMany.mockResolvedValue([paidCardPurchase({ metadata: { paymentChannel: "card", date: "2026-02-13", time: "19:00" } })])
+      expect((await postCheckIn()).status).toBe(200)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
+    it("still creates the cash debt when an unlinked same-day paid purchase has no class time", async () => {
+      mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt) })
+      mockPrisma.purchase.findMany.mockResolvedValue([paidCardPurchase({ metadata: { paymentChannel: "card", date: "2026-02-14" } })])
+
+      expect((await postCheckIn()).status).toBe(200)
+      expect(mockPrisma.purchase.create).toHaveBeenCalledTimes(1)
+    })
+
     it("still creates the cash debt when the matching purchase is not paid", async () => {
       mockPrisma.attendance.upsert.mockResolvedValue({ id: "att_1", checkedInAt: new Date(startsAt) })
       mockPrisma.purchase.findMany.mockResolvedValue([
