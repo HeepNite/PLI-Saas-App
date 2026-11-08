@@ -25,6 +25,7 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { normalizePhone } from "@/lib/shared"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { getDateKeyInTimeZone } from "@/lib/class-schedule"
 import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 import {
@@ -130,6 +131,12 @@ const resolveAttendanceStatusForFlow = (input: {
   hasPackagePurchase?: boolean
 }) => {
   if (!isTerminalFlow(input.metadata)) return ATTENDANCE_STATUS.SCHEDULED
+  // Paying ahead (e.g. the phone QR at home) for a class on a later New York day is a
+  // reservation, not a check-in: the check-in window is only the class's own NY day.
+  const classDateKey = normalize(input.metadata.date)
+  if (classDateKey && /^\d{4}-\d{2}-\d{2}$/.test(classDateKey) && classDateKey > getDateKeyInTimeZone(new Date())) {
+    return ATTENDANCE_STATUS.SCHEDULED
+  }
   return input.hasPackagePurchase ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
 }
 
