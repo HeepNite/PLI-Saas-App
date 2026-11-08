@@ -13,6 +13,7 @@ import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-c
 import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
+import { checkInScheduledAttendance } from "@/lib/checkin/flip-scheduled-attendance"
 
 export const runtime = "nodejs"
 
@@ -128,6 +129,55 @@ export async function POST(req: Request) {
           checkedInAt: existingAttendance.checkedInAt.toISOString(),
           courseSlug: context.courseSlug,
           courseTitle: courseTitle,
+          startsAt: session.startsAt.toISOString(),
+        },
+        package: existingAttendance.packageUsage?.packagePurchase || null,
+      })
+    }
+
+    // ─── Reserved class: check in, no new charge or credit ───
+    const reservation = existingAttendance
+      ? await checkInScheduledAttendance({
+          attendance: existingAttendance,
+          userId: dbUser.id,
+          now,
+          checkInSource: "qr_client_phone",
+          pointsSource: "qr_client_phone",
+        })
+      : null
+    if (reservation) {
+      const { attendance } = reservation
+      return NextResponse.json({
+        status: ATTENDANCE_STATUS.CHECKED_IN,
+        attendance: {
+          id: attendance.id,
+          status: attendance.status,
+          checkedInAt: attendance.checkedInAt.toISOString(),
+          courseSlug: context.courseSlug,
+          courseTitle,
+          startsAt: session.startsAt.toISOString(),
+        },
+        package: attendance.packageUsage?.packagePurchase || undefined,
+        points: {
+          awarded: reservation.pointsAwarded,
+          milestone: reservation.milestone > 0 ? reservation.milestone : null,
+          attendanceCount: reservation.checkedInCount,
+          milestoneEvery: reservation.milestoneEvery,
+        },
+        courseTitle,
+        consecutiveOffer: null,
+      })
+    }
+    // Another scan flipped this reservation first: it is checked in, never charge or use a credit again.
+    if (existingAttendance?.status === ATTENDANCE_STATUS.SCHEDULED) {
+      return NextResponse.json({
+        status: "already_checked_in",
+        attendance: {
+          id: existingAttendance.id,
+          status: ATTENDANCE_STATUS.CHECKED_IN,
+          checkedInAt: now.toISOString(),
+          courseSlug: context.courseSlug,
+          courseTitle,
           startsAt: session.startsAt.toISOString(),
         },
         package: existingAttendance.packageUsage?.packagePurchase || null,

@@ -8,6 +8,8 @@ const mockSessionUpsert = vi.fn()
 const mockAttendanceFindUnique = vi.fn()
 const mockAttendanceCreate = vi.fn()
 const mockAttendanceUpdate = vi.fn()
+const mockAttendanceUpdateMany = vi.fn()
+const mockAttendanceFindUniqueOrThrow = vi.fn()
 const mockPurchaseFindMany = vi.fn()
 const mockPackagePurchaseFindMany = vi.fn()
 const mockPackagePurchaseFindUnique = vi.fn()
@@ -44,6 +46,8 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
       create: (...args: unknown[]) => mockAttendanceCreate(...args),
       update: (...args: unknown[]) => mockAttendanceUpdate(...args),
+      updateMany: (...args: unknown[]) => mockAttendanceUpdateMany(...args),
+      findUniqueOrThrow: (...args: unknown[]) => mockAttendanceFindUniqueOrThrow(...args),
       count: (...args: unknown[]) => mockAttendanceCount(...args),
     },
     purchase: { findMany: (...args: unknown[]) => mockPurchaseFindMany(...args) },
@@ -238,6 +242,54 @@ describe("POST /api/checkin/qr/client-phone", () => {
     expect(res.status).toBe(200)
     expect(data.status).toBe("rejected")
     expect(data.message).toContain("No booking")
+  })
+
+  it("checks in a reserved class without a new charge or credit", async () => {
+    for (const mock of [mockTransaction, mockPackageUsageLedgerCreate, mockPurchaseFindMany, mockAttendanceUpdate, mockAttendanceUpdateMany]) mock.mockClear()
+    mockAttendanceFindUnique.mockResolvedValue({
+      id: "att_reserved", status: "scheduled", checkedInAt: NOW, metadata: null,
+      packageUsage: { packagePurchaseId: "pkg_1", packagePurchase: { id: "pkg_1", remainingCredits: 3 } },
+    })
+    mockAttendanceUpdateMany.mockResolvedValue({ count: 1 })
+    mockAttendanceFindUniqueOrThrow.mockResolvedValue({
+      id: "att_reserved", status: "checked_in", checkedInAt: NOW, session: { courseSlug: "salsa-night" },
+      packageUsage: { packagePurchaseId: "pkg_1", packagePurchase: { id: "pkg_1", remainingCredits: 3 } },
+    })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("checked_in")
+    expect(mockAttendanceUpdateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: "att_reserved", status: "scheduled" },
+      data: { status: "checked_in", checkedInAt: NOW },
+    })
+    expect(mockAttendanceUpdate).not.toHaveBeenCalled()
+    expect(data.package.remainingCredits).toBe(3)
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
+    expect(mockPurchaseFindMany).not.toHaveBeenCalled()
+  })
+
+  it("never charges or uses a credit when a concurrent scan already checked the reservation in", async () => {
+    for (const mock of [mockTransaction, mockPackageUsageLedgerCreate, mockPurchaseFindMany, mockAttendanceUpdate, mockAttendanceUpdateMany]) mock.mockClear()
+    mockAttendanceFindUnique.mockResolvedValue({
+      id: "att_reserved", status: "scheduled", checkedInAt: NOW, metadata: null,
+      packageUsage: { packagePurchaseId: "pkg_1", packagePurchase: { id: "pkg_1", remainingCredits: 3 } },
+    })
+    mockAttendanceUpdateMany.mockResolvedValue({ count: 0 })
+
+    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+    const res = await POST(buildRequest(defaultBody))
+    const data = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("already_checked_in")
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
+    expect(mockPurchaseFindMany).not.toHaveBeenCalled()
   })
 
   it("returns already_checked_in when attendance exists", async () => {
