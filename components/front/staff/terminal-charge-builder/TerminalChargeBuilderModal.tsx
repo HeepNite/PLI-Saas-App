@@ -254,9 +254,11 @@ export function ChargeOnTabletButton({ disabled = false, ...props }: BuilderProp
         type="button"
         onClick={() => setOpen(true)}
         disabled={disabled}
-        className="w-full rounded-md border border-sky-300/35 bg-sky-400/10 px-2 py-1.5 text-[11px] font-semibold text-sky-100 transition-colors hover:bg-sky-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label="Charge on tablet"
+        title="Charge on tablet"
+        className="min-w-0 flex-1 whitespace-nowrap rounded-md border border-sky-300/35 bg-sky-400/10 px-1.5 py-1 text-[11px] font-semibold text-sky-100 transition-colors hover:bg-sky-400/20 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Charge on tablet
+        Charge
       </button>
       {open ? <TerminalChargeBuilderModal {...props} onClose={() => setOpen(false)} /> : null}
     </>

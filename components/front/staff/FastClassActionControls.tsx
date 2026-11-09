@@ -102,7 +102,7 @@ export function FastClassActionControls({
         type="button"
         onClick={runFastAction}
         disabled={isDisabled}
-        className="rounded-md border border-emerald-300/35 bg-emerald-400/12 px-2 py-1 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+        className="min-w-0 flex-1 whitespace-nowrap rounded-md border border-emerald-300/35 bg-emerald-400/12 px-1.5 py-1 text-[11px] font-semibold text-emerald-100 transition-colors hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
         aria-label={`${label} for ${studentName}`}
       >
         {busy ? "Working…" : label}

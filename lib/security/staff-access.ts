@@ -122,11 +122,10 @@ export const canGrantCashPackage = (
 
 /**
  * Staff who may create and cancel a card charge collected on a tablet's M2 reader
- * (docs/specs/staff-panel-m2-charge). Rollout gate: owner only until the live $1 tablet test;
- * admin and staff/front_desk (D4, phase 1) are re-enabled after it. Managers are deferred to phase 3.
+ * (docs/specs/staff-panel-m2-charge, D4 phase 1): owner, admin and staff/front_desk.
+ * Managers are deferred to phase 3.
  */
 export const canCreateTerminalCharge = (
   role: StaffRole | null | undefined,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept for callers; staff/front_desk returns after rollout
-  _category: StaffCategory | null | undefined
-): boolean => role === "owner"
+  category: StaffCategory | null | undefined
+): boolean => role === "owner" || role === "admin" || (role === "staff" && category === "front_desk")
