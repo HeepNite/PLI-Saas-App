@@ -116,6 +116,40 @@ describe("EnrollModal native payment completion", () => {
     vi.useRealTimers()
   })
 
+  // The kiosk tablet GPU recomputes a backdrop blur on every frame where the
+  // modal content changes (caret, spinner, reader dot), which made the payment
+  // screen paint-bound (docs/ops/kiosk-performance-report.md).
+  const blurredElements = () =>
+    Array.from(document.body.querySelectorAll<HTMLElement>("[class]")).filter((el) =>
+      /backdrop-blur/.test(el.getAttribute("class") ?? "")
+    )
+
+  it("renders the kiosk terminal payment modal without any backdrop blur", async () => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root!.render(<EnrollModal course={course} open onCloseAction={vi.fn()} photoFlowContext="kiosk_terminal" />)
+    })
+
+    expect(document.body.querySelector(".kiosk-terminal-enroll-modal")).not.toBeNull()
+    expect(blurredElements()).toEqual([])
+  })
+
+  it("keeps the backdrop blur on the regular web booking modal", async () => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+
+    await act(async () => {
+      root!.render(<EnrollModal course={course} open onCloseAction={vi.fn()} />)
+    })
+
+    expect(document.body.querySelector(".kiosk-terminal-enroll-modal")).toBeNull()
+    expect(blurredElements().length).toBeGreaterThan(0)
+  })
+
   it("routes native approval completion to the shared kiosk form reset", async () => {
     container = document.createElement("div")
     document.body.appendChild(container)

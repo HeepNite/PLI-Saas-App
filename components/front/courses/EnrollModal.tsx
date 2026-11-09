@@ -1334,16 +1334,18 @@ export default function EnrollModal({
         <button
           aria-label={t("aria_close")}
           onClick={preventOutsideClose ? undefined : handleCancel}
-          className={`absolute inset-0 ${isQrMobileCompactFlow ? "bg-black" : "bg-black/60"} backdrop-blur-sm`}
+          // No backdrop blur on the kiosk tablet: its GPU recomputes it on every frame.
+          className={`absolute inset-0 ${isQrMobileCompactFlow ? "bg-black" : forceKioskDarkModal ? "bg-black/70" : "bg-black/60 backdrop-blur-sm"}`}
         />
       )}
 
       <GlassyCard
         data-lenis-prevent
+        blur={!forceKioskDarkModal}
         className={[
           "relative w-full p-0",
           forceKioskDarkModal
-            ? "kiosk-terminal-enroll-modal border-white/12 bg-neutral-900/82 text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)] backdrop-blur-xl"
+            ? "kiosk-terminal-enroll-modal border-white/12 bg-neutral-900/95 text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)]"
             : forceCampaignDarkCard
               ? "!border-white/12 !bg-[#17151b] text-white shadow-[0_28px_90px_-44px_rgba(0,0,0,0.9)]"
               : "bg-white/70 dark:bg-white/10",
@@ -1618,7 +1620,7 @@ export default function EnrollModal({
               </form>
             )}
             {showKioskPaymentTransition && !success && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-[rgba(24,12,12,0.72)] px-6 py-8 backdrop-blur-sm">
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-[rgba(24,12,12,0.85)] px-6 py-8">
                 <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[rgba(28,18,18,0.92)] px-6 py-8 text-center text-white shadow-[0_24px_60px_-32px_rgba(0,0,0,0.9)]">
                   <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-white/15 border-t-white" aria-hidden />
                   <h4 className="mt-4 text-xl font-semibold leading-tight">{kioskPaymentTransitionMessage}</h4>
@@ -1690,7 +1692,7 @@ export default function EnrollModal({
         />
       )}
       {showCancelConfirm && (
-        <div className="fixed inset-0 z-[10030] flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
+        <div className={`fixed inset-0 z-[10030] flex items-center justify-center bg-black/75 px-4${isKioskTerminalFlow ? "" : " backdrop-blur-sm"}`}>
           <div className="w-full max-w-sm rounded-[1.5rem] border border-white/10 bg-[linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
             <h3 className="text-lg font-semibold text-white">Cancel booking?</h3>
             <p className="mt-3 text-sm leading-relaxed text-white/70">
@@ -1731,7 +1733,7 @@ export default function EnrollModal({
           <button
             type="button"
             aria-label={t("aria_close")}
-            className={`absolute inset-0 z-[1] ${isPublicHeritageBooking && !isKioskTerminalFlow ? "bg-[#09070d]/55 backdrop-blur-[2px]" : "bg-black/70 backdrop-blur-sm"}`}
+            className={`absolute inset-0 z-[1] ${isPublicHeritageBooking && !isKioskTerminalFlow ? "bg-[#09070d]/55 backdrop-blur-[2px]" : isKioskTerminalFlow ? "bg-black/75" : "bg-black/70 backdrop-blur-sm"}`}
             onClick={() => {
               invalidateRecovery()
               resetVerification()
