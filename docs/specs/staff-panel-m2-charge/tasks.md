@@ -10,3 +10,4 @@ Base: `main`. Each phase ships as its own PR (ported to `codex/develop`).
 - [ ] Phase 2 — undated drop-in credits (D1) with a shared package-priority comparator.
 - [ ] Phase 3 — `staff/manager` gets the payments board (read + charge).
 - [x] Rollout gate (owner decision: "se me hace que vamos por la A, simpre que no toques los kioskos y su flujo"): owner-only `canCreateTerminalCharge` + `TERMINAL_CHARGE_TERMINALS` allowlist of tablet slugs; admin and staff/front_desk return after the live $1 test.
+- [x] Roles widened after the live tablet tests (owner, 2026-11-09: "vamos con el admin y el front desk para que puedan cobrar desde el panel"): `canCreateTerminalCharge` allows owner, admin and staff/front_desk; the `TERMINAL_CHARGE_TERMINALS` allowlist stays.
