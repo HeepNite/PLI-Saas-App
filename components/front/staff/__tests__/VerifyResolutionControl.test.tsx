@@ -143,7 +143,7 @@ describe("VerifyResolutionControl", () => {
       paymentChannel: "cash",
       verifyResolution: { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: null },
     }))
-    expect(collected.textContent).toContain("Collected by Elvira")
+    expect(collected.textContent).toBe("Collected by Elvira")
     expect(collected.querySelector("button")).toBeNull()
     await act(async () => root?.unmount())
     container?.remove()
@@ -152,7 +152,8 @@ describe("VerifyResolutionControl", () => {
       verify: false,
       verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: "Class not taken" },
     }))
-    expect(dismissed.textContent).toContain("Dismissed: Class not taken")
+    // The dismissed line names the amount that was written off, not only the reason.
+    expect(dismissed.textContent).toBe("Dismissed $25.00: Class not taken")
     expect(dismissed.querySelector("button")).toBeNull()
   })
 })
