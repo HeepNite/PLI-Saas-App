@@ -202,6 +202,36 @@ async function settledInPlacePurchaseIds(tx: Tx, chargeId: string, items: Charge
   return ids
 }
 
+/**
+ * A canceled PaymentIntent of a carrier ends its charge if still collecting, so the tablet and
+ * panel never stay stuck. payment_failed leaves a card_present PaymentIntent retryable, so it is
+ * ignored (the tablet reports its own decline). Idempotent; a paid charge is never touched.
+ */
+export async function recordTerminalChargeCarrierFailureTx(
+  tx: Tx,
+  input: { carrier: Pick<Purchase, "id" | "metadata">; status: "failed" | "canceled"; paymentIntentId: string },
+) {
+  const chargeId = readStaffChargeId(input.carrier.metadata)
+  if (input.status !== "canceled" || !chargeId) return
+  const charge = await tx.staffTerminalCharge.findUnique({ where: { id: chargeId } })
+  if (!charge || charge.carrierPurchaseId !== input.carrier.id) return
+  const updated = await tx.staffTerminalCharge.updateMany({
+    where: { id: charge.id, status: "collecting" },
+    data: { status: "cancelled", resolvedAt: new Date(), failureReason: "payment_canceled" },
+  })
+  if (updated.count !== 1) return
+  await writeStudentDataAudit({
+    targetUserId: charge.payerUserId,
+    staffClerkId: charge.createdByUserId,
+    entity: "payment",
+    entityId: charge.id,
+    field: "terminal_charge_result",
+    valueBefore: { status: "collecting" },
+    valueAfter: { status: "cancelled", terminalId: charge.terminalId, paymentIntentId: input.paymentIntentId },
+    reason: "Card payment canceled on the tablet reader",
+  }, tx)
+}
+
 /** Post-commit mark_paid side effects for the outstanding purchases a charge settled. */
 export async function applyTerminalChargeOutstandingSideEffects(fulfillment: TerminalChargeFulfillment) {
   for (const purchaseId of fulfillment.settledOutstandingPurchaseIds) {
