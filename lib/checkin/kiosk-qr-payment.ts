@@ -51,6 +51,8 @@ type KioskInfoAutoAdvanceInput = KioskFastPathEligibilityInput & {
   identityCheckBusy: boolean
   requiresSignIn: boolean
   hasError: boolean
+  /** Consecutive offer still loading: advancing now would skip the offer step. */
+  offerLoading?: boolean
 }
 
 type KioskInfoMaskInput = {
@@ -123,7 +125,7 @@ export const shouldAutoAdvanceKioskInfoStep = (input: KioskInfoAutoAdvanceInput)
     return false
   }
 
-  if (input.processing || input.identityCheckBusy || input.requiresSignIn || input.hasError) {
+  if (input.processing || input.identityCheckBusy || input.requiresSignIn || input.hasError || input.offerLoading) {
     return false
   }
 

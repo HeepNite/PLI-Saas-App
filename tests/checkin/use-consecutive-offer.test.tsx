@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { ConsecutiveOfferData } from "@/components/front/checkin/ConsecutiveClassOffer"
-import { useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/useConsecutiveOffer"
+import { CONSECUTIVE_OFFER_LOOKUP_TIMEOUT_MS, useConsecutiveOffer } from "@/components/front/courses/enroll/hooks/useConsecutiveOffer"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -137,5 +137,51 @@ describe("useConsecutiveOffer", () => {
 
     expect(capturedSignal).not.toBeNull()
     expect(capturedSignal!.aborted).toBe(true)
+  })
+
+  it("reports loading on the first render, before the fetch effect runs", async () => {
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise<Response>(() => {}))
+    const loadingByRender: boolean[] = []
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    root = createRoot(container)
+    function Harness() {
+      loadingByRender.push(useConsecutiveOffer(defaultParams()).offerLoading)
+      return null
+    }
+    await act(async () => root!.render(<Harness />))
+
+    // Auto-advance effects read the first render; it must already say "loading".
+    expect(loadingByRender[0]).toBe(true)
+  })
+
+  it("stops loading without an offer when the lookup hangs past the timeout", async () => {
+    vi.useFakeTimers()
+    try {
+      vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")))
+        })
+      )
+      const { getResult } = await mount()
+      expect(getResult().offerLoading).toBe(true)
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(CONSECUTIVE_OFFER_LOOKUP_TIMEOUT_MS)
+      })
+
+      expect(getResult().offerLoading).toBe(false)
+      expect(getResult().fetchedOffer).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("is not loading when the offer comes from props", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+    const { getResult } = await mount(defaultParams({ consecutiveOffer: offer }))
+
+    expect(getResult().offerLoading).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

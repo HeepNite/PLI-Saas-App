@@ -17,6 +17,9 @@ type UseConsecutiveOfferResult = {
   offerLoading: boolean
 }
 
+/** A stuck lookup must not hold the flow: past this, continue without a promo. */
+export const CONSECUTIVE_OFFER_LOOKUP_TIMEOUT_MS = 4000
+
 export function useConsecutiveOffer({
   courseSlug,
   date,
@@ -28,32 +31,39 @@ export function useConsecutiveOffer({
   resetAddedCents,
 }: UseConsecutiveOfferInput): UseConsecutiveOfferResult {
   const [fetchedOffer, setFetchedOffer] = React.useState<ConsecutiveOfferData | null>(null)
-  const [offerLoading, setOfferLoading] = React.useState(false)
+  // Key of the last finished lookup. Loading is derived from it so the very
+  // first render already reports "loading": auto-advance effects run in that
+  // same commit and must not skip the offer step before the fetch resolves.
+  const [resolvedKey, setResolvedKey] = React.useState<string | null>(null)
+  const requestKey = `${courseSlug}|${date}|${time}`
+  const shouldFetch = !consecutiveOffer && enabled && Boolean(date) && Boolean(time)
+  const offerLoading = shouldFetch && resolvedKey !== requestKey
 
   React.useEffect(() => {
     if (consecutiveOffer) {
       setFetchedOffer(null)
-      setOfferLoading(false)
       return
     }
 
     if (!enabled) {
       setFetchedOffer(null)
-      setOfferLoading(false)
       return
     }
 
     if (!date || !time) {
       setFetchedOffer(null)
-      setOfferLoading(false)
       resetAccepted()
       resetAddedCents()
       resetChoice()
       return
     }
 
-    setOfferLoading(true)
     const controller = new AbortController()
+    let timedOut = false
+    const timeoutId = setTimeout(() => {
+      timedOut = true
+      controller.abort()
+    }, CONSECUTIVE_OFFER_LOOKUP_TIMEOUT_MS)
     const params = new URLSearchParams({ courseSlug, date, time })
     void fetch(`/api/checkin/terminal/consecutive-offer?${params.toString()}`, {
       signal: controller.signal,
@@ -61,21 +71,25 @@ export function useConsecutiveOffer({
       .then((res) => (res.ok ? res.json() : null))
       .then((offer: ConsecutiveOfferData | null) => {
         setFetchedOffer(offer)
-        setOfferLoading(false)
+        setResolvedKey(`${courseSlug}|${date}|${time}`)
         resetAccepted()
         resetAddedCents()
         resetChoice()
       })
       .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return
+        if (!timedOut && error instanceof DOMException && error.name === "AbortError") return
         setFetchedOffer(null)
-        setOfferLoading(false)
+        setResolvedKey(`${courseSlug}|${date}|${time}`)
         resetAccepted()
         resetAddedCents()
         resetChoice()
       })
+      .finally(() => clearTimeout(timeoutId))
 
-    return () => controller.abort()
+    return () => {
+      clearTimeout(timeoutId)
+      controller.abort()
+    }
   }, [consecutiveOffer, courseSlug, date, enabled, resetAccepted, resetAddedCents, resetChoice, time])
 
   return { fetchedOffer, offerLoading }

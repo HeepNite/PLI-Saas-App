@@ -157,6 +157,29 @@ describe("kiosk QR payment helpers", () => {
     ).toBe(false)
   })
 
+  it("waits for the consecutive offer lookup before auto-advancing the info step", () => {
+    const input = {
+      isKioskTerminalFlow: true,
+      isCheckInExistingFlow: true,
+      date: "2026-03-24",
+      time: "20:10",
+      contact: {
+        firstName: "Mora",
+        lastName: "Diaz",
+        email: "mora@example.com",
+        phone: "+1 929 387 6584",
+      },
+      activeStepKey: "info",
+      open: true,
+      processing: false,
+      identityCheckBusy: false,
+      requiresSignIn: false,
+      hasError: false,
+    }
+    expect(shouldAutoAdvanceKioskInfoStep({ ...input, offerLoading: true })).toBe(false)
+    expect(shouldAutoAdvanceKioskInfoStep({ ...input, offerLoading: false })).toBe(true)
+  })
+
   it("masks the kiosk info step only while terminal prefill is hydrating or transitioning", () => {
     expect(
       shouldMaskKioskInfoStep({

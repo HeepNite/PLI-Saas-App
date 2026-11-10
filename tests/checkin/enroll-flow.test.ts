@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  findOfferStepIndex,
   getCheckInSignInModalVariant,
   isCheckInContactGateStep,
   resolveEnrollInitialStep,
@@ -322,5 +323,32 @@ describe("enroll flow helpers", () => {
         stepsLength: 4,
       })
     ).toBe(2)
+  })
+
+  it("finds the consecutive offer step of the existing-customer kiosk flow", () => {
+    const keys = resolveEnrollStepKeys({
+      isCheckInFlow: true,
+      isCheckInNewFlow: false,
+      isKioskTerminalFlow: true,
+      requiresPhotoStep: false,
+      hasConsecutiveOffer: true,
+    })
+    expect(findOfferStepIndex(keys.map((key) => ({ key })))).toBe(1)
+  })
+
+  it("finds the promo step of the new-student kiosk flow", () => {
+    const keys = resolveEnrollStepKeys({
+      isCheckInFlow: true,
+      isCheckInNewFlow: true,
+      isKioskTerminalFlow: true,
+      requiresPhotoStep: false,
+      hasPackages: true,
+      hasConsecutiveOffer: true,
+    })
+    expect(findOfferStepIndex(keys.map((key) => ({ key })))).toBe(2)
+  })
+
+  it("returns -1 when the flow has no offer step", () => {
+    expect(findOfferStepIndex([{ key: "info" }, { key: "payments" }])).toBe(-1)
   })
 })
