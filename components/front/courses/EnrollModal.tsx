@@ -1685,6 +1685,7 @@ export default function EnrollModal({
         <EnrollFlowPopup
           title={flowPopup.title}
           message={flowPopup.message}
+          blur={!isKioskTerminalFlow}
           onContinue={() => {
             setFlowPopup(null)
             void advanceFromContactStepRef.current()
