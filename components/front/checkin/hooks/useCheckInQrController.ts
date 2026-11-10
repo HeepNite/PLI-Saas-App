@@ -681,6 +681,7 @@ export function useCheckInQrController({
     handleConsecutiveQrComplete,
   } = useConsecutiveOfferActions({
     consecutiveOffer,
+    consecutiveSuccess,
     activeDate,
     activeTime,
     durationMinutes,

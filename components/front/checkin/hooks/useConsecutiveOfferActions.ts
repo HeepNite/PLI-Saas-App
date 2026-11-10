@@ -15,8 +15,25 @@ import {
   type KioskQrCheckoutState,
 } from "@/lib/checkin/kiosk-qr-payment"
 import type { PackageCheckInOutcome } from "@/lib/checkin/existing-customer-flow"
+import { runQuickRepeatNativeCardCheckout } from "@/components/front/checkin/quick-repeat-card"
+import {
+  isNativeKioskWebView,
+  isNativePaymentBridgeAvailable,
+  recoverNativeKioskBridge,
+} from "@/components/front/courses/enroll/effects/native-payment-bridge"
 import type { BootstrapResponse, ConsecutiveOffer } from "@/components/front/checkin/checkin.types"
 import type { CourseData } from "@/constants/courses"
+
+const NATIVE_READER_UNAVAILABLE_MESSAGE = "Card reader connection is unavailable. Reopen the PLI app and try again."
+
+type ConsecutiveCardSurface = "native_m2" | "native_unavailable" | "hosted_qr"
+
+/**
+ * Card payments taken on the kiosk tablet charge on the M2 reader. Inside the native app a
+ * missing bridge is an error, never a QR fallback; a plain browser kiosk keeps the hosted QR.
+ */
+const resolveKioskCardSurface = (): ConsecutiveCardSurface =>
+  isNativePaymentBridgeAvailable() ? "native_m2" : isNativeKioskWebView() ? "native_unavailable" : "hosted_qr"
 
 type PackageCheckInResult = { attendanceId?: string | null; remainingCredits: number | null; points: number }
 
@@ -53,6 +70,10 @@ type UseConsecutiveOfferActionsOptions = {
   requestPackageCheckIn?: typeof requestPackageCheckInApi
   requestDropInCheckIn?: typeof requestDropInCheckInApi
   requestCheckoutSession?: typeof requestCheckoutSessionApi
+  /** The success screen currently shown, so a delayed M2 completion never resets a newer flow. */
+  consecutiveSuccess?: { courseTitle: string } | null
+  resolveCardSurface?: () => ConsecutiveCardSurface
+  runNativeCardCheckout?: typeof runQuickRepeatNativeCardCheckout
 }
 
 export function useConsecutiveOfferActions({
@@ -87,7 +108,12 @@ export function useConsecutiveOfferActions({
   requestPackageCheckIn = requestPackageCheckInApi,
   requestDropInCheckIn = requestDropInCheckInApi,
   requestCheckoutSession = requestCheckoutSessionApi,
+  consecutiveSuccess = null,
+  resolveCardSurface = resolveKioskCardSurface,
+  runNativeCardCheckout = runQuickRepeatNativeCardCheckout,
 }: UseConsecutiveOfferActionsOptions) {
+  const shownSuccessRef = React.useRef(consecutiveSuccess)
+  shownSuccessRef.current = consecutiveSuccess
   const fallbackToExistingPurchaseOrCompletion = React.useCallback((hidePaymentSelection: boolean) => {
     setConsecutiveOffer(null)
     setShowConsecutiveOverlay(false)
@@ -322,7 +348,8 @@ export function useConsecutiveOfferActions({
     setConsecutiveProcessing(true)
     setConsecutiveProcessingAction("card")
     setShowDuplicatePurchasePopup(false)
-    setShowConsecutivePaymentSelection(false)
+    const cardSurface = isKioskTerminalFlow ? resolveCardSurface() : "hosted_qr"
+    if (cardSurface === "hosted_qr") setShowConsecutivePaymentSelection(false)
 
     const linkedCourse = sourceCourses.find((course) => course.slug === consecutiveOffer.linkedCourseSlug) || null
     const linkedCourseServiceId =
@@ -351,6 +378,65 @@ export function useConsecutiveOfferActions({
       return
     }
 
+    const payload: Record<string, unknown> = {
+      courseSlug: consecutiveOffer.linkedCourseSlug,
+      courseTitle: consecutiveOffer.linkedCourseTitle,
+      amount: priceCents,
+      currency: "usd",
+      date: activeDate,
+      time: consecutiveOffer.linkedCourseTime ?? activeTime,
+      serviceId: linkedCourseServiceId,
+      firstName: bootstrap?.customer?.firstName,
+      lastName: bootstrap?.customer?.lastName,
+      email: bootstrap?.customer?.email,
+      phone: bootstrap?.customer?.phone,
+      participants: 1,
+      photoContext: "kiosk_terminal",
+      ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
+      consecutiveAddOnOnly: hasUsablePackageForCurrentClass,
+      linkedFromCourseSlug: currentCheckInCourseSlug,
+      ...(packageCheckInResult?.attendanceId ? { linkedFromAttendanceId: packageCheckInResult.attendanceId } : {}),
+      consecutivePriceCents: priceCents,
+      consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
+      consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
+      consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? activeTime,
+    }
+
+    if (cardSurface === "native_unavailable") {
+      recoverNativeKioskBridge()
+      setConsecutiveError(NATIVE_READER_UNAVAILABLE_MESSAGE)
+      setConsecutiveProcessing(false)
+      setConsecutiveProcessingAction(null)
+      return
+    }
+
+    if (cardSurface === "native_m2") {
+      const nativeSuccess = { courseTitle: consecutiveOffer.linkedCourseTitle }
+      await runNativeCardCheckout({
+        payload,
+        kioskCurrentCourseDuration: durationMinutes,
+        setProcessing: (value) => {
+          setConsecutiveProcessing(value)
+          setConsecutiveProcessingAction(value ? "card" : null)
+        },
+        setError: setConsecutiveError,
+        onPaid: () => {
+          setConsecutiveOffer(null)
+          setShowConsecutivePaymentSelection(false)
+          setConsecutiveSuccess(nativeSuccess)
+        },
+        onComplete: () => {
+          // The operator may already have tapped Done and a new customer started.
+          if (shownSuccessRef.current !== nativeSuccess) return
+          setConsecutiveSuccess(null)
+          setShowConsecutiveOverlay(false)
+          refreshConsecutiveOffer()
+          void handleStationCompletion()
+        },
+      })
+      return
+    }
+
     setConsecutiveQrCheckout({
       ...createEmptyKioskQrCheckoutState(),
       phase: "creating",
@@ -358,29 +444,7 @@ export function useConsecutiveOfferActions({
 
     try {
       const { res, data } = await requestCheckoutSession({
-        payload: {
-          courseSlug: consecutiveOffer.linkedCourseSlug,
-          courseTitle: consecutiveOffer.linkedCourseTitle,
-          amount: priceCents,
-          currency: "usd",
-          date: activeDate,
-          time: consecutiveOffer.linkedCourseTime ?? activeTime,
-          serviceId: linkedCourseServiceId,
-          firstName: bootstrap?.customer?.firstName,
-          lastName: bootstrap?.customer?.lastName,
-          email: bootstrap?.customer?.email,
-          phone: bootstrap?.customer?.phone,
-          participants: 1,
-          photoContext: "kiosk_terminal",
-          ...(kioskPinSessionToken ? { kioskSessionToken: kioskPinSessionToken } : {}),
-          consecutiveAddOnOnly: hasUsablePackageForCurrentClass,
-          linkedFromCourseSlug: currentCheckInCourseSlug,
-          ...(packageCheckInResult?.attendanceId ? { linkedFromAttendanceId: packageCheckInResult.attendanceId } : {}),
-          consecutivePriceCents: priceCents,
-          consecutiveLinkedCourseSlug: consecutiveOffer.linkedCourseSlug,
-          consecutiveCourseTitle: consecutiveOffer.linkedCourseTitle,
-          consecutiveLinkedCourseTime: consecutiveOffer.linkedCourseTime ?? activeTime,
-        },
+        payload,
         includeCredentials: false,
       })
 
@@ -419,7 +483,7 @@ export function useConsecutiveOfferActions({
       setConsecutiveProcessing(false)
       setConsecutiveProcessingAction(null)
     }
-  }, [activeDate, activeTime, bootstrap, consecutiveOffer, currentCheckInCourseSlug, fallbackToExistingPurchaseOrCompletion, hasUsablePackageForCurrentClass, kioskPinSessionToken, packageCheckInResult, requestCheckoutSession, setConsecutiveError, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveQrCheckout, setShowConsecutivePaymentSelection, setShowDuplicatePurchasePopup, sourceCourses])
+  }, [activeDate, activeTime, bootstrap, consecutiveOffer, currentCheckInCourseSlug, durationMinutes, fallbackToExistingPurchaseOrCompletion, handleStationCompletion, hasUsablePackageForCurrentClass, isKioskTerminalFlow, kioskPinSessionToken, packageCheckInResult, refreshConsecutiveOffer, requestCheckoutSession, resolveCardSurface, runNativeCardCheckout, setConsecutiveError, setConsecutiveOffer, setConsecutiveProcessing, setConsecutiveProcessingAction, setConsecutiveQrCheckout, setConsecutiveSuccess, setShowConsecutiveOverlay, setShowConsecutivePaymentSelection, setShowDuplicatePurchasePopup, sourceCourses])
 
   const handleConsecutiveQrCancel = React.useCallback(() => {
     setConsecutiveQrCheckout(createEmptyKioskQrCheckoutState())
