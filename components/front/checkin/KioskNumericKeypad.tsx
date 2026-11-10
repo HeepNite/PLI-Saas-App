@@ -27,12 +27,24 @@ export default function KioskNumericKeypad({
 }) {
   const [pressedKey, setPressedKey] = React.useState<string | null>(null)
 
+  // Pending "release" timers are cleared on unmount, so none fires after the keypad is gone.
+  const releaseTimersRef = React.useRef(new Set<number>())
+  React.useEffect(() => {
+    const timers = releaseTimersRef.current
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
   const triggerPress = React.useCallback((key: string, action: () => void) => {
     setPressedKey(key)
     action()
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      releaseTimersRef.current.delete(timer)
       setPressedKey((current) => (current === key ? null : current))
     }, 140)
+    releaseTimersRef.current.add(timer)
   }, [])
 
   // Physical keyboard support: mirror 0-9 / Backspace / Delete onto the keypad

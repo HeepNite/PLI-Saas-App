@@ -120,6 +120,33 @@ describe("KioskNumericKeypad input handling", () => {
     expect(onDigit.mock.calls.map(([digit]) => digit)).toEqual(["4", "4"])
   })
 
+  it("clears the pressed-state release timer when the keypad unmounts", () => {
+    vi.useFakeTimers()
+    try {
+      render()
+      tap(button("7"))
+      expect(vi.getTimerCount()).toBe(1)
+      act(() => root.unmount())
+      expect(vi.getTimerCount()).toBe(0)
+      root = createRoot(container)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("releases the pressed state 140 ms after the key commits", () => {
+    vi.useFakeTimers()
+    try {
+      render()
+      tap(button("7"))
+      expect(button("7").className).toContain("scale-[0.98]")
+      act(() => vi.advanceTimersByTime(140))
+      expect(button("7").className).not.toContain("scale-[0.98]")
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("shows the pressed state on pointerdown without entering the digit", () => {
     render()
     pointerDown(button("7"))
