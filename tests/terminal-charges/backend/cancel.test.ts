@@ -3,8 +3,8 @@ import { api, bindIntent, carrierRow, chargeRow, createAndPrepare, createCharge,
 
 describe("staff panel routes", () => {
   it.each([
-    // Rollout: owner only; admin and staff/front_desk (D4) come back after the live tablet test.
-    [staff("owner", null), 201], [staff("admin", null), 403], [staff("staff", "front_desk"), 403],
+    // D4 phase 1: owner, admin and staff/front_desk; managers come in phase 3.
+    [staff("owner", null), 201], [staff("admin", null), 201], [staff("staff", "front_desk"), 201],
     [staff("staff", "teacher"), 403], [staff("staff", "manager"), 403], [{ ok: false, status: 401, error: "Unauthorized" }, 401],
   ])("gates create, read and cancel by role (%#)", async (auth, status) => {
     const id = await createCharge()

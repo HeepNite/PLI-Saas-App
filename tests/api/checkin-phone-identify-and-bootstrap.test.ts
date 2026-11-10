@@ -20,6 +20,7 @@ const mockAttendanceFindUnique = vi.fn()
 const mockAttendanceUpdateMany = vi.fn()
 const mockAttendanceFindUniqueOrThrow = vi.fn()
 const mockAttendanceCount = vi.fn()
+const mockSpecialClassFindUnique = vi.fn()
 const mockAwardPointsFromRule = vi.fn()
 const mockPackageUsageCreate = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
@@ -73,6 +74,9 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: (...args: unknown[]) => mockAttendanceUpdateMany(...args),
       findUniqueOrThrow: (...args: unknown[]) => mockAttendanceFindUniqueOrThrow(...args),
       count: (...args: unknown[]) => mockAttendanceCount(...args),
+    },
+    specialClass: {
+      findUnique: (...args: unknown[]) => mockSpecialClassFindUnique(...args),
     },
     packageUsageLedger: {
       create: (...args: unknown[]) => mockPackageUsageCreate(...args),
@@ -227,6 +231,8 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockClassSessionFindUnique.mockResolvedValue(null)
     mockAttendanceFindUnique.mockResolvedValue(null)
     mockAttendanceCount.mockResolvedValue(1)
+    mockSpecialClassFindUnique.mockReset()
+    mockSpecialClassFindUnique.mockResolvedValue(null)
     mockAwardPointsFromRule.mockResolvedValue({ awarded: false, points: 0 })
     mockCourseLinkFindMany.mockResolvedValue([])
     mockCourseCatalogFindMany.mockResolvedValue([])
@@ -541,6 +547,20 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
       checkedInAt: CLASS_DAY_NOW,
       session: { courseSlug: "salsa" },
       packageUsage: null,
+    })
+
+    it("leaves a special-class reservation untouched", async () => {
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue({
+        id: "att_1", status: "scheduled", metadata: null, packageUsage: null,
+      })
+      mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1" })
+
+      const { res, data } = await identifyOnClassDay()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany).not.toHaveBeenCalled()
+      expect(data.checkedInReservation).toBeFalsy()
     })
 
     it("checks in a drop-in reservation as checked_in_no_package without charging", async () => {

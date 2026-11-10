@@ -29,7 +29,7 @@ export const ACTIVE_STATUSES = ["pending", "collecting"]
 export const notFound = () => new TerminalChargeError(404, "Charge not found")
 export const conflict = (message: string) => new TerminalChargeError(409, message)
 
-/** Staff portal auth gated by canCreateTerminalCharge (owner only during the rollout). */
+/** Staff portal auth gated by canCreateTerminalCharge (owner, admin, staff/front_desk). */
 export const authorizeTerminalChargeRequest = async () => {
   const auth = await authorizeStaffPortalBaseRequest()
   if (auth.ok && !canCreateTerminalCharge(auth.role, auth.category)) return { ok: false as const, status: 403, error: "Insufficient role" }

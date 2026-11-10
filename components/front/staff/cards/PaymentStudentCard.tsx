@@ -487,7 +487,7 @@ export function PaymentStudentCard({
         </p>
       </div>
 
-      <div className="mt-4 flex gap-2.5">
+      <div className="mt-4 flex gap-1.5">
         <FastClassActionControls
           activePackage={payment.activePackage}
           disabled={paymentsLoading}
@@ -503,7 +503,7 @@ export function PaymentStudentCard({
             const subject = encodeURIComponent(`Class payment update · ${payment.courseTitle}`)
             window.location.href = `mailto:${encodeURIComponent(payment.customerEmail)}?subject=${subject}`
           }}
-          className="flex-1 whitespace-nowrap rounded-md border border-white/20 px-2 py-1 text-[11px]"
+          className="min-w-0 flex-1 whitespace-nowrap rounded-md border border-white/20 px-1.5 py-1 text-[11px]"
         >
           Notify
         </button>
@@ -511,15 +511,12 @@ export function PaymentStudentCard({
           <button
             type="button"
             onClick={() => openOverrideModal(payment.userId, identity.fullName)}
-            className="flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
+            className="min-w-0 flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-1.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
           >
             Edit info
           </button>
         ) : null}
-      </div>
-
-      {showChargeOnTablet ? (
-        <div className="mt-2.5">
+        {showChargeOnTablet ? (
           <ChargeOnTabletButton
             payerUserId={payment.userId}
             payerName={identity.fullName}
@@ -528,8 +525,8 @@ export function PaymentStudentCard({
             formatMoney={formatMoney}
             onPaid={onRefreshPaymentsBoard}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {canEditStudentInfo &&
         payment.userId &&

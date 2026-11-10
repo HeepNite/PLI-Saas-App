@@ -232,8 +232,8 @@ describe("PaymentStudentCard charge on tablet action", () => {
     return render(<PaymentStudentCard {...(props as unknown as React.ComponentProps<typeof PaymentStudentCard>)} />)
   }
 
-  // Rollout: owner only; admin and staff/front_desk (D4) come back after the live tablet test.
-  it.each([["owner", null, true], ["admin", null, false], ["staff", "front_desk", false], ["staff", "teacher", false], ["staff", "manager", false], ["staff", null, false]])(
+  // D4 phase 1: owner, admin and staff/front_desk; managers come in phase 3.
+  it.each([["owner", null, true], ["admin", null, true], ["staff", "front_desk", true], ["staff", "teacher", false], ["staff", "manager", false], ["staff", null, false]])(
     "%s/%s sees the action: %s",
     async (role, category, visible) => {
       await renderCard(role, category)
@@ -265,7 +265,7 @@ describe("ProfileStudentCard charge on tablet action", () => {
     return render(<ProfileStudentCard {...(props as unknown as React.ComponentProps<typeof ProfileStudentCard>)} />)
   }
 
-  it.each([["owner", null, true], ["admin", null, false], ["staff", "front_desk", false]])(
+  it.each([["owner", null, true], ["admin", null, true], ["staff", "front_desk", true], ["staff", "teacher", false]])(
     "%s/%s sees the action: %s",
     async (role, category, visible) => {
       await renderProfileCard(role, category)

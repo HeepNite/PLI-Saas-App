@@ -139,6 +139,14 @@ export async function checkInReservedAttendanceAtKiosk(input: {
   }
 
   try {
+    // A special-class reservation keeps its own check-in rules (cancelled class, card capture);
+    // the kiosk leaves it untouched.
+    const specialClass = await prisma.specialClass.findUnique({
+      where: { classSessionId: input.sessionId },
+      select: { id: true },
+    })
+    if (specialClass) return { hasAttendance: true, checkedIn: false }
+
     const result = await checkInScheduledAttendance({
       attendance,
       userId: input.userId,
