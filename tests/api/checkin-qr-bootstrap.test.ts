@@ -60,6 +60,9 @@ vi.mock("@/lib/prisma", () => ({
       findUniqueOrThrow: (...args: unknown[]) => mockAttendanceFindUniqueOrThrow(...args),
       count: vi.fn().mockResolvedValue(1),
     },
+    specialClass: {
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
   },
 }))
 

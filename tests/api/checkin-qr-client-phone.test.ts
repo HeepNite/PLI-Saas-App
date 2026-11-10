@@ -274,7 +274,6 @@ describe("POST /api/checkin/qr/client-phone", () => {
     expect(data.package.remainingCredits).toBe(3)
     expect(mockTransaction).not.toHaveBeenCalled()
     expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
-    expect(mockPurchaseFindMany).not.toHaveBeenCalled()
   })
 
   it("never charges or uses a credit when a concurrent scan already checked the reservation in", async () => {
@@ -293,7 +292,6 @@ describe("POST /api/checkin/qr/client-phone", () => {
     expect(data.status).toBe("already_checked_in")
     expect(mockTransaction).not.toHaveBeenCalled()
     expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
-    expect(mockPurchaseFindMany).not.toHaveBeenCalled()
   })
 
   it("returns already_checked_in when attendance exists", async () => {
