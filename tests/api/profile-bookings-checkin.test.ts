@@ -7,7 +7,8 @@ const mockUpsertUser = vi.fn()
 const mockPrisma = {
   attendance: {
     findFirst: vi.fn(),
-    update: vi.fn(),
+    updateMany: vi.fn(),
+    findUniqueOrThrow: vi.fn(),
     count: vi.fn(),
   },
   pointsRule: {
@@ -41,7 +42,9 @@ describe("profile bookings check-in route", () => {
     mockUpsertUser.mockReset()
     usersApi.getUser.mockReset()
     mockPrisma.attendance.findFirst.mockReset()
-    mockPrisma.attendance.update.mockReset()
+    mockPrisma.attendance.updateMany.mockReset()
+    mockPrisma.attendance.findUniqueOrThrow.mockReset()
+    mockPrisma.attendance.updateMany.mockResolvedValue({ count: 1 })
     mockPrisma.attendance.count.mockReset()
     mockPrisma.pointsRule.findUnique.mockReset()
     mockPrisma.pointsLedger.findUnique.mockReset()
@@ -108,7 +111,7 @@ describe("profile bookings check-in route", () => {
         },
       },
     })
-    mockPrisma.attendance.update.mockResolvedValue({
+    mockPrisma.attendance.findUniqueOrThrow.mockResolvedValue({
       id: "att_1",
       status: "checked_in",
       checkedInAt: new Date("2026-02-14T12:15:00.000Z"),
@@ -145,8 +148,40 @@ describe("profile bookings check-in route", () => {
     expect(data.alreadyCheckedIn).toBe(false)
     expect(data.attendance.status).toBe("checked_in")
     expect(data.points.awarded).toBeGreaterThan(0)
-    expect(mockPrisma.attendance.update).toHaveBeenCalled()
+    expect(mockPrisma.attendance.updateMany.mock.calls[0][0].where).toEqual({ id: "att_1", status: "scheduled" })
     expect(mockPrisma.pointsLedger.create).toHaveBeenCalled()
+  })
+
+  it("still reports the check-in when awarding points fails after the flip", async () => {
+    mockAuth.mockResolvedValue({ userId: "user_123" })
+    usersApi.getUser.mockResolvedValue({ firstName: "Test", lastName: "User" })
+    mockUpsertUser.mockResolvedValue({ id: "db_user" })
+    const startsAt = new Date(Date.now() + 30 * 60 * 1000)
+    const session = { id: "session_1", courseSlug: "salsa", title: "Salsa", startsAt }
+    mockPrisma.attendance.findFirst.mockResolvedValue({
+      id: "att_1", userId: "db_user", status: "scheduled", checkedInAt: startsAt, metadata: null, session, packageUsage: null,
+    })
+    mockPrisma.attendance.findUniqueOrThrow.mockResolvedValue({
+      id: "att_1", status: "checked_in_no_package", checkedInAt: startsAt, session, packageUsage: null,
+    })
+    mockPrisma.attendance.count.mockRejectedValue(new Error("db unavailable"))
+    vi.spyOn(console, "error").mockImplementation(() => {})
+
+    const { POST } = await import("@/app/api/profile/bookings/checkin/route")
+    const res = await POST(
+      new Request("http://localhost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ attendanceId: "att_1" }),
+      })
+    )
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.alreadyCheckedIn).toBe(false)
+    expect(data.attendance.status).toBe("checked_in_no_package")
+    expect(data.points.awarded).toBe(0)
+    expect(mockPrisma.pointsLedger.create).not.toHaveBeenCalled()
   })
 
   it("returns 400 when check-in is attempted too early", async () => {
@@ -182,7 +217,7 @@ describe("profile bookings check-in route", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(400)
-    expect(mockPrisma.attendance.update).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.updateMany).not.toHaveBeenCalled()
   })
 
   it("returns 400 when check-in window is already closed", async () => {
@@ -219,6 +254,6 @@ describe("profile bookings check-in route", () => {
     })
     const res = await POST(req)
     expect(res.status).toBe(400)
-    expect(mockPrisma.attendance.update).not.toHaveBeenCalled()
+    expect(mockPrisma.attendance.updateMany).not.toHaveBeenCalled()
   })
 })
