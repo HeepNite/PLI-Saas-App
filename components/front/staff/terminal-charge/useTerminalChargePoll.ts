@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { TERMINAL_CHARGE_POLL_MS, type TerminalChargeView } from "@/lib/terminal-charges/contract"
 
-export const TERMINAL_CHARGE_PENDING_URL = "/api/staff/terminal/charges/pending"
+const TERMINAL_CHARGE_PENDING_URL = "/api/staff/terminal/charges/pending"
 /** A pending-charge read that takes longer is aborted, so a hung request never stops polling. */
 export const TERMINAL_CHARGE_POLL_TIMEOUT_MS = 8_000
 

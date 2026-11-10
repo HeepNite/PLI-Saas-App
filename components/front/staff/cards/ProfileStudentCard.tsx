@@ -13,11 +13,10 @@ import {
   getInitials,
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { formatIsoDateLong } from "@/components/front/staff/studentPaymentCardFormatters"
-import { canCreateTerminalCharge, canOperateStudentEdits } from "@/lib/security/staff-access"
-import { ChargeOnTabletButton } from "@/components/front/staff/terminal-charge-builder/TerminalChargeBuilderModal"
-import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
+import { canOperateStudentEdits } from "@/lib/security/staff-access"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
+import { StudentCardActions } from "./StudentCardActions"
 import type { StudentCardsGridProps } from "@/components/front/staff/StudentCardsGrid"
 
 type ProfileStudentCardProps = StudentCardsGridProps & {
@@ -43,11 +42,8 @@ export function ProfileStudentCard({
   currentCategory,
   paymentsLoading,
   onRefreshPaymentsBoard,
-  formatMoney,
 }: ProfileStudentCardProps) {
   const canEditStudentInfo = canOperateStudentEdits(currentRole, currentCategory)
-  // Search results show students without recent payments here, so staff can charge them too.
-  const showChargeOnTablet = canCreateTerminalCharge(currentRole, currentCategory) && Boolean(student.userId)
 
   // Mirror legacy logic: identity, badges, detail rows and settlement control.
   const identity = splitCustomerName(student.displayName, student.email)
@@ -177,45 +173,19 @@ export function ProfileStudentCard({
         })}
       </div>
 
-      <div className="mt-4 flex gap-1.5">
-        <FastClassActionControls
-          activePackage={student.activePackage}
-          disabled={paymentsLoading}
-          studentName={student.displayName}
-          userId={student.userId}
-          onRefreshPaymentsBoard={onRefreshPaymentsBoard}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (typeof window === "undefined" || !student.email || student.email === "—") return
-            const subject = encodeURIComponent(`Student profile update · ${student.displayName}`)
-            window.location.href = `mailto:${encodeURIComponent(student.email)}?subject=${subject}`
-          }}
-          className="min-w-0 flex-1 whitespace-nowrap rounded-md border border-white/20 px-1.5 py-1 text-[11px]"
-        >
-          Notify
-        </button>
-        {canEditStudentInfo && student.userId ? (
-          <button
-            type="button"
-            onClick={() => openOverrideModal(student.userId, student.displayName)}
-            className="min-w-0 flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-1.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
-          >
-            Edit info
-          </button>
-        ) : null}
-        {showChargeOnTablet ? (
-          <ChargeOnTabletButton
-            payerUserId={student.userId}
-            payerName={student.displayName}
-            openPayments={[]}
-            disabled={paymentsLoading}
-            formatMoney={formatMoney}
-            onPaid={onRefreshPaymentsBoard}
-          />
-        ) : null}
-      </div>
+      <StudentCardActions
+        userId={student.userId}
+        name={student.displayName}
+        email={student.email}
+        mailSubject={`Student profile update · ${student.displayName}`}
+        activePackage={student.activePackage}
+        openPayments={[]}
+        currentRole={currentRole}
+        currentCategory={currentCategory}
+        openOverrideModal={openOverrideModal}
+        paymentsLoading={paymentsLoading}
+        onRefreshPaymentsBoard={onRefreshPaymentsBoard}
+      />
 
       {canEditStudentInfo &&
         student.userId &&

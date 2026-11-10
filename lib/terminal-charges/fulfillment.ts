@@ -1,12 +1,12 @@
 import "server-only"
 import type { Prisma, Purchase, StaffTerminalChargeItem as ChargeItem } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { syncPackagePurchaseFromPaidPurchase } from "@/lib/packages"
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from "@/lib/class-schedule"
 import { asObject, asText } from "@/lib/shared"
 import { isOpenPurchase, isUnchargedCardAttempt } from "@/app/api/staff/payments/shared"
 import { applyCashSettlementSideEffects } from "@/app/api/staff/payments/cash-settlement-side-effects"
+import { auditCharge } from "@/lib/terminal-charges/audit"
 import { TERMINAL_CHARGE_FREE_AMOUNT_COURSE_SLUG, TERMINAL_CHARGE_METADATA } from "@/lib/terminal-charges/contract"
 
 type Tx = Prisma.TransactionClient
@@ -15,10 +15,10 @@ type Metadata = Record<string, unknown>
 /** staffChargeId of a carrier Purchase, or "" for every other purchase. */
 export const readStaffChargeId = (metadata: unknown) => asText(asObject(metadata)[TERMINAL_CHARGE_METADATA.chargeId])
 
-export type TerminalChargeFulfillment = { chargeId: string; settledOutstandingPurchaseIds: string[] }
+type TerminalChargeFulfillment = { chargeId: string; settledOutstandingPurchaseIds: string[] }
 
 /**
- * Fans a paid carrier out into the records each line item produces (FR6), inside the webhook's
+ * Fans a paid carrier out into the records each line item produces, inside the webhook's
  * fulfillment transaction. Outstanding purchases are settled in place (same metadata shape as
  * mark_paid, channel card) and returned so the caller runs the shared mark_paid side effects
  * after commit. Idempotent: a charge already paid only hands those purchases back, so a
@@ -116,11 +116,11 @@ export async function fulfillTerminalChargeCarrierTx(
 
   const fulfillItem = async (item: ChargeItem): Promise<string> => {
     if (item.kind === "free_amount") {
-      // Studio revenue only, never payroll (D7).
+      // Studio revenue only, never payroll.
       return createChild(item, TERMINAL_CHARGE_FREE_AMOUNT_COURSE_SLUG, { description: item.description || "" })
     }
     if (item.kind === "guest_class" && item.courseSlug) {
-      // D2: the friend gets no account, attendance or package; the money stays under the payer.
+      // The friend gets no account, attendance or package; the money stays under the payer.
       return createChild(item, item.courseSlug, { guestItem: "true", ...(item.guestName ? { guestName: item.guestName } : {}) }, { serviceId: "dropin" })
     }
     if (item.kind === "package" && item.beneficiaryUserId && item.packageId && item.courseSlug) {
@@ -177,15 +177,12 @@ export async function fulfillTerminalChargeCarrierTx(
     await tx.staffTerminalChargeItem.update({ where: { id: item.id }, data: { resultPurchaseId } })
   }
 
-  await writeStudentDataAudit({
-    targetUserId: charge.payerUserId,
+  await auditCharge(tx, charge, {
     staffClerkId: charge.createdByUserId,
-    entity: "payment",
-    entityId: charge.id,
     field: "terminal_charge_paid",
     valueAfter: { status: "paid", terminalId: charge.terminalId, totalCents: charge.totalCents, paymentIntentId },
     reason: "Card collected on the tablet reader",
-  }, tx)
+  })
 
   return { chargeId, settledOutstandingPurchaseIds }
 }
@@ -220,16 +217,13 @@ export async function recordTerminalChargeCarrierFailureTx(
     data: { status: "cancelled", resolvedAt: new Date(), failureReason: "payment_canceled" },
   })
   if (updated.count !== 1) return
-  await writeStudentDataAudit({
-    targetUserId: charge.payerUserId,
+  await auditCharge(tx, charge, {
     staffClerkId: charge.createdByUserId,
-    entity: "payment",
-    entityId: charge.id,
     field: "terminal_charge_result",
     valueBefore: { status: "collecting" },
     valueAfter: { status: "cancelled", terminalId: charge.terminalId, paymentIntentId: input.paymentIntentId },
     reason: "Card payment canceled on the tablet reader",
-  }, tx)
+  })
 }
 
 /** Post-commit mark_paid side effects for the outstanding purchases a charge settled. */

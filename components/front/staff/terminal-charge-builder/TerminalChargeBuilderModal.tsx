@@ -9,6 +9,7 @@ import {
   type TerminalChargeStatus,
 } from "@/lib/terminal-charges/contract"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
+import { formatMoney } from "@/components/front/staff/staffAdminFormatters"
 import { ATTENDANCE_DEBT_ROW_ID_PREFIX, isAttendanceDebtRowId } from "@/components/front/staff/staffPaymentFilters"
 import { ModalActions, ModalError, ModalShell, PrimaryButton, SecondaryButton } from "@/components/front/staff/modals/ModalShell"
 import { useCatalogCourses } from "@/components/front/hooks/useCatalogCourses"
@@ -18,7 +19,6 @@ type BuilderProps = {
   payerUserId: string
   payerName: string
   openPayments: PaymentRow[]
-  formatMoney: (cents: number, currency?: string) => string
   /** Refreshes the payments board: when the charge is paid, and when closed while still running. */
   onPaid: () => void
 }
@@ -56,7 +56,7 @@ const buildItems = (rows: PaymentRow[], catalogItems: TerminalChargeItemInput[],
   return items.length ? items : "Pick a pending item or enter an amount."
 }
 
-export function TerminalChargeBuilderModal({ payerUserId, payerName, openPayments, formatMoney, onClose, onPaid }: BuilderProps & { onClose: () => void }) {
+export function TerminalChargeBuilderModal({ payerUserId, payerName, openPayments, onClose, onPaid }: BuilderProps & { onClose: () => void }) {
   const [terminals, setTerminals] = React.useState<Array<{ id: string; name: string }>>([])
   const [terminalId, setTerminalId] = React.useState("")
   const [selectedRowIds, setSelectedRowIds] = React.useState<string[]>([])
@@ -76,7 +76,7 @@ export function TerminalChargeBuilderModal({ payerUserId, payerName, openPayment
   const course = courses.find((option) => option.slug === courseSlug)
   const pkg = course?.enrollment.packages.find((option) => option.id === packageId)
 
-  // A package goes to this card's student; a guest class is a friend's class on their card (D2).
+  // A package goes to this card's student; a guest class is a friend's class on their card.
   const addCatalogItem = (kind: "package" | "guest_class") => {
     if (!course || (kind === "package" && !pkg)) return setError(kind === "package" ? "Pick a course and a package." : "Pick a course.")
     const name = guestName.trim()
@@ -144,7 +144,7 @@ export function TerminalChargeBuilderModal({ payerUserId, payerName, openPayment
           </ul>
           <p className="text-right font-semibold">Total: {formatMoney(charge.totalCents, charge.currency)}</p>
           <ModalError message={status.pollMessage || status.cancelError} />
-          {/* D5: a collecting charge is cancellable too; the server refuses if the card was charged or is processing. */}
+          {/* A collecting charge is cancellable too; the server refuses if the card was charged or is processing. */}
           {chargeRunning ? (
             <ModalActions>
               <SecondaryButton onClick={() => void status.cancel()} disabled={status.cancelling}>

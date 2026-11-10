@@ -61,7 +61,8 @@ describe("tablet routes", () => {
     expect((await (await api.result(id, "cancelled")).json()).charge.status).toBe("cancelled")
     expect(chargeRow().failureReason).toBe("cancelled_on_tablet")
     const second = await createAndPrepare()
-    expect((await (await api.result(second, "declined")).json()).charge).toEqual(expect.objectContaining({ status: "declined", failureReason: "card_declined" }))
+    expect((await (await api.result(second, "declined")).json()).charge.status).toBe("declined")
+    expect(holder.db.tables.staffTerminalCharge.find((row) => row.id === second)?.failureReason).toBe("card_declined")
   })
 })
 
