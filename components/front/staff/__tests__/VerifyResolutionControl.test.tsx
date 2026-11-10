@@ -152,8 +152,12 @@ describe("VerifyResolutionControl", () => {
       verify: false,
       verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: "Class not taken" },
     }))
-    // The dismissed line names the amount that was written off, not only the reason.
-    expect(dismissed.textContent).toBe("Dismissed $25.00: Class not taken")
+    // The reason sits on the left and the dismissed amount on the right, like the other card rows.
+    const line = dismissed.querySelector("[data-verify-resolution]")!
+    expect(line.className).toContain("justify-between")
+    expect(line.firstElementChild?.textContent).toBe("Dismissed: Class not taken")
+    expect(line.lastElementChild?.textContent).toBe("$25.00")
+    expect(line.lastElementChild?.className).toContain("text-right")
     expect(dismissed.querySelector("button")).toBeNull()
   })
 })
