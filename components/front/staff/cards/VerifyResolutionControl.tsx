@@ -38,7 +38,7 @@ export function VerifyResolutionControl({ payment, formatMoney, onResolved }: Ve
       <p data-verify-resolution={payment.id} className="w-full text-[11px] text-white/60">
         {resolution.action === "collected"
           ? `Collected by ${resolution.byName || "staff"}`
-          : `Dismissed: ${resolution.reason || "no reason"}`}
+          : `Dismissed ${formatMoney(payment.amount, payment.currency)}: ${resolution.reason || "no reason"}`}
       </p>
     )
   }
