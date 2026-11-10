@@ -88,6 +88,38 @@ describe("KioskNumericKeypad input handling", () => {
       el.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }))
     })
 
+  const touch = (el: HTMLElement, type: string, pointerId: number) =>
+    act(() => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0 })
+      Object.defineProperty(event, "pointerId", { value: pointerId })
+      el.dispatchEvent(event)
+    })
+
+  it("enters every digit when a fast typist presses the next key before releasing the previous one", () => {
+    render()
+    touch(button("1"), "pointerdown", 1)
+    touch(button("2"), "pointerdown", 2)
+    touch(button("1"), "pointerup", 1)
+    touch(button("3"), "pointerdown", 3)
+    touch(button("2"), "pointerup", 2)
+    touch(button("3"), "pointerup", 3)
+    tapClick(button("1"))
+    tapClick(button("2"))
+    tapClick(button("3"))
+    expect(onDigit.mock.calls.map(([digit]) => digit)).toEqual(["1", "2", "3"])
+  })
+
+  it("enters a repeated digit each time it is tapped quickly", () => {
+    render()
+    touch(button("4"), "pointerdown", 1)
+    touch(button("4"), "pointerup", 1)
+    tapClick(button("4"))
+    touch(button("4"), "pointerdown", 2)
+    touch(button("4"), "pointerup", 2)
+    tapClick(button("4"))
+    expect(onDigit.mock.calls.map(([digit]) => digit)).toEqual(["4", "4"])
+  })
+
   it("shows the pressed state on pointerdown without entering the digit", () => {
     render()
     pointerDown(button("7"))
