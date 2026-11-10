@@ -105,6 +105,28 @@ export async function POST(req: Request) {
       select: { title: true },
     })
     const courseTitle = session.title || catalogRow?.title || context.courseSlug
+    // The checked-in body shared by the reserved-class shortcut and the purchase check-in.
+    const checkedInResponse = (
+      attendance: { id: string; status: string; checkedInAt: Date },
+      body: { package: unknown; cashPending?: true; cashAmount?: number; points: unknown; consecutiveOffer: unknown }
+    ) =>
+      NextResponse.json({
+        status: ATTENDANCE_STATUS.CHECKED_IN,
+        attendance: {
+          id: attendance.id,
+          status: attendance.status,
+          checkedInAt: attendance.checkedInAt.toISOString(),
+          courseSlug: context.courseSlug,
+          courseTitle,
+          startsAt: session.startsAt.toISOString(),
+        },
+        package: body.package || undefined,
+        cashPending: body.cashPending,
+        cashAmount: body.cashAmount,
+        points: body.points,
+        courseTitle,
+        consecutiveOffer: body.consecutiveOffer,
+      })
 
     // ─── Check existing Attendance ───────────────────────────
     const existingAttendance = await prisma.attendance.findUnique({
@@ -168,24 +190,14 @@ export async function POST(req: Request) {
         : null
       if (reservation) {
         const { attendance } = reservation
-        return NextResponse.json({
-          status: ATTENDANCE_STATUS.CHECKED_IN,
-          attendance: {
-            id: attendance.id,
-            status: attendance.status,
-            checkedInAt: attendance.checkedInAt.toISOString(),
-            courseSlug: context.courseSlug,
-            courseTitle,
-            startsAt: session.startsAt.toISOString(),
-          },
-          package: attendance.packageUsage?.packagePurchase || undefined,
+        return checkedInResponse(attendance, {
+          package: attendance.packageUsage?.packagePurchase,
           points: {
             awarded: reservation.pointsAwarded,
             milestone: reservation.milestone > 0 ? reservation.milestone : null,
             attendanceCount: reservation.checkedInCount,
             milestoneEvery: reservation.milestoneEvery,
           },
-          courseTitle,
           consecutiveOffer: null,
         })
       }
@@ -299,21 +311,11 @@ export async function POST(req: Request) {
       })
 
 
-      return NextResponse.json({
-        status: ATTENDANCE_STATUS.CHECKED_IN,
-        attendance: {
-          id: attendance.id,
-          status: attendance.status,
-          checkedInAt: attendance.checkedInAt.toISOString(),
-          courseSlug: context.courseSlug,
-          courseTitle,
-          startsAt: session.startsAt.toISOString(),
-        },
-        package: refreshedPackage || undefined,
+      return checkedInResponse(attendance, {
+        package: refreshedPackage,
         cashPending: isCashPending || undefined,
         cashAmount: isCashPending ? matchingPurchase.amount / 100 : undefined,
         points,
-        courseTitle,
         consecutiveOffer: consecutiveOffer
           ? {
               linkedCourseSlug: consecutiveOffer.linkedCourseSlug,

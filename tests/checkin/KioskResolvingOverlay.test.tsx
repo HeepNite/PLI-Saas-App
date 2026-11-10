@@ -12,27 +12,27 @@ import {
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+let root: Root | null = null
+let container: HTMLDivElement | null = null
+
+afterEach(async () => {
+  if (root) await act(async () => root?.unmount())
+  container?.remove()
+  root = null
+  container = null
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+const render = async (node: React.ReactElement) => {
+  container = document.createElement("div")
+  document.body.appendChild(container)
+  root = createRoot(container)
+  await act(async () => root!.render(node))
+  return container
+}
+
 describe("KioskResolvingOverlay", () => {
-  let root: Root | null = null
-  let container: HTMLDivElement | null = null
-
-  afterEach(async () => {
-    if (root) await act(async () => root?.unmount())
-    container?.remove()
-    root = null
-    container = null
-    vi.useRealTimers()
-    vi.restoreAllMocks()
-  })
-
-  const render = async (node: React.ReactElement) => {
-    container = document.createElement("div")
-    document.body.appendChild(container)
-    root = createRoot(container)
-    await act(async () => root!.render(node))
-    return container
-  }
-
   it("shows kiosk-appropriate English-only default copy (no 'niños' text)", async () => {
     const view = await render(<KioskResolvingOverlay />)
 
@@ -49,26 +49,6 @@ describe("KioskResolvingOverlay", () => {
 })
 
 describe("KioskPackageCheckInFailureOverlay", () => {
-  let root: Root | null = null
-  let container: HTMLDivElement | null = null
-
-  afterEach(async () => {
-    if (root) await act(async () => root?.unmount())
-    container?.remove()
-    root = null
-    container = null
-    vi.useRealTimers()
-    vi.restoreAllMocks()
-  })
-
-  const render = async (node: React.ReactElement) => {
-    container = document.createElement("div")
-    document.body.appendChild(container)
-    root = createRoot(container)
-    await act(async () => root!.render(node))
-    return container
-  }
-
   it("shows the failure message, Retry action, and 'see the front desk' guidance", async () => {
     const onRetry = vi.fn()
     const onDone = vi.fn()
@@ -143,24 +123,6 @@ describe("KioskPackageCheckInFailureOverlay", () => {
 })
 
 describe("KioskDuplicatePurchaseOverlay", () => {
-  let root: Root | null = null
-  let container: HTMLDivElement | null = null
-
-  afterEach(async () => {
-    if (root) await act(async () => root?.unmount())
-    container?.remove()
-    root = null
-    container = null
-  })
-
-  const render = async (node: React.ReactElement) => {
-    container = document.createElement("div")
-    document.body.appendChild(container)
-    root = createRoot(container)
-    await act(async () => root!.render(node))
-    return container
-  }
-
   it("confirms the check-in when the kiosk just checked in a reserved class", async () => {
     const view = await render(
       <KioskDuplicatePurchaseOverlay customerName="Jane" courseTitle="Salsa" justCheckedIn onDone={vi.fn()} />
