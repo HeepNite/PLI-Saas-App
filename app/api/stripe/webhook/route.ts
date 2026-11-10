@@ -25,7 +25,7 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { normalizePhone } from "@/lib/shared"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
-import { getDateKeyInTimeZone } from "@/lib/class-schedule"
+import { getDateKeyInTimeZone, getTimeKeyInTimeZone, parseTime24 } from "@/lib/class-schedule"
 import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 import {
@@ -126,16 +126,27 @@ const isTerminalFlow = (metadata: StripeMetadata) => {
   return metadata.flowContext === FLOW_CONTEXT.QR_PHONE && metadata.paymentSurface === "hosted_checkout"
 }
 
+const SAME_DAY_RESERVATION_MINUTES = 30
+
 const resolveAttendanceStatusForFlow = (input: {
   metadata: StripeMetadata
   hasPackagePurchase?: boolean
 }) => {
   if (!isTerminalFlow(input.metadata)) return ATTENDANCE_STATUS.SCHEDULED
-  // Paying ahead (e.g. the phone QR at home) for a class on a later New York day is a
-  // reservation, not a check-in: the check-in window is only the class's own NY day.
+  // Paying ahead (e.g. the phone QR at home) is a reservation, not a check-in: a class on a
+  // later New York day, or one today that starts more than 30 minutes from now. The student
+  // checks in later by identifying at the tablet.
+  const now = new Date()
+  const todayKey = getDateKeyInTimeZone(now)
   const classDateKey = normalize(input.metadata.date)
-  if (classDateKey && /^\d{4}-\d{2}-\d{2}$/.test(classDateKey) && classDateKey > getDateKeyInTimeZone(new Date())) {
+  if (classDateKey && /^\d{4}-\d{2}-\d{2}$/.test(classDateKey) && classDateKey > todayKey) {
     return ATTENDANCE_STATUS.SCHEDULED
+  }
+  const classTime = parseTime24(normalize(input.metadata.time) ?? "")
+  const nowTime = parseTime24(getTimeKeyInTimeZone(now))
+  if (classDateKey === todayKey && classTime && nowTime) {
+    const minutesUntilStart = classTime.hour * 60 + classTime.minute - (nowTime.hour * 60 + nowTime.minute)
+    if (minutesUntilStart > SAME_DAY_RESERVATION_MINUTES) return ATTENDANCE_STATUS.SCHEDULED
   }
   return input.hasPackagePurchase ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
 }
