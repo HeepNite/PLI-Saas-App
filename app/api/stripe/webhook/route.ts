@@ -60,6 +60,11 @@ import {
 import {
   isCanceledLoggedPaymentIntent, recordPreparedNativeAttemptFailure, type PreparedNativeFailureStatus,
 } from "@/lib/stripe/prepared-native-attempt-failure"
+import {
+  applyTerminalChargeOutstandingSideEffects,
+  fulfillTerminalChargeCarrierTx,
+  readStaffChargeId,
+} from "@/lib/terminal-charges/fulfillment"
 
 export const runtime = "nodejs"
 
@@ -1042,6 +1047,11 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
     }
 
     const metadata = proof.fulfillmentMetadata
+    // A staff terminal charge carrier fans out into its line items instead of fulfilling itself.
+    if (readStaffChargeId(purchase.metadata)) {
+      const terminalCharge = await fulfillTerminalChargeCarrierTx(tx, { carrier: purchase, paymentIntentId: intent.id })
+      return { purchase, metadata, packagePurchaseId: undefined, terminalCharge }
+    }
     const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
       userId: purchase.userId,
       purchaseId: purchase.id,
@@ -1058,9 +1068,18 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
         packageValidDays: metadata.packageValidDays,
       },
     })
-    return { purchase, metadata, packagePurchaseId: packagePurchase?.id }
+    return { purchase, metadata, packagePurchaseId: packagePurchase?.id, terminalCharge: null }
   })
   if (!fulfillment) return
+
+  if (fulfillment.terminalCharge) {
+    // Outstanding purchases the charge settled get the shared mark_paid side effects after commit.
+    await applyTerminalChargeOutstandingSideEffects(fulfillment.terminalCharge)
+    await prisma.$transaction(async (tx) => {
+      await completeInternalWebhookEventTx(tx, eventId, fulfillment.purchase.id)
+    })
+    return
+  }
 
   // Attendance owns its root transaction and must observe the committed package.
   // Its shared paid-Purchase guard remains the reversal/tombstone boundary.
