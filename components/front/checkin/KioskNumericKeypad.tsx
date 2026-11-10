@@ -69,12 +69,16 @@ export default function KioskNumericKeypad({
   // or a cancelled gesture enters nothing. The click that follows a handled
   // pointer sequence is consumed; any other click (keyboard, assistive tech)
   // still activates the key.
-  const armedKeyRef = React.useRef<string | null>(null)
-  const pointerHandledRef = React.useRef<{ key: string; at: number } | null>(null)
+  //
+  // Fast typists press the next key before releasing the previous one, so each
+  // pointer arms its own key, and each key counts its own pending clicks to
+  // consume. A single shared slot dropped or reordered overlapping digits.
+  const armedKeysRef = React.useRef(new Map<number, string>())
+  const pendingClicksRef = React.useRef(new Map<string, { count: number; at: number }>())
 
-  const disarm = (key: string) => {
-    if (armedKeyRef.current !== key) return
-    armedKeyRef.current = null
+  const disarm = (key: string, pointerId: number) => {
+    if (armedKeysRef.current.get(pointerId) !== key) return
+    armedKeysRef.current.delete(pointerId)
     setPressedKey((current) => (current === key ? null : current))
   }
 
@@ -87,29 +91,34 @@ export default function KioskNumericKeypad({
       if (typeof target.hasPointerCapture === "function" && target.hasPointerCapture(event.pointerId)) {
         target.releasePointerCapture(event.pointerId)
       }
-      armedKeyRef.current = key
+      armedKeysRef.current.set(event.pointerId, key)
       setPressedKey(key)
     },
     onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (armedKeyRef.current !== key || event.button !== 0) return
+      if (armedKeysRef.current.get(event.pointerId) !== key || event.button !== 0) return
       if (disabled) {
-        disarm(key)
+        disarm(key, event.pointerId)
         return
       }
-      armedKeyRef.current = null
+      armedKeysRef.current.delete(event.pointerId)
       // Stamp at commit time so the trailing click is consumed however long
       // the key was held.
-      pointerHandledRef.current = { key, at: Date.now() }
+      const now = Date.now()
+      const pending = pendingClicksRef.current.get(key)
+      const count = pending && now - pending.at < 1000 ? pending.count + 1 : 1
+      pendingClicksRef.current.set(key, { count, at: now })
       triggerPress(key, action)
     },
-    onPointerLeave: () => disarm(key),
-    onPointerCancel: () => disarm(key),
+    onPointerLeave: (event: React.PointerEvent<HTMLButtonElement>) => disarm(key, event.pointerId),
+    onPointerCancel: (event: React.PointerEvent<HTMLButtonElement>) => disarm(key, event.pointerId),
     onClick: () => {
-      const handled = pointerHandledRef.current
-      if (handled && handled.key === key && Date.now() - handled.at < 1000) {
-        pointerHandledRef.current = null
+      const pending = pendingClicksRef.current.get(key)
+      if (pending && Date.now() - pending.at < 1000) {
+        if (pending.count > 1) pendingClicksRef.current.set(key, { ...pending, count: pending.count - 1 })
+        else pendingClicksRef.current.delete(key)
         return
       }
+      pendingClicksRef.current.delete(key)
       triggerPress(key, action)
     },
   })
