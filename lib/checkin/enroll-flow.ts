@@ -106,6 +106,14 @@ export const resolveEnrollStepKeys = (input: ResolveEnrollStepKeysInput): Enroll
   ]
 }
 
+/**
+ * Index of the step that offers the consecutive-class promotion. The kiosk
+ * "I'm new" flow names it "promo"; every other flow names it "consecutive".
+ * Flows that jump past the info step must land here, not on payments.
+ */
+export const findOfferStepIndex = (steps: ReadonlyArray<{ key: string }>) =>
+  steps.findIndex((item) => item.key === "promo" || item.key === "consecutive")
+
 export const isCheckInContactGateStep = (input: {
   isCheckInFlow: boolean
   activeStepKey: EnrollStepKey | ""

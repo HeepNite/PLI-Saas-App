@@ -20,7 +20,7 @@ import { resolveFlowStepKeys } from "@/components/front/courses/enroll/model/enr
 import { resolveAvailableEnrollServices } from "@/components/front/courses/enroll/model/enroll-services"
 import { getCoursePromotions, resolveCoursePromotionCheckoutAmount } from "@/lib/promotions/course-promotion-checkout"
 import { getNewYorkDateKey } from "@/lib/promotions/course-promotions"
-import { resolveEnrollInitialStep, getCheckInSignInModalVariant } from "@/lib/checkin/enroll-flow"
+import { findOfferStepIndex, resolveEnrollInitialStep, getCheckInSignInModalVariant } from "@/lib/checkin/enroll-flow"
 import type { SignInModalVariant } from "@/components/front/courses/enroll/steps/EnrollSignInOverlay"
 import { getKioskPaymentTransitionMessage } from "@/lib/checkin/kiosk-qr-payment"
 import { isRegularFallbackLocked } from "@/lib/checkin/new-student-flow"
@@ -228,7 +228,7 @@ export function useEnrollDerivedState(input: UseEnrollDerivedStateInput) {
   )
 
   const promoStepIndex = React.useMemo(
-    () => steps.findIndex((item) => item.key === "promo"),
+    () => findOfferStepIndex(steps),
     [steps]
   )
 

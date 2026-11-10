@@ -1165,6 +1165,7 @@ export default function EnrollModal({
     identityCheckBusy,
     requiresSignIn,
     hasError: Boolean(formError),
+    offerLoading: consecutiveOfferLoading,
   })
   const shouldMaskKioskInfoContent = shouldMaskKioskInfoStep({
     isKioskTerminalFlow,
@@ -1173,7 +1174,9 @@ export default function EnrollModal({
     open,
     requiresSignIn,
     hasError: Boolean(formError),
-    hydrating: kioskStepHydrating,
+    // Keep the prefilled info step masked until the promo lookup settles, so the
+    // auto-advance below never flashes the form.
+    hydrating: kioskStepHydrating || consecutiveOfferLoading,
     transitionPending: kioskInfoTransitionPending,
   })
 
