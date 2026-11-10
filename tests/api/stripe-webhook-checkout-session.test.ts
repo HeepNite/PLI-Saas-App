@@ -269,12 +269,13 @@ describe("stripe webhook checkout session persistence", () => {
       mockPurchaseCreate, mockPurchaseUpdate, mockUpsertUserByIdentifiers, mockSyncScheduledAttendanceFromPurchase,
       mockSyncPackagePurchaseFromPaidPurchase, mockAwardPointsFromRule, mockPrisma.$transaction]) expect(mock).not.toHaveBeenCalled()
   }
-  const preparedNativeEvent = async () => {
+  const preparedNativeEvent = async (overrides: Record<string, string> = {}) => {
     vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", "fixture-signing-secret-at-least-32-bytes")
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const fulfillmentMetadata = {
       courseSlug: "salsa", courseTitle: "Salsa", packageId: "package_dynamic_1", serviceId: "dropin", addons: "shoe-rental", participants: "2", coupon: "SAVE",
       packageLabel: "Ten classes", packageTotalCredits: "10", packageIsUnlimited: "false", packageCadence: "weekly", packageMakeUps: "1", packageValidDays: "180", date: "2026-10-04", time: "13:00",
+      ...overrides,
     }
     const purchase = { id: "purchase_dynamic_1", userId: "user_dynamic_1", idempotencyKey: "native-m2-prepared:dynamic_1", stripePaymentIntentId: null, amount: 2599, currency: "usd", status: "pending", ...fulfillmentMetadata, metadata: fulfillmentMetadata }
     const preparedPurchase = { id: purchase.id, userId: purchase.userId, amount: purchase.amount, currency: purchase.currency, idempotencyKey: purchase.idempotencyKey, fulfillmentMetadata }
@@ -2275,5 +2276,79 @@ describe("stripe webhook checkout session persistence", () => {
         where: expect.objectContaining({ parentPurchaseId: expect.anything() }),
       })
     )
+  })
+  describe("prepaid class on a later New York day", () => {
+    // 2026-11-08T03:30Z is still 2026-11-07 (22:30) in New York, so a UTC-based
+    // comparison would wrongly treat a 2026-11-08 class as "today".
+    const NY_LATE_EVENING = new Date("2026-11-08T03:30:00.000Z")
+    const NY_TODAY = "2026-11-07"
+    const NY_TOMORROW = "2026-11-08"
+
+    const hostedQrCheckInEvent = (date: string) => ({
+      id: `evt_qr_${date}`,
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: `cs_qr_${date}`,
+          payment_status: "paid",
+          amount_total: 2000,
+          currency: "usd",
+          customer: "cus_123",
+          payment_intent: "pi_qr",
+          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
+          metadata: {
+            courseSlug: "salsa", courseTitle: "Salsa", date, time: "19:00", serviceId: "dropin",
+            userId: "guest", participants: "1", email: "test@example.com", phone: "9293876584",
+            flowContext: "qr_phone", paymentSurface: "hosted_checkout",
+          },
+        },
+      },
+    })
+    const sendCheckoutEvent = async () => {
+      const { POST } = await import("@/app/api/stripe/webhook/route")
+      return POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+    }
+    const expectAttendanceStatus = (status: string) =>
+      expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(expect.objectContaining({ preferredStatus: status }))
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(NY_LATE_EVENING)
+    })
+
+    it("stores a hosted qr_phone check-in purchase for a class tomorrow in New York as scheduled", async () => {
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TOMORROW))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
+
+    it("keeps a hosted qr_phone check-in purchase for a class today checked in without a package", async () => {
+      mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue(null)
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in_no_package")
+    })
+
+    it("keeps a hosted qr_phone check-in purchase for a class today checked in with a package", async () => {
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in")
+    })
+
+    it("stores a prepared native M2 kiosk_terminal purchase for a later day as scheduled", async () => {
+      const { event, purchase } = await preparedNativeEvent({ flowContext: "kiosk_terminal", date: NY_TOMORROW })
+      mockPurchaseFindUnique.mockResolvedValue(purchase)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
+
+    it("keeps a prepared native M2 kiosk_terminal purchase for a class today checked in", async () => {
+      const { event, purchase } = await preparedNativeEvent({ flowContext: "kiosk_terminal", date: NY_TODAY })
+      mockPurchaseFindUnique.mockResolvedValue(purchase)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in")
+    })
   })
 })
