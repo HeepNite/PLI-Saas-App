@@ -43,7 +43,7 @@ export default function StaffCourseMediaStep({
             label="Video"
             inputName="coursePreviewVideoUrl"
             value={courseForm.previewVideoUrl}
-            placeholder="URL video preview (YouTube/Vimeo/MP4)"
+            placeholder="Video preview URL (MP4/WebM)"
             uploadLabel={courseMediaUploading === "video" ? "Uploading video..." : "Upload local video"}
             localFileLabel={courseLocalVideoName ? `Local video: ${courseLocalVideoName}` : null}
             disabled={courseMediaUploading !== null}
