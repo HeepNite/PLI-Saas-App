@@ -73,6 +73,28 @@ A 60 s Chrome performance trace was then recorded on the tablet over USB (`adb f
 
 Lenis only smooths mouse-wheel scrolling. Its loop was active on the tablet because the screen is 1137 px wide, over the 1024 px threshold. It is now skipped unless the primary pointer is a mouse (`(hover: hover) and (pointer: fine)`).
 
+## Status: applied vs pending (2026-11-10)
+
+| Change | PR (main / develop) | Status |
+|---|---|---|
+| Overlay blur removed, keypad on pointer events, pressed-state shadow removed | #850 / #860, #861 | Applied |
+| Lenis skipped on touch screens | #854 / #860, #861 | Applied |
+| Kiosk payment modal blur removed (`EnrollModal`, `GlassyCard`) | #864 / #865 | Applied |
+| Keypad keeps every digit when taps overlap (fast typists lost or reordered digits) | #867 / #868 | Applied |
+| Kiosk blur removed from `EnrollFlowPopup` and `EnrollSignInOverlay`; QR code memoized | this follow-up | Applied |
+| Payment screen reload seen once during a trace | — | Not reproduced. The deploy watchdog (`useKioskDeployRefresh`) skips reloads while a booking is open, so the likely cause is the inactivity reset. |
+
+Measured on the tablet (`dumpsys gfxinfo`):
+
+| Run | Janky frames | p50 | p90 | Slow draw commands |
+|---|---|---|---|---|
+| PIN + payment, before any fix | 91% | 48 ms | — | 76% |
+| PIN + payment, after #864 | 75% | 19 ms | 53 ms | — |
+| PIN only, after #850 | 87% | 30 ms | 81 ms | — |
+| PIN only, after #867 | 67% | 18 ms | 40 ms | 9% |
+
+Drawing is no longer the bottleneck. Most remaining janky frames are flagged for high input latency, which Android reports for most WebView touch frames. The acceptance criteria below are not met yet.
+
 ## Recommended changes (in priority order)
 
 1. Replace `backdrop-filter` blur on overlays with a plain semi-transparent background, for example `background: rgba(0,0,0,.6)`. Check every modal, dialog and sheet.

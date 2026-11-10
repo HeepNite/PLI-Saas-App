@@ -16,7 +16,14 @@ type GrantState = {
   grant: string
 }
 
-export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in QR code" }: Props) {
+// Memoized: QRCodeSVG rebuilds its SVG path on every render, and the kiosk
+// screens around it re-render on every poll. All props are primitives.
+export const KioskClassQrCode = React.memo(function KioskClassQrCode({
+  url,
+  size,
+  className,
+  ariaLabel = "Check-in QR code",
+}: Props) {
   const [grantState, setGrantState] = React.useState<GrantState>({ url: "", grant: "" })
   const context = React.useMemo(() => {
     try {
@@ -86,4 +93,4 @@ export function KioskClassQrCode({ url, size, className, ariaLabel = "Check-in Q
       {signedUrl ? <QRCodeSVG value={signedUrl} size={size - 16} level="M" /> : <span className="text-xs text-neutral-500">Preparing QR…</span>}
     </div>
   )
-}
+})

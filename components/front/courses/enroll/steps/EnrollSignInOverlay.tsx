@@ -48,7 +48,8 @@ export default function EnrollSignInOverlay({
       <button
         type="button"
         aria-label={closeAriaLabel}
-        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        // The kiosk tablet GPU recomputes a backdrop blur every frame.
+        className={`absolute inset-0 ${isKioskTerminalFlow ? "bg-black/75" : "bg-black/70 backdrop-blur-sm"}`}
         onClick={onDismiss}
       />
       <div
