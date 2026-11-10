@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/prisma", () => ({ get prisma() { return holder.db } }))
 vi.mock("@/lib/security/staff-portal-auth", () => ({ authorizeStaffPortalBaseRequest: (...args: unknown[]) => mocks.baseAuth(...args) }))
+vi.mock("@/lib/security/staff-terminal", () => ({ authorizeStaffTerminalSession: (...args: unknown[]) => mocks.terminalAuth(...args) }))
+vi.mock("@/lib/stripe/prepared-native-purchase", () => ({ issuePreparedNativePurchase: (...args: unknown[]) => mocks.issue(...args), PreparedNativePurchaseError: class extends Error {} }))
 vi.mock("@/lib/security/rate-limit", () => ({ buildRateLimitKey: vi.fn(() => "key"), consumeRateLimit: vi.fn(() => ({ ok: true })), getClientIp: vi.fn(() => "127.0.0.1") }))
 vi.mock("@/lib/audit/student-data-audit", () => ({ writeStudentDataAudit: (...args: unknown[]) => mocks.audit(...args) }))
 vi.mock("@/lib/catalog-courses", () => ({
@@ -29,6 +31,8 @@ export const api = {
   create: async (items: unknown[], terminalId = "terminal_a", payerUserId = "payer_1") =>
     (await import("@/app/api/staff/terminal-charges/route")).POST(req({ terminalId, payerUserId, items })),
   get: async (id: string) => (await import("@/app/api/staff/terminal-charges/[id]/route")).GET(new Request("http://localhost/x"), params(id)),
+  pending: async () => (await import("@/app/api/staff/terminal/charges/pending/route")).GET(new Request("http://localhost/x")),
+  prepare: async (id: string) => (await import("@/app/api/staff/terminal/charges/[id]/prepare/route")).POST(req(), params(id)),
 }
 export const createCharge = async (items: unknown[] = [free(3500)]) => {
   const response = await api.create(items)
@@ -36,6 +40,18 @@ export const createCharge = async (items: unknown[] = [free(3500)]) => {
   return (await response.json()).charge.id as string
 }
 export const chargeRow = () => holder.db.tables.staffTerminalCharge[0]
+export const carrierRow = () => holder.db.tables.purchase.find((row) => meta(row).lineKind === "carrier")!
+
+/** A PaymentIntent exactly as the tablet's prepared attempt creates it for `purchase`. */
+export const intentFor = async (status: string, purchase: Row = carrierRow()) => {
+  const proof = await import("@/lib/stripe/prepared-native-payment")
+  const prepared = { id: purchase.id as string, userId: purchase.userId as string, amount: purchase.amount as number, currency: purchase.currency as string, idempotencyKey: purchase.idempotencyKey as string, fulfillmentMetadata: proof.preparedNativeFulfillmentMetadata(purchase.metadata) }
+  const ticket = proof.issuePreparedNativePaymentAttempt({ terminalId: "terminal_a", sessionId: "session_a" }, { readerId: "tmr_fixture", purchase: prepared })
+  return {
+    id: "pi_charge_1", object: "payment_intent", livemode: true, status, amount: prepared.amount, amount_received: status === "succeeded" ? prepared.amount : 0, currency: "usd",
+    customer: null, receipt_email: null, payment_method_types: ["card_present"], metadata: proof.preparedNativePaymentMetadata(ticket, prepared), canceled_at: null, last_payment_error: null,
+  }
+}
 
 beforeEach(() => {
   vi.resetModules()
