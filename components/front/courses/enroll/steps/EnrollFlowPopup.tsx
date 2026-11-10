@@ -5,11 +5,15 @@ export type EnrollFlowPopupProps = {
   title: string
   message: string
   onContinue: () => void
+  /** Backdrop blur (default true). Off on the kiosk tablet, whose GPU recomputes it every frame. */
+  blur?: boolean
 }
 
-export default function EnrollFlowPopup({ title, message, onContinue }: EnrollFlowPopupProps) {
+export default function EnrollFlowPopup({ title, message, onContinue, blur = true }: EnrollFlowPopupProps) {
   return (
-    <div className="fixed inset-0 z-[10015] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+    <div
+      className={`fixed inset-0 z-[10015] flex items-center justify-center px-4 ${blur ? "bg-black/70 backdrop-blur-sm" : "bg-black/75"}`}
+    >
       <div className="w-full max-w-md rounded-[1.5rem] border border-white/10 bg-[linear-gradient(160deg,rgba(12,15,28,0.98),rgba(21,25,40,0.96))] p-5 shadow-[0_24px_60px_-32px_rgba(0,0,0,0.85)]">
         <p className="text-xs uppercase tracking-[0.18em] text-[var(--brand,#c71818)]">Booking update</p>
         <h3 className="mt-2 text-lg font-semibold text-white">{title}</h3>
