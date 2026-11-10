@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
 import { getAttendanceMilestoneClasses } from "@/lib/points/service"
-import { checkInScheduledAttendance } from "@/lib/checkin/flip-scheduled-attendance"
+import { checkInScheduledAttendance, checkedInAttendanceInclude } from "@/lib/checkin/flip-scheduled-attendance"
 import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
 import { asText } from "@/lib/shared"
 
@@ -67,23 +67,7 @@ export async function POST(req: Request) {
         id: attendanceId,
         userId: dbUser.id,
       },
-      include: {
-        session: true,
-        packageUsage: {
-          include: {
-            packagePurchase: {
-              select: {
-                id: true,
-                packageId: true,
-                packageLabel: true,
-                isUnlimited: true,
-                remainingCredits: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
+      include: checkedInAttendanceInclude,
     })
 
     if (!attendance) {

@@ -7,7 +7,7 @@ import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-c
 const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
   `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
-const checkedInAttendanceInclude = {
+export const checkedInAttendanceInclude = {
   session: true,
   packageUsage: {
     include: {
