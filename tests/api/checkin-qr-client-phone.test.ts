@@ -8,6 +8,8 @@ const mockSessionUpsert = vi.fn()
 const mockAttendanceFindUnique = vi.fn()
 const mockAttendanceCreate = vi.fn()
 const mockAttendanceUpdate = vi.fn()
+const mockAttendanceUpdateMany = vi.fn()
+const mockAttendanceFindUniqueOrThrow = vi.fn()
 const mockPurchaseFindMany = vi.fn()
 const mockPackagePurchaseFindMany = vi.fn()
 const mockPackagePurchaseFindUnique = vi.fn()
@@ -46,6 +48,8 @@ vi.mock("@/lib/prisma", () => ({
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
       create: (...args: unknown[]) => mockAttendanceCreate(...args),
       update: (...args: unknown[]) => mockAttendanceUpdate(...args),
+      updateMany: (...args: unknown[]) => mockAttendanceUpdateMany(...args),
+      findUniqueOrThrow: (...args: unknown[]) => mockAttendanceFindUniqueOrThrow(...args),
       count: (...args: unknown[]) => mockAttendanceCount(...args),
     },
     purchase: { findMany: (...args: unknown[]) => mockPurchaseFindMany(...args) },
@@ -89,6 +93,12 @@ const buildRequest = (body: Record<string, unknown>) =>
   })
 
 const defaultBody = { courseSlug: "salsa-night", date: "2026-06-11", time: "20:00" }
+
+async function postCheckin() {
+  const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
+  const res = await POST(buildRequest(defaultBody))
+  return { res, data: await res.json() }
+}
 
 const clerkUser = {
   primaryEmailAddress: { emailAddress: "ana@example.com" },
@@ -169,8 +179,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
 
   it("returns 401 when not authenticated", async () => {
     mockAuth.mockReturnValue({ userId: null })
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
+    const { res } = await postCheckin()
     expect(res.status).toBe(401)
   })
 
@@ -182,9 +191,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
       id: "att_1", status: "checked_in", checkedInAt: NOW, metadata: {},
     })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("checked_in")
@@ -199,9 +206,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
       id: "att_2", status: "checked_in", checkedInAt: NOW, metadata: {},
     })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("checked_in")
@@ -224,9 +229,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
       id: "pkg_1", packageId: "plan_1", packageLabel: "Salsa 8-pack", isUnlimited: false, remainingCredits: 4, status: "active",
     })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("checked_in")
@@ -235,13 +238,51 @@ describe("POST /api/checkin/qr/client-phone", () => {
   })
 
   it("returns rejected when no purchase or package exists", async () => {
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("rejected")
     expect(data.message).toContain("No booking")
+  })
+
+  it("checks in a reserved class without a new charge or credit", async () => {
+    mockAttendanceFindUnique.mockResolvedValue({
+      id: "att_reserved", status: "scheduled", checkedInAt: NOW, metadata: null,
+      packageUsage: { packagePurchaseId: "pkg_1", packagePurchase: { id: "pkg_1", remainingCredits: 3 } },
+    })
+    mockAttendanceUpdateMany.mockResolvedValue({ count: 1 })
+    mockAttendanceFindUniqueOrThrow.mockResolvedValue({
+      id: "att_reserved", status: "checked_in", checkedInAt: NOW, session: { courseSlug: "salsa-night" },
+      packageUsage: { packagePurchaseId: "pkg_1", packagePurchase: { id: "pkg_1", remainingCredits: 3 } },
+    })
+
+    const { res, data } = await postCheckin()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("checked_in")
+    expect(mockAttendanceUpdateMany.mock.calls[0][0]).toMatchObject({
+      where: { id: "att_reserved", status: "scheduled" },
+      data: { status: "checked_in", checkedInAt: NOW },
+    })
+    expect(mockAttendanceUpdate).not.toHaveBeenCalled()
+    expect(data.package.remainingCredits).toBe(3)
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
+  })
+
+  it("never charges or uses a credit when a concurrent scan already checked the reservation in", async () => {
+    mockAttendanceFindUnique.mockResolvedValue({
+      id: "att_reserved", status: "scheduled", checkedInAt: NOW, metadata: null,
+      packageUsage: { packagePurchaseId: "pkg_1", packagePurchase: { id: "pkg_1", remainingCredits: 3 } },
+    })
+    mockAttendanceUpdateMany.mockResolvedValue({ count: 0 })
+
+    const { res, data } = await postCheckin()
+
+    expect(res.status).toBe(200)
+    expect(data.status).toBe("already_checked_in")
+    expect(mockTransaction).not.toHaveBeenCalled()
+    expect(mockPackageUsageLedgerCreate).not.toHaveBeenCalled()
   })
 
   it("returns already_checked_in when attendance exists", async () => {
@@ -250,9 +291,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
       packageUsage: null,
     })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("already_checked_in")
@@ -274,9 +313,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
     mockAttendanceUpdate.mockResolvedValue({ id: "att_scheduled", status: "checked_in", checkedInAt: NOW, metadata: {} })
     mockAttendanceFindUnique.mockResolvedValue({ id: "att_scheduled", status: "scheduled", checkedInAt: session.startsAt, packageUsage: null })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("checked_in")
@@ -300,9 +337,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
     ])
     mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "published", classSessionId: session.id })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("checked_in")
@@ -324,9 +359,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
     mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "cancelled", classSessionId: session.id })
     mockAttendanceFindUnique.mockResolvedValue({ id: "att_scheduled", status: "scheduled", checkedInAt: session.startsAt, packageUsage: null })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("rejected")
@@ -349,9 +382,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
     mockSpecialClassFindUnique.mockResolvedValue({ id: "special_class_1", status: "published", classSessionId: "session_other" })
     mockAttendanceFindUnique.mockResolvedValue({ id: "att_scheduled", status: "scheduled", checkedInAt: session.startsAt, packageUsage: null })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("rejected")
@@ -364,9 +395,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
       id: "att_special_checked_in", status: "checked_in", checkedInAt: NOW, packageUsage: null,
     })
 
-    const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-    const res = await POST(buildRequest(defaultBody))
-    const data = await res.json()
+    const { res, data } = await postCheckin()
 
     expect(res.status).toBe(200)
     expect(data.status).toBe("already_checked_in")
@@ -391,9 +420,7 @@ describe("POST /api/checkin/qr/client-phone", () => {
       mockPurchaseFindMany.mockResolvedValue([
         { id: "purchase_1", status: "paid", amount: 2000, courseSlug: "salsa-night", metadata: { date: "2026-06-11", paymentChannel: "card" } },
       ])
-      const { POST } = await import("@/app/api/checkin/qr/client-phone/route")
-      const res = await POST(buildRequest(defaultBody))
-      const data = await res.json()
+      const { res, data } = await postCheckin()
 
       expect(res.status).toBe(200)
       expect(data.status).toBe("checked_in")

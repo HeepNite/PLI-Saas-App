@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import StaffTerminalShell from "@/components/front/staff/StaffTerminalShell"
 import StaffTerminalSignInClient from "@/components/front/staff/StaffTerminalSignInClient"
+import { isTerminalChargeEnabled } from "@/lib/terminal-charges/rollout"
 
 export const metadata: Metadata = {
   title: "Staff terminal — PLI",
@@ -35,5 +36,10 @@ export default async function StaffTerminalPage() {
     )
   }
 
-  return <StaffTerminalShell terminal={authResult.terminal} />
+  return (
+    <StaffTerminalShell
+      terminal={authResult.terminal}
+      terminalChargesEnabled={isTerminalChargeEnabled(authResult.terminal.slug)}
+    />
+  )
 }

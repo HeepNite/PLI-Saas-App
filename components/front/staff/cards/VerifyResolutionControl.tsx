@@ -34,11 +34,18 @@ export function VerifyResolutionControl({ payment, formatMoney, onResolved }: Ve
 
   const resolution = payment.verifyResolution
   if (resolution) {
+    if (resolution.action === "collected") {
+      return (
+        <p data-verify-resolution={payment.id} className="w-full text-[11px] text-white/60">
+          {`Collected by ${resolution.byName || "staff"}`}
+        </p>
+      )
+    }
+    // Reason on the left, dismissed amount on the right, like the other card rows.
     return (
-      <p data-verify-resolution={payment.id} className="w-full text-[11px] text-white/60">
-        {resolution.action === "collected"
-          ? `Collected by ${resolution.byName || "staff"}`
-          : `Dismissed: ${resolution.reason || "no reason"}`}
+      <p data-verify-resolution={payment.id} className="flex w-full items-baseline justify-between gap-3 text-[11px] text-white/60">
+        <span className="min-w-0 break-words">{`Dismissed: ${resolution.reason || "no reason"}`}</span>
+        <span data-verify-dismissed-amount className="shrink-0 text-right">{formatMoney(payment.amount, payment.currency)}</span>
       </p>
     )
   }

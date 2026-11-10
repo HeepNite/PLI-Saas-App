@@ -53,3 +53,36 @@ describe("transformPaymentRowsToAttendance date parsing", () => {
     expect(date.getTime()).toBe(new Date(createdAt).getTime())
   })
 })
+
+describe("transformPaymentRowsToAttendance reserved classes and times", () => {
+  const prepaidCardDropIn = (overrides: Partial<PaymentTimelineRow> = {}) =>
+    makeRow({
+      paymentChannel: "card",
+      settlementStatus: "paid",
+      classDate: "2026-11-10",
+      classTime: "20:10",
+      // Bookings store the class start as the check-in time (New York wall clock written as UTC).
+      checkInAt: "2026-11-10T20:10:00.000Z",
+      checkedOutAt: null,
+      ...overrides,
+    })
+
+  it("shows a prepaid class that is still reserved as booked, not attended", () => {
+    const { events, summary } = transformPaymentRowsToAttendance([prepaidCardDropIn({ checkInStatus: "scheduled" })])
+    expect(events.map((event) => event.status)).toEqual(["booked"])
+    expect(summary.totalAttended).toBe(0)
+  })
+
+  it("shows the class time when the check-in time is just the stored class start", () => {
+    const { events } = transformPaymentRowsToAttendance([prepaidCardDropIn({ checkInStatus: "checked_in_no_package" })])
+    expect(events[0].status).toBe("attended")
+    expect(events[0].time).toBe("20:10")
+  })
+
+  it("keeps showing a real arrival time recorded by a check-in", () => {
+    const arrival = "2026-04-20T14:05:00.000Z"
+    const { events } = transformPaymentRowsToAttendance([makeRow({ checkInStatus: "checked_in", checkInAt: arrival, checkedOutAt: null })])
+    const parsed = new Date(arrival)
+    expect(events[0].time).toBe(`${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`)
+  })
+})

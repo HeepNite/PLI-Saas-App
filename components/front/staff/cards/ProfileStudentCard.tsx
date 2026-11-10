@@ -14,9 +14,9 @@ import {
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { formatIsoDateLong } from "@/components/front/staff/studentPaymentCardFormatters"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
-import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
 import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
+import { StudentCardActions } from "./StudentCardActions"
 import type { StudentCardsGridProps } from "@/components/front/staff/StudentCardsGrid"
 
 type ProfileStudentCardProps = StudentCardsGridProps & {
@@ -173,35 +173,19 @@ export function ProfileStudentCard({
         })}
       </div>
 
-      <div className="mt-4 flex gap-2.5">
-        <FastClassActionControls
-          activePackage={student.activePackage}
-          disabled={paymentsLoading}
-          studentName={student.displayName}
-          userId={student.userId}
-          onRefreshPaymentsBoard={onRefreshPaymentsBoard}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (typeof window === "undefined" || !student.email || student.email === "—") return
-            const subject = encodeURIComponent(`Student profile update · ${student.displayName}`)
-            window.location.href = `mailto:${encodeURIComponent(student.email)}?subject=${subject}`
-          }}
-          className="flex-1 whitespace-nowrap rounded-md border border-white/20 px-2 py-1 text-[11px]"
-        >
-          Notify
-        </button>
-        {canEditStudentInfo && student.userId ? (
-          <button
-            type="button"
-            onClick={() => openOverrideModal(student.userId, student.displayName)}
-            className="flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
-          >
-            Edit info
-          </button>
-        ) : null}
-      </div>
+      <StudentCardActions
+        userId={student.userId}
+        name={student.displayName}
+        email={student.email}
+        mailSubject={`Student profile update · ${student.displayName}`}
+        activePackage={student.activePackage}
+        openPayments={[]}
+        currentRole={currentRole}
+        currentCategory={currentCategory}
+        openOverrideModal={openOverrideModal}
+        paymentsLoading={paymentsLoading}
+        onRefreshPaymentsBoard={onRefreshPaymentsBoard}
+      />
 
       {canEditStudentInfo &&
         student.userId &&

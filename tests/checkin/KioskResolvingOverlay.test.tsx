@@ -5,33 +5,34 @@ import { createRoot, type Root } from "react-dom/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import {
+  KioskDuplicatePurchaseOverlay,
   KioskPackageCheckInFailureOverlay,
   KioskResolvingOverlay,
 } from "@/components/front/checkin/KioskResolvingOverlay"
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+let root: Root | null = null
+let container: HTMLDivElement | null = null
+
+afterEach(async () => {
+  if (root) await act(async () => root?.unmount())
+  container?.remove()
+  root = null
+  container = null
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
+
+const render = async (node: React.ReactElement) => {
+  container = document.createElement("div")
+  document.body.appendChild(container)
+  root = createRoot(container)
+  await act(async () => root!.render(node))
+  return container
+}
+
 describe("KioskResolvingOverlay", () => {
-  let root: Root | null = null
-  let container: HTMLDivElement | null = null
-
-  afterEach(async () => {
-    if (root) await act(async () => root?.unmount())
-    container?.remove()
-    root = null
-    container = null
-    vi.useRealTimers()
-    vi.restoreAllMocks()
-  })
-
-  const render = async (node: React.ReactElement) => {
-    container = document.createElement("div")
-    document.body.appendChild(container)
-    root = createRoot(container)
-    await act(async () => root!.render(node))
-    return container
-  }
-
   it("shows kiosk-appropriate English-only default copy (no 'niños' text)", async () => {
     const view = await render(<KioskResolvingOverlay />)
 
@@ -48,26 +49,6 @@ describe("KioskResolvingOverlay", () => {
 })
 
 describe("KioskPackageCheckInFailureOverlay", () => {
-  let root: Root | null = null
-  let container: HTMLDivElement | null = null
-
-  afterEach(async () => {
-    if (root) await act(async () => root?.unmount())
-    container?.remove()
-    root = null
-    container = null
-    vi.useRealTimers()
-    vi.restoreAllMocks()
-  })
-
-  const render = async (node: React.ReactElement) => {
-    container = document.createElement("div")
-    document.body.appendChild(container)
-    root = createRoot(container)
-    await act(async () => root!.render(node))
-    return container
-  }
-
   it("shows the failure message, Retry action, and 'see the front desk' guidance", async () => {
     const onRetry = vi.fn()
     const onDone = vi.fn()
@@ -138,5 +119,24 @@ describe("KioskPackageCheckInFailureOverlay", () => {
     root = null
 
     expect(clearTimeoutSpy).toHaveBeenCalled()
+  })
+})
+
+describe("KioskDuplicatePurchaseOverlay", () => {
+  it("confirms the check-in when the kiosk just checked in a reserved class", async () => {
+    const view = await render(
+      <KioskDuplicatePurchaseOverlay customerName="Jane" courseTitle="Salsa" justCheckedIn onDone={vi.fn()} />
+    )
+
+    expect(view.textContent).toContain("You\u2019re checked in!")
+    expect(view.textContent).toContain("Jane, you are checked in for Salsa.")
+    expect(view.textContent).not.toContain("Already checked in!")
+  })
+
+  it("keeps the already-checked-in message otherwise", async () => {
+    const view = await render(<KioskDuplicatePurchaseOverlay customerName="Jane" courseTitle="Salsa" onDone={vi.fn()} />)
+
+    expect(view.textContent).toContain("Already checked in!")
+    expect(view.textContent).toContain("Jane, you are already checked in for Salsa.")
   })
 })

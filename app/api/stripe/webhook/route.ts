@@ -25,6 +25,7 @@ import { POINTS_RULE_KEYS } from "@/lib/points/constants"
 import { normalizePhone } from "@/lib/shared"
 import { FLOW_CONTEXT, PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS, resolveKioskPurchaseSource } from "@/lib/payment-constants"
 import { ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { getDateKeyInTimeZone, getTimeKeyInTimeZone, parseTime24 } from "@/lib/class-schedule"
 import { pickStripeMetadata, parseIntSafe, normalize, type StripeMetadata } from "@/lib/stripe-metadata"
 import { incrementDayOfWeekCounter } from "@/lib/checkin/day-of-week-counter"
 import {
@@ -60,6 +61,12 @@ import {
 import {
   isCanceledLoggedPaymentIntent, recordPreparedNativeAttemptFailure, type PreparedNativeFailureStatus,
 } from "@/lib/stripe/prepared-native-attempt-failure"
+import {
+  applyTerminalChargeOutstandingSideEffects,
+  fulfillTerminalChargeCarrierTx,
+  readStaffChargeId,
+  recordTerminalChargeCarrierFailureTx,
+} from "@/lib/terminal-charges/fulfillment"
 
 export const runtime = "nodejs"
 
@@ -115,6 +122,7 @@ const resolveTrustedSpecialMetadata = (
 }
 
 const isTerminalFlow = (metadata: StripeMetadata) => {
+  if (metadata.checkoutChannel === "public_booking") return false
   if (metadata.flowContext === FLOW_CONTEXT.KIOSK_TERMINAL) return true
   // Mobile-QR check-in paid via Stripe HOSTED checkout (full-page redirect): the
   // browser navigates away to Stripe, so — unlike the embedded-modal path — there is
@@ -125,11 +133,28 @@ const isTerminalFlow = (metadata: StripeMetadata) => {
   return metadata.flowContext === FLOW_CONTEXT.QR_PHONE && metadata.paymentSurface === "hosted_checkout"
 }
 
+const SAME_DAY_RESERVATION_MINUTES = 30
+
 const resolveAttendanceStatusForFlow = (input: {
   metadata: StripeMetadata
   hasPackagePurchase?: boolean
 }) => {
   if (!isTerminalFlow(input.metadata)) return ATTENDANCE_STATUS.SCHEDULED
+  // Paying ahead (e.g. the phone QR at home) is a reservation, not a check-in: a class on a
+  // later New York day, or one today that starts more than 30 minutes from now. The student
+  // checks in later by identifying at the tablet.
+  const now = new Date()
+  const todayKey = getDateKeyInTimeZone(now)
+  const classDateKey = normalize(input.metadata.date)
+  if (classDateKey && /^\d{4}-\d{2}-\d{2}$/.test(classDateKey) && classDateKey > todayKey) {
+    return ATTENDANCE_STATUS.SCHEDULED
+  }
+  const classTime = parseTime24(normalize(input.metadata.time) ?? "")
+  const nowTime = parseTime24(getTimeKeyInTimeZone(now))
+  if (classDateKey === todayKey && classTime && nowTime) {
+    const minutesUntilStart = classTime.hour * 60 + classTime.minute - (nowTime.hour * 60 + nowTime.minute)
+    if (minutesUntilStart > SAME_DAY_RESERVATION_MINUTES) return ATTENDANCE_STATUS.SCHEDULED
+  }
   return input.hasPackagePurchase ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
 }
 
@@ -302,8 +327,10 @@ async function processPaidStripeEvent(params: ProcessPaidEventParams) {
   ) as Prisma.InputJsonValue
 
   if (mergedMetadata && typeof mergedMetadata === "object" && !Array.isArray(mergedMetadata)) {
-    ;(mergedMetadata as Record<string, unknown>).purchaseSource =
-      resolveKioskPurchaseSource((mergedMetadata as Record<string, unknown>)?.flowContext as string | undefined)
+    const metadataRecord = mergedMetadata as Record<string, unknown>
+    metadataRecord.purchaseSource = metadataRecord.checkoutChannel === "public_booking"
+      ? PURCHASE_SOURCE.WEB
+      : resolveKioskPurchaseSource(metadataRecord.flowContext as string | undefined)
   }
 
   const purchase = await prisma.purchase.upsert({
@@ -1039,6 +1066,11 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
     }
 
     const metadata = proof.fulfillmentMetadata
+    // A staff terminal charge carrier fans out into its line items instead of fulfilling itself.
+    if (readStaffChargeId(purchase.metadata)) {
+      const terminalCharge = await fulfillTerminalChargeCarrierTx(tx, { carrier: purchase, paymentIntentId: intent.id })
+      return { purchase, metadata, packagePurchaseId: undefined, terminalCharge }
+    }
     const packagePurchase = await syncPackagePurchaseFromPaidPurchase({
       userId: purchase.userId,
       purchaseId: purchase.id,
@@ -1055,9 +1087,18 @@ async function fulfillPreparedNativePaymentIntent(intent: Stripe.PaymentIntent, 
         packageValidDays: metadata.packageValidDays,
       },
     })
-    return { purchase, metadata, packagePurchaseId: packagePurchase?.id }
+    return { purchase, metadata, packagePurchaseId: packagePurchase?.id, terminalCharge: null }
   })
   if (!fulfillment) return
+
+  if (fulfillment.terminalCharge) {
+    // Outstanding purchases the charge settled get the shared mark_paid side effects after commit.
+    await applyTerminalChargeOutstandingSideEffects(fulfillment.terminalCharge)
+    await prisma.$transaction(async (tx) => {
+      await completeInternalWebhookEventTx(tx, eventId, fulfillment.purchase.id)
+    })
+    return
+  }
 
   // Attendance owns its root transaction and must observe the committed package.
   // Its shared paid-Purchase guard remains the reversal/tombstone boundary.
@@ -1117,6 +1158,8 @@ async function recordPreparedNativePaymentFailure(intent: Stripe.PaymentIntent, 
     // Every attempt is logged (History), including a repeat decline on an already failed row.
     // Paid, reversed, or any other non-attempt status is never overwritten.
     await recordPreparedNativeAttemptFailure(tx, purchase, intent, event, status)
+    // A canceled staff terminal charge carrier also ends its charge if it is still collecting.
+    await recordTerminalChargeCarrierFailureTx(tx, { carrier: purchase, status, paymentIntentId: intent.id })
     await completeInternalWebhookEventTx(tx, event.id, purchase.id)
   })
 }

@@ -55,6 +55,7 @@ function mapIdentifyAndBootstrapToBootstrap(
     hasPreviousPurchase: false,
     hasAnyCompletedPurchase: false,
     hasExistingPurchaseForSession: data.hasExistingPurchaseForSession,
+    ...(data.checkedInReservation ? { checkedInReservation: true } : {}),
     hasAnyActivePackage: data.hasAnyActivePackage,
     consecutiveOffer: data.consecutiveOffer ?? null,
     quickCheckout: data.quickCheckout ?? null,

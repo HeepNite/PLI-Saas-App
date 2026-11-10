@@ -3,17 +3,14 @@ import { auth, clerkClient } from "@clerk/nextjs/server"
 import { prisma } from "@/lib/prisma"
 import { upsertUserByIdentifiers } from "@/lib/users"
 import { buildRateLimitKey, consumeRateLimit, getClientIp } from "@/lib/security/rate-limit"
-import { awardPointsFromRule, getAttendanceMilestoneClasses } from "@/lib/points/service"
-import { POINTS_RULE_KEYS } from "@/lib/points/constants"
-import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-constants"
+import { getAttendanceMilestoneClasses } from "@/lib/points/service"
+import { checkInScheduledAttendance, checkedInAttendanceInclude } from "@/lib/checkin/flip-scheduled-attendance"
+import { ATTENDANCE_POINT_STATUSES } from "@/lib/attendance-constants"
 import { asText } from "@/lib/shared"
 
 export const runtime = "nodejs"
 const CHECK_IN_OPEN_WINDOW_MS = 2 * 60 * 60 * 1000
 const CHECK_IN_CLOSE_AFTER_END_MS = 2 * 60 * 60 * 1000
-
-const attendanceMilestoneEventKey = (userId: string, courseSlug: string, milestone: number) =>
-  `consecutive-attendance:${userId}:${courseSlug}:${milestone}`
 
 export async function POST(req: Request) {
   try {
@@ -70,23 +67,7 @@ export async function POST(req: Request) {
         id: attendanceId,
         userId: dbUser.id,
       },
-      include: {
-        session: true,
-        packageUsage: {
-          include: {
-            packagePurchase: {
-              select: {
-                id: true,
-                packageId: true,
-                packageLabel: true,
-                isUnlimited: true,
-                remainingCredits: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
+      include: checkedInAttendanceInclude,
     })
 
     if (!attendance) {
@@ -145,80 +126,25 @@ export async function POST(req: Request) {
       })
     }
 
-    if (attendance.status !== ATTENDANCE_STATUS.SCHEDULED) {
+    // Returns null (no write) for anything other than a scheduled reservation.
+    const flip = await checkInScheduledAttendance({
+      attendance,
+      userId: dbUser.id,
+      now,
+      checkInSource: "client_profile",
+      pointsSource: "profile_checkin",
+    })
+    if (!flip) {
       return NextResponse.json(
         { error: "Only scheduled classes can be checked in." },
         { status: 400 }
       )
     }
-
-    const metadata =
-      attendance.metadata && typeof attendance.metadata === "object"
-        ? (attendance.metadata as Record<string, unknown>)
-        : {}
-    const hasReservedPackage = Boolean(attendance.packageUsage?.packagePurchaseId)
-    const nextStatus = hasReservedPackage ? ATTENDANCE_STATUS.CHECKED_IN : ATTENDANCE_STATUS.CHECKED_IN_NO_PACKAGE
-
-    const updatedAttendance = await prisma.attendance.update({
-      where: { id: attendance.id },
-      data: {
-        status: nextStatus,
-        checkedInAt: now,
-        metadata: {
-          ...metadata,
-          checkInSource: "client_profile",
-          checkedInFromStatus: attendance.status,
-        },
-      },
-      include: {
-        session: true,
-        packageUsage: {
-          include: {
-            packagePurchase: {
-              select: {
-                id: true,
-                packageId: true,
-                packageLabel: true,
-                isUnlimited: true,
-                remainingCredits: true,
-                status: true,
-              },
-            },
-          },
-        },
-      },
-    })
-
-    const checkedInCount = await prisma.attendance.count({
-      where: {
-        userId: dbUser.id,
-        status: { in: [...ATTENDANCE_POINT_STATUSES] },
-        session: { courseSlug: updatedAttendance.session.courseSlug },
-      },
-    })
-
-    const attendanceMilestoneEvery = await getAttendanceMilestoneClasses()
-    let pointsAwarded = 0
-    let attendanceMilestone = 0
-    if (checkedInCount > 0 && checkedInCount % attendanceMilestoneEvery === 0) {
-      attendanceMilestone = Math.floor(checkedInCount / attendanceMilestoneEvery)
-      const pointsResult = await awardPointsFromRule({
-        userId: dbUser.id,
-        ruleKey: POINTS_RULE_KEYS.CONSECUTIVE_ATTENDANCE,
-        eventKey: attendanceMilestoneEventKey(dbUser.id, updatedAttendance.session.courseSlug, attendanceMilestone),
-        fallbackType: "CONSECUTIVE_ATTENDANCE",
-        meta: {
-          source: "profile_checkin",
-          courseSlug: updatedAttendance.session.courseSlug,
-          milestoneEvery: attendanceMilestoneEvery,
-          milestone: attendanceMilestone,
-          attendanceCount: checkedInCount,
-        },
-      })
-      if (pointsResult.awarded) {
-        pointsAwarded = pointsResult.points
-      }
-    }
+    const updatedAttendance = flip.attendance
+    const checkedInCount = flip.checkedInCount
+    const attendanceMilestoneEvery = flip.milestoneEvery
+    const pointsAwarded = flip.pointsAwarded
+    const attendanceMilestone = flip.milestone
 
     return NextResponse.json({
       alreadyCheckedIn: false,

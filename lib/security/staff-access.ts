@@ -119,3 +119,13 @@ export const canGrantCashPackage = (
   if (category === "front_desk" || category === "manager" || category === "partner") return true
   return category === "guest" && (subCategory === "front_desk" || subCategory === "manager")
 }
+
+/**
+ * Staff who may create and cancel a card charge collected on a tablet's M2 reader
+ * (docs/specs/staff-panel-m2-charge, D4 phase 1): owner, admin and staff/front_desk.
+ * Managers are deferred to phase 3.
+ */
+export const canCreateTerminalCharge = (
+  role: StaffRole | null | undefined,
+  category: StaffCategory | null | undefined
+): boolean => role === "owner" || role === "admin" || (role === "staff" && category === "front_desk")

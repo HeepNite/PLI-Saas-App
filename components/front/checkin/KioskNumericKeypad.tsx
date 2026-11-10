@@ -27,12 +27,24 @@ export default function KioskNumericKeypad({
 }) {
   const [pressedKey, setPressedKey] = React.useState<string | null>(null)
 
+  // Pending "release" timers are cleared on unmount, so none fires after the keypad is gone.
+  const releaseTimersRef = React.useRef(new Set<number>())
+  React.useEffect(() => {
+    const timers = releaseTimersRef.current
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
   const triggerPress = React.useCallback((key: string, action: () => void) => {
     setPressedKey(key)
     action()
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
+      releaseTimersRef.current.delete(timer)
       setPressedKey((current) => (current === key ? null : current))
     }, 140)
+    releaseTimersRef.current.add(timer)
   }, [])
 
   // Physical keyboard support: mirror 0-9 / Backspace / Delete onto the keypad
@@ -64,11 +76,70 @@ export default function KioskNumericKeypad({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [disabled, captureKeyboard, onDigit, onBackspace, onClear, triggerPress])
 
+  // Pointer taps show the pressed state on pointerdown (instant feedback on the
+  // kiosk tablet) and commit on pointerup, so a finger that slides off the key
+  // or a cancelled gesture enters nothing. The click that follows a handled
+  // pointer sequence is consumed; any other click (keyboard, assistive tech)
+  // still activates the key.
+  //
+  // Fast typists press the next key before releasing the previous one, so each
+  // pointer arms its own key, and each key counts its own pending clicks to
+  // consume. A single shared slot dropped or reordered overlapping digits.
+  const armedKeysRef = React.useRef(new Map<number, string>())
+  const pendingClicksRef = React.useRef(new Map<string, { count: number; at: number }>())
+
+  const disarm = (key: string, pointerId: number) => {
+    if (armedKeysRef.current.get(pointerId) !== key) return
+    armedKeysRef.current.delete(pointerId)
+    setPressedKey((current) => (current === key ? null : current))
+  }
+
+  const pressHandlers = (key: string, action: () => void) => ({
+    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (disabled || event.button !== 0) return
+      // Touch pointers are implicitly captured by the pressed element, which
+      // would hide a slide-off. Release it so pointerleave reaches the key.
+      const target = event.currentTarget
+      if (typeof target.hasPointerCapture === "function" && target.hasPointerCapture(event.pointerId)) {
+        target.releasePointerCapture(event.pointerId)
+      }
+      armedKeysRef.current.set(event.pointerId, key)
+      setPressedKey(key)
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (armedKeysRef.current.get(event.pointerId) !== key || event.button !== 0) return
+      if (disabled) {
+        disarm(key, event.pointerId)
+        return
+      }
+      armedKeysRef.current.delete(event.pointerId)
+      // Stamp at commit time so the trailing click is consumed however long
+      // the key was held.
+      const now = Date.now()
+      const pending = pendingClicksRef.current.get(key)
+      const count = pending && now - pending.at < 1000 ? pending.count + 1 : 1
+      pendingClicksRef.current.set(key, { count, at: now })
+      triggerPress(key, action)
+    },
+    onPointerLeave: (event: React.PointerEvent<HTMLButtonElement>) => disarm(key, event.pointerId),
+    onPointerCancel: (event: React.PointerEvent<HTMLButtonElement>) => disarm(key, event.pointerId),
+    onClick: () => {
+      const pending = pendingClicksRef.current.get(key)
+      if (pending && Date.now() - pending.at < 1000) {
+        if (pending.count > 1) pendingClicksRef.current.set(key, { ...pending, count: pending.count - 1 })
+        else pendingClicksRef.current.delete(key)
+        return
+      }
+      pendingClicksRef.current.delete(key)
+      triggerPress(key, action)
+    },
+  })
+
   const getButtonClassName = React.useCallback(
     (key: string) =>
-      `rounded-[1.15rem] border px-3 transition disabled:opacity-50 motion-reduce:transition-none motion-reduce:transform-none ${
+      `touch-manipulation select-none rounded-[1.15rem] border px-3 transition-[transform,background-color,border-color,color] disabled:opacity-50 motion-reduce:transition-none motion-reduce:transform-none ${
         pressedKey === key || activeKey === key
-          ? "border-white/40 bg-white/[0.12] text-white scale-[0.98] shadow-[0_0_0_1px_rgba(255,255,255,0.16)]"
+          ? "border-white/40 bg-white/[0.12] text-white scale-[0.98]"
           : "border-white/12 bg-white/[0.04] text-white hover:border-[rgba(182,22,22,0.72)] hover:bg-[rgba(182,22,22,0.12)] hover:text-white"
       }`,
     [activeKey, pressedKey]
@@ -117,7 +188,7 @@ export default function KioskNumericKeypad({
           <button
             key={digit}
             type="button"
-            onClick={() => triggerPress(digit, () => onDigit(digit))}
+            {...pressHandlers(digit, () => onDigit(digit))}
             disabled={disabled}
             className={`${getButtonClassName(digit)} ${digitClassName}`}
           >
@@ -126,7 +197,7 @@ export default function KioskNumericKeypad({
         ))}
         <button
           type="button"
-          onClick={() => triggerPress("clear", onClear)}
+          {...pressHandlers("clear", onClear)}
           disabled={disabled}
           className={`${getButtonClassName("clear")} ${clearClassName}`}
         >
@@ -134,7 +205,7 @@ export default function KioskNumericKeypad({
         </button>
         <button
           type="button"
-          onClick={() => triggerPress("0", () => onDigit("0"))}
+          {...pressHandlers("0", () => onDigit("0"))}
           disabled={disabled}
           className={`${getButtonClassName("0")} ${digitClassName}`}
         >
@@ -142,7 +213,7 @@ export default function KioskNumericKeypad({
         </button>
         <button
           type="button"
-          onClick={() => triggerPress("backspace", onBackspace)}
+          {...pressHandlers("backspace", onBackspace)}
           disabled={disabled}
           aria-label="Delete last digit"
           className={`inline-flex items-center justify-center ${getButtonClassName("backspace")} ${backspaceClassName}`}

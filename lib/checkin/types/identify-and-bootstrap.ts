@@ -67,6 +67,8 @@ export type FastPathResponse = {
   package: PackageInfo
   context: BootstrapContext
   hasExistingPurchaseForSession: boolean
+  /** True when this identification just checked in the student's reserved (scheduled) class. */
+  checkedInReservation?: boolean
   hasAnyActivePackage: true
   consecutiveOffer: null
   quickCheckout: null
@@ -116,6 +118,8 @@ export type FullPathResponse = {
   package: PackageInfo | null
   context: BootstrapContext
   hasExistingPurchaseForSession: boolean
+  /** True when this identification just checked in the student's reserved (scheduled) class. */
+  checkedInReservation?: boolean
   hasAnyActivePackage: boolean
   consecutiveOffer: ConsecutiveOfferPayload | null
   quickCheckout: QuickCheckoutTemplate | null

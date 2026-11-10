@@ -12,7 +12,7 @@ const mockValidateCheckOutBody = vi.fn()
 const mockPrisma = {
   user: { findFirst: vi.fn() },
   courseCatalog: { findUnique: vi.fn() },
-  purchase: { findFirst: vi.fn(), create: vi.fn() },
+  purchase: { findFirst: vi.fn(), findMany: vi.fn(async () => []), create: vi.fn() },
   room: { findUnique: vi.fn() },
   classSession: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
   attendance: { findUnique: vi.fn(), upsert: vi.fn(), update: vi.fn(), count: vi.fn() },

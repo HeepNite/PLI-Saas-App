@@ -2,6 +2,7 @@ import type { CardCheckInStatus } from "@/components/front/staff/historyCardAggr
 import { asObject, asText } from "@/lib/shared"
 export { asObject, asText } from "@/lib/shared"
 import { PAYMENT_CHANNEL, PURCHASE_SOURCE, PURCHASE_STATUS, SETTLEMENT_STATUS } from "@/lib/payment-constants"
+import { TERMINAL_CHARGE_CARRIER_COURSE_SLUG } from "@/lib/terminal-charges/contract"
 
 export type SettlementStatus = (typeof SETTLEMENT_STATUS)[keyof typeof SETTLEMENT_STATUS]
 export type PaymentChannel = (typeof PAYMENT_CHANNEL)[keyof typeof PAYMENT_CHANNEL]
@@ -216,6 +217,18 @@ export const isRefundedCardPurchase = <TPurchase extends OutstandingBalancePurch
   return isRefundedCard(paymentChannel, purchase.status)
 }
 
+/**
+ * Carrier Purchase of a staff terminal charge: it only transports the M2 payment; the
+ * charge's child purchases hold the revenue. It is never debt, Verify, or revenue.
+ * The single carrier definition is its course slug (every carrier has it); the board, the
+ * monthly report and the student listing filter on the same slug.
+ */
+export const isTerminalChargeCarrier = (purchase: { courseSlug?: string | null }) =>
+  purchase.courseSlug === TERMINAL_CHARGE_CARRIER_COURSE_SLUG
+
+/** The same carrier definition as a query filter (spread into a Purchase `where`). */
+export const EXCLUDE_TERMINAL_CHARGE_CARRIERS = { NOT: { courseSlug: TERMINAL_CHARGE_CARRIER_COURSE_SLUG } } as const
+
 export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(purchase: TPurchase) => {
   const paymentChannel = normalizePaymentChannel({
     metadata: purchase.metadata,
@@ -229,7 +242,8 @@ export const isOpenPurchase = <TPurchase extends OutstandingBalancePurchase>(pur
     paymentChannel,
     settlementStatus,
     isOpen:
-      settlementStatus !== SETTLEMENT_STATUS.PAID
+      !isTerminalChargeCarrier(purchase)
+      && settlementStatus !== SETTLEMENT_STATUS.PAID
       && !isRefundedCard(paymentChannel, purchase.status)
       && (!isCompletedPaymentStatus(purchase.status) || paymentChannel === PAYMENT_CHANNEL.CASH),
   }
@@ -248,7 +262,7 @@ const isSettledOrCompleted = (purchase: Pick<OutstandingBalancePurchase, "status
 const isNativeM2Preparation = (purchase: Pick<OutstandingBalancePurchase, "metadata">) =>
   asText(asObject(purchase.metadata).paymentSurface) === "native_m2_prepare"
 
-type VerifyCandidate = Pick<OutstandingBalancePurchase, "metadata" | "status" | "stripePaymentIntentId" | "stripeCheckoutSessionId">
+type VerifyCandidate = Pick<OutstandingBalancePurchase, "metadata" | "status" | "stripePaymentIntentId" | "stripeCheckoutSessionId" | "courseSlug">
 
 /**
  * "Verify" state (owner decisions D1-D3, 2026-10-23): a card process that did not charge —
@@ -270,6 +284,7 @@ const isInProgressCardAttempt = (purchase: VerifyCandidate) =>
   && asText(purchase.status).toLowerCase() === PURCHASE_STATUS.PENDING
 
 export const isUnchargedCardAttempt = (purchase: VerifyCandidate) => {
+  if (isTerminalChargeCarrier(purchase)) return false
   if (isSettledOrCompleted(purchase)) return false
   if (isTerminalUnpaidCardAttempt(purchase)) return true
   if (isInProgressCardAttempt(purchase)) return true

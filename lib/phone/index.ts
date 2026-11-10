@@ -9,6 +9,8 @@ import {
   type PhoneNumber,
 } from "libphonenumber-js/max"
 
+import { isCodexDevelopClerkTestEnv } from "./clerk-test-preview"
+
 export type ParsedPhone = {
   country: CountryCode
   callingCode: string
@@ -123,10 +125,14 @@ export const parseCanonicalPhone = (input: string): PhoneParseResult => {
   }
 }
 
+// Server-only env vars never reach the browser bundle, so client-side checks
+// (e.g. the enroll modal's phone gate) read the build-time flag that
+// next.config.ts derives from the same server check. Keep the literal
+// `process.env.NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED` reference so Next.js inlines it.
 const isCodexDevelopClerkTestPreview = () =>
-  process.env.VERCEL_ENV === "preview" &&
-  process.env.VERCEL_GIT_COMMIT_REF === "codex/develop" &&
-  process.env.CLERK_SECRET_KEY?.startsWith("sk_test_") === true
+  typeof window === "undefined"
+    ? isCodexDevelopClerkTestEnv(process.env)
+    : process.env.NEXT_PUBLIC_CLERK_TEST_PHONES_ENABLED === "true"
 
 const parseGuardedClerkTestPhone = (value: string): PhoneParseResult | null => {
   if (!isCodexDevelopClerkTestPreview()) return null

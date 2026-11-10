@@ -269,12 +269,13 @@ describe("stripe webhook checkout session persistence", () => {
       mockPurchaseCreate, mockPurchaseUpdate, mockUpsertUserByIdentifiers, mockSyncScheduledAttendanceFromPurchase,
       mockSyncPackagePurchaseFromPaidPurchase, mockAwardPointsFromRule, mockPrisma.$transaction]) expect(mock).not.toHaveBeenCalled()
   }
-  const preparedNativeEvent = async () => {
+  const preparedNativeEvent = async (overrides: Record<string, string> = {}) => {
     vi.stubEnv("INTERNAL_PURCHASE_ATTEMPT_SECRET", "fixture-signing-secret-at-least-32-bytes")
     const proof = await import("@/lib/stripe/prepared-native-payment")
     const fulfillmentMetadata = {
       courseSlug: "salsa", courseTitle: "Salsa", packageId: "package_dynamic_1", serviceId: "dropin", addons: "shoe-rental", participants: "2", coupon: "SAVE",
       packageLabel: "Ten classes", packageTotalCredits: "10", packageIsUnlimited: "false", packageCadence: "weekly", packageMakeUps: "1", packageValidDays: "180", date: "2026-10-04", time: "13:00",
+      ...overrides,
     }
     const purchase = { id: "purchase_dynamic_1", userId: "user_dynamic_1", idempotencyKey: "native-m2-prepared:dynamic_1", stripePaymentIntentId: null, amount: 2599, currency: "usd", status: "pending", ...fulfillmentMetadata, metadata: fulfillmentMetadata }
     const preparedPurchase = { id: purchase.id, userId: purchase.userId, amount: purchase.amount, currency: purchase.currency, idempotencyKey: purchase.idempotencyKey, fulfillmentMetadata }
@@ -1090,6 +1091,107 @@ describe("stripe webhook checkout session persistence", () => {
         preferredStatus: "checked_in",
         source: "stripe_webhook_checkout",
       })
+    )
+  })
+
+  it("keeps public web bookings scheduled and attributed to web", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_public_booking",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_test_public",
+          payment_status: "paid",
+          amount_total: 1500,
+          currency: "usd",
+          payment_intent: "pi_public",
+          customer_details: {
+            email: "public@example.com",
+            name: "Public Student",
+            phone: "+1 2015550199",
+          },
+          metadata: {
+            courseSlug: "salsa-timba-in-new-york-2",
+            courseTitle: "Salsa timba in New York 2",
+            date: "2026-10-23",
+            time: "19:00",
+            serviceId: "new-student",
+            userId: "user_public",
+            participants: "1",
+            email: "public@example.com",
+            phone: "12015550199",
+            flowContext: "qr_phone",
+            paymentSurface: "hosted_checkout",
+            checkoutChannel: "public_booking",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", {
+      method: "POST",
+      body: JSON.stringify({ id: "evt_public_booking" }),
+    }))
+
+    expect(response.status).toBe(200)
+    const upsertPayload = mockPurchaseUpsert.mock.calls[0]?.[0]
+    expect(upsertPayload?.create?.metadata).toMatchObject({
+      checkoutChannel: "public_booking",
+      purchaseSource: "web",
+    })
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredStatus: "scheduled" })
+    )
+  })
+
+  it("keeps public web PaymentIntent bookings scheduled and attributed to web", async () => {
+    mockConstructEvent.mockReturnValue({
+      id: "evt_public_booking_intent",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_public_intent",
+          status: "succeeded",
+          amount: 1500,
+          currency: "usd",
+          customer: "cus_public",
+          receipt_email: "public@example.com",
+          metadata: {
+            courseSlug: "salsa-timba-in-new-york-2",
+            courseTitle: "Salsa timba in New York 2",
+            date: "2026-10-23",
+            time: "19:00",
+            serviceId: "new-student",
+            userId: "user_public",
+            participants: "1",
+            email: "public@example.com",
+            phone: "12015550199",
+            flowContext: "qr_phone",
+            checkoutChannel: "public_booking",
+          },
+        },
+      },
+    })
+
+    const { POST } = await import("@/app/api/stripe/webhook/route")
+    const response = await POST(new Request("http://localhost/api/stripe/webhook", {
+      method: "POST",
+      body: JSON.stringify({ id: "evt_public_booking_intent" }),
+    }))
+
+    expect(response.status).toBe(200)
+    const upsertPayload = mockPurchaseUpsert.mock.calls[0]?.[0]
+    expect(upsertPayload?.where).toEqual({ stripePaymentIntentId: "pi_public_intent" })
+    expect(upsertPayload?.create?.metadata).toMatchObject({
+      checkoutChannel: "public_booking",
+      purchaseSource: "web",
+    })
+    expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(
+      expect.objectContaining({ preferredStatus: "scheduled" })
+    )
+    expect(mockSyncScheduledAttendanceFromPurchase).not.toHaveBeenCalledWith(
+      expect.objectContaining({ preferredStatus: "checked-in" })
     )
   })
 
@@ -2174,5 +2276,102 @@ describe("stripe webhook checkout session persistence", () => {
         where: expect.objectContaining({ parentPurchaseId: expect.anything() }),
       })
     )
+  })
+  describe("prepaid class on a later New York day", () => {
+    // 2026-11-08T03:30Z is still 2026-11-07 (22:30) in New York, so a UTC-based
+    // comparison would wrongly treat a 2026-11-08 class as "today".
+    const NY_LATE_EVENING = new Date("2026-11-08T03:30:00.000Z")
+    const NY_TODAY = "2026-11-07"
+    const NY_TOMORROW = "2026-11-08"
+
+    const hostedQrCheckInEvent = (date: string, time = "19:00") => ({
+      id: `evt_qr_${date}`,
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: `cs_qr_${date}`,
+          payment_status: "paid",
+          amount_total: 2000,
+          currency: "usd",
+          customer: "cus_123",
+          payment_intent: "pi_qr",
+          customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
+          metadata: {
+            courseSlug: "salsa", courseTitle: "Salsa", date, time, serviceId: "dropin",
+            userId: "guest", participants: "1", email: "test@example.com", phone: "9293876584",
+            flowContext: "qr_phone", paymentSurface: "hosted_checkout",
+          },
+        },
+      },
+    })
+    const sendCheckoutEvent = async () => {
+      const { POST } = await import("@/app/api/stripe/webhook/route")
+      return POST(new Request("http://localhost/api/stripe/webhook", { method: "POST", body: "signed-event" }))
+    }
+    const expectAttendanceStatus = (status: string) =>
+      expect(mockSyncScheduledAttendanceFromPurchase).toHaveBeenCalledWith(expect.objectContaining({ preferredStatus: status }))
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(NY_LATE_EVENING)
+    })
+
+    it("stores a hosted qr_phone check-in purchase for a class tomorrow in New York as scheduled", async () => {
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TOMORROW))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
+
+    it("keeps a hosted qr_phone check-in purchase for a class today checked in without a package", async () => {
+      mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue(null)
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in_no_package")
+    })
+
+    it("keeps a hosted qr_phone check-in purchase for a class today checked in with a package", async () => {
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in")
+    })
+
+    it("stores a prepared native M2 kiosk_terminal purchase for a later day as scheduled", async () => {
+      const { event, purchase } = await preparedNativeEvent({ flowContext: "kiosk_terminal", date: NY_TOMORROW })
+      mockPurchaseFindUnique.mockResolvedValue(purchase)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
+
+    it("keeps a prepared native M2 kiosk_terminal purchase for a class today checked in", async () => {
+      const { event, purchase } = await preparedNativeEvent({ flowContext: "kiosk_terminal", date: NY_TODAY })
+      mockPurchaseFindUnique.mockResolvedValue(purchase)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in")
+    })
+
+    // Same day: paying more than 30 minutes before the class starts is a reservation;
+    // within the last 30 minutes (or after the start) the student is at the studio.
+    it("stores a hosted qr_phone purchase made more than 30 minutes before a class today as scheduled", async () => {
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY, "23:01"))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
+
+    it("keeps a hosted qr_phone purchase made 30 minutes before a class today checked in", async () => {
+      mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue(null)
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY, "23:00"))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in_no_package")
+    })
+
+    it("stores a prepared native M2 kiosk_terminal purchase made more than 30 minutes before a class today as scheduled", async () => {
+      const { event, purchase } = await preparedNativeEvent({ flowContext: "kiosk_terminal", date: NY_TODAY, time: "23:30" })
+      mockPurchaseFindUnique.mockResolvedValue(purchase)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
   })
 })

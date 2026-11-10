@@ -143,7 +143,7 @@ describe("VerifyResolutionControl", () => {
       paymentChannel: "cash",
       verifyResolution: { action: "collected", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: null },
     }))
-    expect(collected.textContent).toContain("Collected by Elvira")
+    expect(collected.textContent).toBe("Collected by Elvira")
     expect(collected.querySelector("button")).toBeNull()
     await act(async () => root?.unmount())
     container?.remove()
@@ -152,7 +152,12 @@ describe("VerifyResolutionControl", () => {
       verify: false,
       verifyResolution: { action: "dismissed", by: "staff_1", byName: "Elvira", at: "2026-10-23T16:00:00.000Z", reason: "Class not taken" },
     }))
-    expect(dismissed.textContent).toContain("Dismissed: Class not taken")
+    // The reason sits on the left and the dismissed amount on the right, like the other card rows.
+    const line = dismissed.querySelector("[data-verify-resolution]")!
+    expect(line.className).toContain("justify-between")
+    expect(line.firstElementChild?.textContent).toBe("Dismissed: Class not taken")
+    expect(line.lastElementChild?.textContent).toBe("$25.00")
+    expect(line.lastElementChild?.className).toContain("text-right")
     expect(dismissed.querySelector("button")).toBeNull()
   })
 })

@@ -1,9 +1,9 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import type { PrismaClient } from "@prisma/client"
 import { finalizeSpecialClassCapture } from "@/lib/special-classes/fulfillment"
 import { lockSpecialClassBoundary, runSpecialClassSerializableTransaction } from "@/lib/special-classes/management"
 import { applySpecialClassRosterAction } from "@/lib/special-classes/staff-mutations"
-import { setupIntegrationDb } from "./db-test-utils"
+import { describeWithPostgres, setupIntegrationDb } from "./db-test-utils"
 
 let prisma: PrismaClient
 let cleanup: (() => Promise<void>) | null = null
@@ -14,7 +14,7 @@ const deferred = () => {
   return { promise, resolve }
 }
 
-describe("special class staff mutation races", () => {
+describeWithPostgres("special class staff mutation races", () => {
   beforeAll(async () => { const context = await setupIntegrationDb(); prisma = context.prisma; cleanup = context.cleanup }, 120_000)
   afterAll(async () => { if (cleanup) await cleanup() }, 120_000)
 

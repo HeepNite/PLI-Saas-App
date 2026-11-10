@@ -25,8 +25,8 @@ import {
 } from "@/components/front/staff/staffPaymentCardPresentation"
 import { canOperateStudentEdits } from "@/lib/security/staff-access"
 import { isOpenSettlementRow } from "@/components/front/staff/staffPaymentFilters"
-import { FastClassActionControls } from "@/components/front/staff/FastClassActionControls"
 import { ClerkSyncUserBanner } from "./ClerkSyncUserBanner"
+import { StudentCardActions } from "./StudentCardActions"
 import { HeritagePinDeliveryControl } from "./HeritagePinDeliveryControl"
 import { VerifyResolutionControl } from "./VerifyResolutionControl"
 import type { PaymentRow } from "@/components/front/staff/staffAdminTypes"
@@ -110,6 +110,7 @@ export function PaymentStudentCard({
     ),
   ]
   const studentOpenIds = getOpenPaymentIds(student.allPayments)
+  const studentOpenRows = student.allPayments.filter((row) => studentOpenIds.includes(row.id))
   const historyOpenRows =
     cardVariant.context === "history" ? student.allPayments.filter(isOpenSettlementRow) : []
   const historyOpenSettlementIds = historyOpenRows.map((p) => p.id)
@@ -484,36 +485,19 @@ export function PaymentStudentCard({
         </p>
       </div>
 
-      <div className="mt-4 flex gap-2.5">
-        <FastClassActionControls
-          activePackage={payment.activePackage}
-          disabled={paymentsLoading}
-          studentName={identity.fullName}
-          userId={payment.userId}
-          onRefreshPaymentsBoard={onRefreshPaymentsBoard}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (typeof window === "undefined" || !payment.customerEmail || payment.customerEmail === "—")
-              return
-            const subject = encodeURIComponent(`Class payment update · ${payment.courseTitle}`)
-            window.location.href = `mailto:${encodeURIComponent(payment.customerEmail)}?subject=${subject}`
-          }}
-          className="flex-1 whitespace-nowrap rounded-md border border-white/20 px-2 py-1 text-[11px]"
-        >
-          Notify
-        </button>
-        {canEditStudentInfo && payment.userId ? (
-          <button
-            type="button"
-            onClick={() => openOverrideModal(payment.userId, identity.fullName)}
-            className="flex-1 whitespace-nowrap rounded-md border border-white/20 bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/15 transition-colors"
-          >
-            Edit info
-          </button>
-        ) : null}
-      </div>
+      <StudentCardActions
+        userId={payment.userId}
+        name={identity.fullName}
+        email={payment.customerEmail}
+        mailSubject={`Class payment update · ${payment.courseTitle}`}
+        activePackage={payment.activePackage}
+        openPayments={studentOpenRows}
+        currentRole={currentRole}
+        currentCategory={currentCategory}
+        openOverrideModal={openOverrideModal}
+        paymentsLoading={paymentsLoading}
+        onRefreshPaymentsBoard={onRefreshPaymentsBoard}
+      />
 
       {canEditStudentInfo &&
         payment.userId &&

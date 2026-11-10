@@ -13,6 +13,7 @@ import { ATTENDANCE_POINT_STATUSES, ATTENDANCE_STATUS } from "@/lib/attendance-c
 import { PAYMENT_CHANNEL, PURCHASE_SOURCE, SETTLEMENT_STATUS } from "@/lib/payment-constants"
 import { reservePackageCreditForAttendanceTx } from "@/lib/packages"
 import { resolveConsecutiveOffer } from "@/lib/checkin/consecutive-offer"
+import { checkInScheduledAttendance } from "@/lib/checkin/flip-scheduled-attendance"
 
 export const runtime = "nodejs"
 
@@ -104,6 +105,28 @@ export async function POST(req: Request) {
       select: { title: true },
     })
     const courseTitle = session.title || catalogRow?.title || context.courseSlug
+    // The checked-in body shared by the reserved-class shortcut and the purchase check-in.
+    const checkedInResponse = (
+      attendance: { id: string; status: string; checkedInAt: Date },
+      body: { package: unknown; cashPending?: true; cashAmount?: number; points: unknown; consecutiveOffer: unknown }
+    ) =>
+      NextResponse.json({
+        status: ATTENDANCE_STATUS.CHECKED_IN,
+        attendance: {
+          id: attendance.id,
+          status: attendance.status,
+          checkedInAt: attendance.checkedInAt.toISOString(),
+          courseSlug: context.courseSlug,
+          courseTitle,
+          startsAt: session.startsAt.toISOString(),
+        },
+        package: body.package || undefined,
+        cashPending: body.cashPending,
+        cashAmount: body.cashAmount,
+        points: body.points,
+        courseTitle,
+        consecutiveOffer: body.consecutiveOffer,
+      })
 
     // ─── Check existing Attendance ───────────────────────────
     const existingAttendance = await prisma.attendance.findUnique({
@@ -151,6 +174,49 @@ export async function POST(req: Request) {
     const matchingPurchase = purchaseMatchingDate ?? purchases.find((purchase) =>
       Boolean(purchase.specialClassId) && purchase.classSessionId === session.id
     )
+
+    // A special-class reservation keeps its own purchase checks below (published class,
+    // same session, card capture), so only plain reservations take this shortcut.
+    if (!matchingPurchase?.specialClassId) {
+      // ─── Reserved class: check in, no new charge or credit ───
+      const reservation = existingAttendance
+        ? await checkInScheduledAttendance({
+            attendance: existingAttendance,
+            userId: dbUser.id,
+            now,
+            checkInSource: "qr_client_phone",
+            pointsSource: "qr_client_phone",
+          })
+        : null
+      if (reservation) {
+        const { attendance } = reservation
+        return checkedInResponse(attendance, {
+          package: attendance.packageUsage?.packagePurchase,
+          points: {
+            awarded: reservation.pointsAwarded,
+            milestone: reservation.milestone > 0 ? reservation.milestone : null,
+            attendanceCount: reservation.checkedInCount,
+            milestoneEvery: reservation.milestoneEvery,
+          },
+          consecutiveOffer: null,
+        })
+      }
+      // Another scan flipped this reservation first: it is checked in, never charge or use a credit again.
+      if (existingAttendance?.status === ATTENDANCE_STATUS.SCHEDULED) {
+        return NextResponse.json({
+          status: "already_checked_in",
+          attendance: {
+            id: existingAttendance.id,
+            status: ATTENDANCE_STATUS.CHECKED_IN,
+            checkedInAt: now.toISOString(),
+            courseSlug: context.courseSlug,
+            courseTitle,
+            startsAt: session.startsAt.toISOString(),
+          },
+          package: existingAttendance.packageUsage?.packagePurchase || null,
+        })
+      }
+    }
 
     if (matchingPurchase) {
       const hasSpecialClassLink = Boolean(matchingPurchase.specialClassId)
@@ -245,21 +311,11 @@ export async function POST(req: Request) {
       })
 
 
-      return NextResponse.json({
-        status: ATTENDANCE_STATUS.CHECKED_IN,
-        attendance: {
-          id: attendance.id,
-          status: attendance.status,
-          checkedInAt: attendance.checkedInAt.toISOString(),
-          courseSlug: context.courseSlug,
-          courseTitle,
-          startsAt: session.startsAt.toISOString(),
-        },
-        package: refreshedPackage || undefined,
+      return checkedInResponse(attendance, {
+        package: refreshedPackage,
         cashPending: isCashPending || undefined,
         cashAmount: isCashPending ? matchingPurchase.amount / 100 : undefined,
         points,
-        courseTitle,
         consecutiveOffer: consecutiveOffer
           ? {
               linkedCourseSlug: consecutiveOffer.linkedCourseSlug,
