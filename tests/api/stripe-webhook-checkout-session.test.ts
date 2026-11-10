@@ -2284,7 +2284,7 @@ describe("stripe webhook checkout session persistence", () => {
     const NY_TODAY = "2026-11-07"
     const NY_TOMORROW = "2026-11-08"
 
-    const hostedQrCheckInEvent = (date: string) => ({
+    const hostedQrCheckInEvent = (date: string, time = "19:00") => ({
       id: `evt_qr_${date}`,
       type: "checkout.session.completed",
       data: {
@@ -2297,7 +2297,7 @@ describe("stripe webhook checkout session persistence", () => {
           payment_intent: "pi_qr",
           customer_details: { email: "test@example.com", name: "Test User", phone: "+1 9293876584" },
           metadata: {
-            courseSlug: "salsa", courseTitle: "Salsa", date, time: "19:00", serviceId: "dropin",
+            courseSlug: "salsa", courseTitle: "Salsa", date, time, serviceId: "dropin",
             userId: "guest", participants: "1", email: "test@example.com", phone: "9293876584",
             flowContext: "qr_phone", paymentSurface: "hosted_checkout",
           },
@@ -2349,6 +2349,29 @@ describe("stripe webhook checkout session persistence", () => {
       mockConstructEvent.mockReturnValue(event)
       expect((await sendInternalEvent()).status).toBe(200)
       expectAttendanceStatus("checked_in")
+    })
+
+    // Same day: paying more than 30 minutes before the class starts is a reservation;
+    // within the last 30 minutes (or after the start) the student is at the studio.
+    it("stores a hosted qr_phone purchase made more than 30 minutes before a class today as scheduled", async () => {
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY, "23:01"))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
+    })
+
+    it("keeps a hosted qr_phone purchase made 30 minutes before a class today checked in", async () => {
+      mockSyncPackagePurchaseFromPaidPurchase.mockResolvedValue(null)
+      mockConstructEvent.mockReturnValue(hostedQrCheckInEvent(NY_TODAY, "23:00"))
+      expect((await sendCheckoutEvent()).status).toBe(200)
+      expectAttendanceStatus("checked_in_no_package")
+    })
+
+    it("stores a prepared native M2 kiosk_terminal purchase made more than 30 minutes before a class today as scheduled", async () => {
+      const { event, purchase } = await preparedNativeEvent({ flowContext: "kiosk_terminal", date: NY_TODAY, time: "23:30" })
+      mockPurchaseFindUnique.mockResolvedValue(purchase)
+      mockConstructEvent.mockReturnValue(event)
+      expect((await sendInternalEvent()).status).toBe(200)
+      expectAttendanceStatus("scheduled")
     })
   })
 })
