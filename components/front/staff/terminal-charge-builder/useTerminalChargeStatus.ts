@@ -3,7 +3,7 @@
 import React from "react"
 import { TERMINAL_CHARGE_POLL_MS, isTerminalChargeFinal, type TerminalChargeItemInput, type TerminalChargeView } from "@/lib/terminal-charges/contract"
 
-export class TerminalChargeApiError extends Error {
+class TerminalChargeApiError extends Error {
   constructor(message: string, readonly status: number) {
     super(message)
   }
@@ -20,10 +20,10 @@ const chargeRequest = async (path: string, fallbackError: string, init?: Request
 export const createTerminalCharge = (body: { terminalId: string; payerUserId: string; items: TerminalChargeItemInput[] }) =>
   chargeRequest("", "Unable to send the charge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
 
-export const UNREACHABLE_SERVER_MESSAGE = "Can't reach the server — retrying…"
-export const STATUS_POLL_MAX_DELAY_MS = 15_000
+const UNREACHABLE_SERVER_MESSAGE = "Can't reach the server — retrying…"
+const STATUS_POLL_MAX_DELAY_MS = 15_000
 /** A status read that takes longer is aborted and counts as a failed poll. */
-export const STATUS_REQUEST_TIMEOUT_MS = 8_000
+const STATUS_REQUEST_TIMEOUT_MS = 8_000
 const FAILURES_BEFORE_WARNING = 3
 // The charge is gone or no longer ours to read: retrying cannot help.
 const UNRECOVERABLE_POLL_STATUSES = new Set([401, 403, 404])

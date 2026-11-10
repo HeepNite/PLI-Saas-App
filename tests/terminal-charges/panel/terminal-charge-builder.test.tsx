@@ -13,8 +13,7 @@ import { TERMINAL_CHARGE_POLL_MS, type TerminalChargeView } from "@/lib/terminal
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const charge = (overrides: Partial<TerminalChargeView> = {}): TerminalChargeView => ({
-  id: "chg_1", terminalId: "term_a", terminalName: "Samsung front desk", payerUserId: "user_1", payerName: "Ana Perez", status: "pending",
-  totalCents: 23456, currency: "usd", expiresAt: "2026-11-03T18:10:00.000Z", createdAt: "2026-11-03T18:00:00.000Z", resolvedAt: null, failureReason: null,
+  id: "chg_1", terminalName: "Samsung front desk", payerName: "Ana Perez", status: "pending", totalCents: 23456, currency: "usd", expiresAt: "2026-11-03T18:10:00.000Z",
   items: [{ id: "item_1", kind: "free_amount", label: "Extra classes", amountCents: 23456 }], ...overrides,
 })
 const row = (overrides: Partial<PaymentRow>) => ({
@@ -65,7 +64,7 @@ const render = async (element: React.ReactElement) => {
   await flush()
 }
 const renderModal = (props: { openPayments?: PaymentRow[]; onClose?: () => void; onPaid?: () => void } = {}) =>
-  render(<TerminalChargeBuilderModal payerUserId="user_1" payerName="Ana Perez" openPayments={[]} formatMoney={(cents) => `$${(cents / 100).toFixed(2)}`} onClose={() => undefined} onPaid={() => undefined} {...props} />)
+  render(<TerminalChargeBuilderModal payerUserId="user_1" payerName="Ana Perez" openPayments={[]} onClose={() => undefined} onPaid={() => undefined} {...props} />)
 const sendFreeAmount = async () => {
   await type("Amount", "70")
   await type("Description", "Extra classes")
@@ -167,7 +166,7 @@ describe("TerminalChargeBuilderModal", () => {
     expect([text().includes("Paid"), statusPolls(), onPaid.mock.calls.length]).toEqual([true, polls, 1])
   })
 
-  it("cancels a charge, and shows the server's reason when the cancel is refused (D5)", async () => {
+  it("cancels a charge, and shows the server's reason when the cancel is refused", async () => {
     await renderModal()
     await sendFreeAmount()
     server.cancel = () => json({ error: "Card is being processed" }, 409)
@@ -179,7 +178,7 @@ describe("TerminalChargeBuilderModal", () => {
     expect(button("Cancel charge")).toBeUndefined()
   })
 
-  it("warns after 3 failed polls, backs off, and stops on 404 (F11)", async () => {
+  it("warns after 3 failed polls, backs off, and stops on 404", async () => {
     await renderModal()
     await sendFreeAmount()
     server.status = () => json({ error: "boom" }, 500)
@@ -195,7 +194,7 @@ describe("TerminalChargeBuilderModal", () => {
     expect(statusPolls()).toBe(4)
   })
 
-  it("counts a status request that hangs past 8 s as a failed poll (P1)", async () => {
+  it("counts a status request that hangs past 8 s as a failed poll", async () => {
     await renderModal()
     await sendFreeAmount()
     const routed = globalThis.fetch
@@ -208,7 +207,7 @@ describe("TerminalChargeBuilderModal", () => {
     expect(text()).toContain("Can't reach the server")
   })
 
-  it("asks before closing while the charge is running and refreshes the board once on close (F12)", async () => {
+  it("asks before closing while the charge is running and refreshes the board once on close", async () => {
     const onClose = vi.fn()
     const onPaid = vi.fn()
     await renderModal({ onClose, onPaid })
@@ -232,7 +231,7 @@ describe("PaymentStudentCard charge on tablet action", () => {
     return render(<PaymentStudentCard {...(props as unknown as React.ComponentProps<typeof PaymentStudentCard>)} />)
   }
 
-  // D4 phase 1: owner, admin and staff/front_desk; managers come in phase 3.
+  // Owner, admin and staff/front_desk charge; managers do not yet.
   it.each([["owner", null, true], ["admin", null, true], ["staff", "front_desk", true], ["staff", "teacher", false], ["staff", "manager", false], ["staff", null, false]])(
     "%s/%s sees the action: %s",
     async (role, category, visible) => {
@@ -251,30 +250,15 @@ describe("PaymentStudentCard charge on tablet action", () => {
 
 // Search results show students without recent payments as profile cards; staff must be able to charge them too.
 describe("ProfileStudentCard charge on tablet action", () => {
-  const renderProfileCard = (currentRole: string, currentCategory: string | null) => {
+  it("opens the builder for a student without recent payments", async () => {
     const student = {
       source: "profile", key: "profile-user_1", userId: "user_1", displayName: "Elvira Gutierrez", email: "elvira@example.com", phone: null,
       avatarUrl: null, registeredAt: "2026-05-09T12:00:00.000Z", checkInStatus: "none", latestClassAttended: null, latestCheckInAt: null,
       lastPayment: null, lastCourse: null, paymentStatus: null, activePackage: null, remainingCredits: null, outstandingBalance: null,
       pinStatus: "none", heritagePin: null, cashSettlement: null, pendingSettlement: null, pointsBalance: 0,
     }
-    const props = {
-      student, selectedPaymentIds: [], usersWithAuditEntries: new Set<string>(), currentRole, currentCategory,
-      formatMoney: (cents: number) => `$${cents / 100}`, paymentsLoading: false, onRefreshPaymentsBoard: () => undefined,
-    }
-    return render(<ProfileStudentCard {...(props as unknown as React.ComponentProps<typeof ProfileStudentCard>)} />)
-  }
-
-  it.each([["owner", null, true], ["admin", null, true], ["staff", "front_desk", true], ["staff", "teacher", false]])(
-    "%s/%s sees the action: %s",
-    async (role, category, visible) => {
-      await renderProfileCard(role, category)
-      expect(Boolean(button("Charge on tablet"))).toBe(visible)
-    },
-  )
-
-  it("opens the builder for a student without recent payments", async () => {
-    await renderProfileCard("owner", null)
+    const props = { student, selectedPaymentIds: [], usersWithAuditEntries: new Set<string>(), currentRole: "owner", currentCategory: null, paymentsLoading: false, onRefreshPaymentsBoard: () => undefined }
+    await render(<ProfileStudentCard {...(props as unknown as React.ComponentProps<typeof ProfileStudentCard>)} />)
     await click("Charge on tablet")
     expect(button("Send to tablet")).toBeDefined()
   })

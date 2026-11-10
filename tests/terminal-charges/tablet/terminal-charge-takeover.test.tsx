@@ -138,7 +138,7 @@ describe("TerminalChargeTakeover", () => {
   it.each([
     ["cancels or expires it", makeCharge({ status: "cancelled" })],
     ["drops it", null],
-  ])("returns home and stops reading the reader when the server %s while collecting (F7)", async (_label, next) => {
+  ])("returns home and stops reading the reader when the server %s while collecting", async (_label, next) => {
     const reader = installBridge({ pollStates: ["pending"] })
     const fetch = installFetch({ pending: makeCharge() })
     await mount()
@@ -151,7 +151,7 @@ describe("TerminalChargeTakeover", () => {
     expect(reader.readerPolls()).toBe(polls)
   })
 
-  it("shows success when the webhook marks a collecting charge paid (F7)", async () => {
+  it("shows success when the webhook marks a collecting charge paid", async () => {
     installBridge({ pollStates: ["pending"] })
     const fetch = installFetch({ pending: makeCharge() })
     await mount()
@@ -174,7 +174,7 @@ describe("TerminalChargeTakeover", () => {
     expectHome()
   })
 
-  it("keeps the charge on screen with the server's reason when the tablet cancel is refused (F10)", async () => {
+  it("keeps the charge on screen with the server's reason when the tablet cancel is refused", async () => {
     removeBridge()
     const fetch = installFetch({ pending: makeCharge() })
     fetch.state.resultConflict = "This charge is not being collected"
@@ -200,7 +200,7 @@ describe("TerminalChargeTakeover", () => {
     expectHome()
   })
 
-  it("stops following the reader after 3 minutes and moves to confirming the payment (F9)", async () => {
+  it("stops following the reader after 3 minutes and moves to confirming the payment", async () => {
     const reader = installBridge({ pollStates: ["pending"] })
     installFetch({ pending: makeCharge() })
     await mount()
@@ -211,7 +211,7 @@ describe("TerminalChargeTakeover", () => {
     expect(reader.readerPolls()).toBe(polls)
   })
 
-  it("stops following the reader once unmounted (F9)", async () => {
+  it("stops following the reader once unmounted", async () => {
     const reader = installBridge({ pollStates: ["pending"] })
     installFetch({ pending: makeCharge() })
     await mount()
@@ -223,7 +223,7 @@ describe("TerminalChargeTakeover", () => {
     expect(reader.readerPolls()).toBe(polls)
   })
 
-  it("keeps polling when a pending-charge request hangs (F8)", async () => {
+  it("keeps polling when a pending-charge request hangs", async () => {
     removeBridge()
     const fetch = installFetch({ pending: makeCharge() })
     const routed = globalThis.fetch

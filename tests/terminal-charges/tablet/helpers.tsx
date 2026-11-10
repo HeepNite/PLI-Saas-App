@@ -6,9 +6,8 @@ export const PREPARED_REFERENCE = "a".repeat(43)
 export const PENDING_URL = "/api/staff/terminal/charges/pending"
 
 export const makeCharge = (overrides: Partial<TerminalChargeView> = {}): TerminalChargeView => ({
-  id: "charge_1", terminalId: "terminal-1", terminalName: "Front Desk", payerUserId: "user_1", payerName: "Ana Payer",
-  status: "pending", totalCents: 8_000, currency: "usd", expiresAt: "2026-11-03T12:10:00.000Z", createdAt: "2026-11-03T12:00:00.000Z",
-  resolvedAt: null, failureReason: null,
+  id: "charge_1", terminalName: "Front Desk", payerName: "Ana Payer",
+  status: "pending", totalCents: 8_000, currency: "usd", expiresAt: "2026-11-03T12:10:00.000Z",
   items: [
     { id: "item_1", kind: "outstanding", label: "Outstanding — Salsa", amountCents: 2_000 },
     { id: "item_2", kind: "free_amount", label: "Extra classes", amountCents: 6_000 },

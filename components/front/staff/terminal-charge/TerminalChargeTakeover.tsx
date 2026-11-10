@@ -12,10 +12,10 @@ import { formatMoney } from "@/components/front/staff/staffAdminFormatters"
 import { TERMINAL_CHARGE_POLL_TIMEOUT_MS, useTerminalChargePoll } from "@/components/front/staff/terminal-charge/useTerminalChargePoll"
 import { isTerminalChargeFinal, type TerminalChargeView } from "@/lib/terminal-charges/contract"
 
-export const TERMINAL_CHARGE_PAID_SCREEN_MS = 3_000
-export const TERMINAL_CHARGE_DECLINED_SCREEN_MS = 4_000
+const TERMINAL_CHARGE_PAID_SCREEN_MS = 3_000
+const TERMINAL_CHARGE_DECLINED_SCREEN_MS = 4_000
 /** How long "Confirming payment…" waits before offering to cancel a stuck collection. */
-export const TERMINAL_CHARGE_STUCK_CANCEL_MS = 30_000
+const TERMINAL_CHARGE_STUCK_CANCEL_MS = 30_000
 /** How long the tablet follows the reader before handing over to "Confirming payment…". */
 export const TERMINAL_CHARGE_COLLECT_DEADLINE_MS = 3 * 60_000
 
@@ -66,7 +66,7 @@ async function collectOnReader(reference: string, pollIntervalMs: number, isStop
 }
 
 /**
- * Full-screen takeover for a staff charge addressed to this tablet (D6): shows the charge, prepares
+ * Full-screen takeover for a staff charge addressed to this tablet: shows the charge, prepares
  * it once, collects it on the paired M2 through the existing native bridge, and returns the kiosk
  * home when the charge ends. Reader prompts come from the kiosk's own NativeTapToPayPopup.
  */
