@@ -44,8 +44,8 @@ export const meta = (row: Row) => (row.metadata || {}) as Row
 export const terminal = (id: string) => ({ ok: true, sessionId: `session_${id}`, terminal: { id, slug: id, name: id, location: null, defaultCourseSlug: null, active: true } })
 export const staff = (role: string, category: string | null) => ({ ok: true, userId: "clerk_desk", role, category, subCategory: null, staffName: "Desk" })
 export const free = (amountCents: unknown, description: unknown = "Balance") => ({ kind: "free_amount", amountCents, description })
-export const params = (id: string) => ({ params: Promise.resolve({ id }) })
-export const req = (body?: unknown) => new Request("http://localhost/x", { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) })
+const params = (id: string) => ({ params: Promise.resolve({ id }) })
+const req = (body?: unknown) => new Request("http://localhost/x", { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) })
 
 export const api = {
   create: async (items: unknown[], terminalId = "terminal_a", payerUserId = "payer_1") =>

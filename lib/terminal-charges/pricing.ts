@@ -14,7 +14,7 @@ import {
 } from "@/lib/terminal-charges/contract"
 
 export class TerminalChargeError extends Error {
-  constructor(readonly status: 400 | 403 | 404 | 409, message: string) {
+  constructor(readonly status: 400 | 404 | 409, message: string) {
     super(message)
     this.name = "TerminalChargeError"
   }
@@ -25,7 +25,7 @@ const invalid = (message: string) => new TerminalChargeError(400, message)
 type Db = Prisma.TransactionClient | typeof prisma
 
 /** One line item as stored on StaffTerminalChargeItem; `description` holds the line label. */
-export type PricedTerminalChargeItem = {
+type PricedTerminalChargeItem = {
   kind: TerminalChargeItemKind
   beneficiaryUserId: string | null
   courseSlug: string | null
@@ -87,7 +87,7 @@ const priceOutstandingAttendance = async (db: Db, payerUserId: string, attendanc
 }
 
 /**
- * Validates the panel's items and prices them on the server (FR2, FR4). Only `free_amount`
+ * Validates the panel's items and prices them on the server. Only `free_amount`
  * carries a client amount; every other amount the client sends is ignored.
  */
 export const priceTerminalChargeItems = async (db: Db, payerUserId: string, rawItems: unknown): Promise<PricedTerminalChargeItem[]> => {
@@ -109,7 +109,7 @@ export const priceTerminalChargeItems = async (db: Db, payerUserId: string, rawI
       const guestName = !isPackage && typeof raw.guestName === "string" ? raw.guestName.trim() : ""
       if (guestName.length > TERMINAL_CHARGE_GUEST_NAME_MAX_LENGTH) throw invalid("Guest name is too long")
       const line = await priceCatalogLine(raw.courseSlug, packageId)
-      // D2: a guest class is recorded under the payer; the optional friend name is only a note.
+      // A guest class is recorded under the payer; the optional friend name is only a note.
       priced.push({
         ...empty, kind: raw.kind, beneficiaryUserId, courseSlug: line.courseSlug, packageId: packageId || null,
         guestName: guestName || null, unitCents: line.cents, amountCents: line.cents, description: line.title,

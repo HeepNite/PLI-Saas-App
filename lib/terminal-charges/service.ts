@@ -2,13 +2,13 @@ import "server-only"
 import { NextResponse } from "next/server"
 import type { Prisma } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
-import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
 import { createOrReuseNativePreparedPurchase } from "@/lib/checkout/native-prepared-purchase"
 import { issuePreparedNativePurchase } from "@/lib/stripe/prepared-native-purchase"
 import { canCreateTerminalCharge } from "@/lib/security/staff-access"
 import { authorizeStaffPortalBaseRequest } from "@/lib/security/staff-portal-auth"
 import { authorizeStaffTerminalSession } from "@/lib/security/staff-terminal"
 import { asObject } from "@/lib/shared"
+import { auditCharge } from "@/lib/terminal-charges/audit"
 import {
   TERMINAL_CHARGE_CARRIER_COURSE_SLUG,
   TERMINAL_CHARGE_METADATA,
@@ -22,7 +22,7 @@ import { isTerminalChargeEnabled, TERMINAL_CHARGE_NOT_ENABLED } from "@/lib/term
 
 export { TerminalChargeError }
 
-export type Db = Prisma.TransactionClient | typeof prisma
+type Db = Prisma.TransactionClient | typeof prisma
 export type StaffActor = { userId: string; staffName?: string | null }
 
 export const ACTIVE_STATUSES = ["pending", "collecting"]
@@ -69,17 +69,12 @@ type ChargeRecord = Prisma.StaffTerminalChargeGetPayload<{ include: typeof VIEW_
 
 const toView = (charge: ChargeRecord): TerminalChargeView => ({
   id: charge.id,
-  terminalId: charge.terminalId,
   terminalName: charge.terminal?.name || "",
-  payerUserId: charge.payerUserId,
   payerName: charge.payer?.name || "Customer", // shown on the tablet: never the payer's email
   status: charge.status as TerminalChargeStatus,
   totalCents: charge.totalCents,
   currency: charge.currency,
   expiresAt: charge.expiresAt.toISOString(),
-  createdAt: charge.createdAt.toISOString(),
-  resolvedAt: charge.resolvedAt ? charge.resolvedAt.toISOString() : null,
-  failureReason: charge.failureReason,
   items: charge.items.map((item) => ({
     id: item.id,
     kind: item.kind as TerminalChargeItemKind,
@@ -95,7 +90,7 @@ export const requireChargeView = async (db: Db, where: Prisma.StaffTerminalCharg
 }
 
 /**
- * Lazy expiry (D5): a pending charge past expiresAt becomes expired on any read.
+ * Lazy expiry: a pending charge past expiresAt becomes expired on any read.
  * A collecting charge never expires, so a tap in progress is never cut off.
  */
 export const expireStalePendingCharges = (db: Db, scope: Prisma.StaffTerminalChargeWhereInput) => {
@@ -155,17 +150,14 @@ export const createTerminalCharge = async (input: { staff: StaffActor; body: unk
       },
       include: VIEW_INCLUDE,
     })
-    await writeStudentDataAudit({
-      targetUserId: payerUserId,
+    await auditCharge(tx, charge, {
       staffClerkId: input.staff.userId,
       staffName: input.staff.staffName,
-      entity: "payment",
-      entityId: charge.id,
       field: "terminal_charge_create",
       valueAfter: { terminalId, totalCents, items: items.map(({ kind, amountCents, description }) => ({ kind, amountCents, description })) },
       reason: "Staff sent a card charge to a tablet",
       ipAddress: input.ipAddress,
-    }, tx)
+    })
     return toView(charge)
   })
 }

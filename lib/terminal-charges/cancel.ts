@@ -1,7 +1,7 @@
 import "server-only"
 import Stripe from "stripe"
 import { prisma } from "@/lib/prisma"
-import { writeStudentDataAudit } from "@/lib/audit/student-data-audit"
+import { auditCharge } from "@/lib/terminal-charges/audit"
 import { preparedNativeFulfillmentMetadata, validatePreparedNativePaymentIntent } from "@/lib/stripe/prepared-native-payment"
 import { recordPreparedNativeAttemptFailure } from "@/lib/stripe/prepared-native-attempt-failure"
 import { asObject } from "@/lib/shared"
@@ -50,7 +50,6 @@ const releaseCarrierPaymentIntent = async (carrierPurchaseId: string | null) => 
     const stripe = stripeForCancel()
     const read = async () => {
       const intent = await stripe.paymentIntents.retrieve(paymentIntentId)
-      if (intent.id !== paymentIntentId) throw conflict(NEEDS_REVIEW)
       validatePreparedNativePaymentIntent(intent, undefined, proof)
       return intent
     }
@@ -60,7 +59,6 @@ const releaseCarrierPaymentIntent = async (carrierPurchaseId: string | null) => 
       intent = await stripe.paymentIntents
         .cancel(paymentIntentId, {}, { idempotencyKey: `prepared-native-m2-cancel:v1:${paymentIntentId}` })
         .catch(read)
-      if (intent.id !== paymentIntentId) throw conflict(NEEDS_REVIEW)
     }
     if (intent.status === "succeeded") throw conflict(PAYMENT_RECEIVED)
     if (intent.status !== "canceled") throw conflict("Card is being processed")
@@ -79,7 +77,7 @@ const releaseCarrierPaymentIntent = async (carrierPurchaseId: string | null) => 
 }
 
 /**
- * Cancels a pending or collecting charge (D5), from the panel (`staff`) or its own tablet
+ * Cancels a pending or collecting charge, from the panel (`staff`) or its own tablet
  * (`terminalId`); with `declined`, ends a collecting charge the tablet reports declined. Either way a
  * collecting charge ends only after Stripe confirms no money can be taken; a charge whose
  * PaymentIntent succeeded or is being processed is refused (409) and left to the webhook.
@@ -132,18 +130,15 @@ export const cancelTerminalCharge = async (input: { id: string; staff?: StaffAct
       if (current.status === target || current.status === "cancelled") return current
       throw conflict(current.status === "collecting" ? READER_STARTED : "This charge can no longer be cancelled")
     }
-    await writeStudentDataAudit({
-      targetUserId: charge.payerUserId,
+    await auditCharge(tx, charge, {
       staffClerkId: input.staff?.userId ?? charge.createdByUserId,
       staffName: input.staff?.staffName,
-      entity: "payment",
-      entityId: charge.id,
       field: input.staff ? "terminal_charge_cancel" : "terminal_charge_result",
       valueBefore: { status: charge.status },
       valueAfter: { status: target, terminalId: charge.terminalId },
       reason: input.staff ? "Staff cancelled a tablet card charge" : input.declined ? "Card declined on the tablet" : "Charge cancelled on the tablet",
       ipAddress: input.ipAddress,
-    }, tx)
+    })
     return requireChargeView(tx, { id: charge.id })
   })
 }

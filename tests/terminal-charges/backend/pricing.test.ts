@@ -18,7 +18,7 @@ describe("staff panel routes", () => {
     const { charge } = await response.json()
     expect(charge).toEqual(expect.objectContaining({ status: "pending", totalCents: TERMINAL_CHARGE_FREE_AMOUNT_MAX_CENTS, terminalName: "Samsung", payerName: "Pat Payer" }))
     expect(charge.items).toEqual([expect.objectContaining({ kind: "free_amount", label: "Extra classes", amountCents: TERMINAL_CHARGE_FREE_AMOUNT_MAX_CENTS })])
-    expect(Date.parse(charge.expiresAt) - Date.parse(charge.createdAt)).toBeGreaterThanOrEqual(TERMINAL_CHARGE_TTL_MS - 1000)
+    expect(Date.parse(charge.expiresAt) - (chargeRow().createdAt as Date).getTime()).toBeGreaterThanOrEqual(TERMINAL_CHARGE_TTL_MS - 1000)
   })
 
   it("rejects an unknown tablet or payer with 404", async () => {
