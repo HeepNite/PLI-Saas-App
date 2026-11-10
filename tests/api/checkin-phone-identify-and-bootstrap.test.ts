@@ -17,6 +17,11 @@ const mockPurchaseFindMany = vi.fn()
 const mockPurchaseCount = vi.fn()
 const mockClassSessionFindUnique = vi.fn()
 const mockAttendanceFindUnique = vi.fn()
+const mockAttendanceUpdateMany = vi.fn()
+const mockAttendanceFindUniqueOrThrow = vi.fn()
+const mockAttendanceCount = vi.fn()
+const mockAwardPointsFromRule = vi.fn()
+const mockPackageUsageCreate = vi.fn()
 const mockCourseLinkFindMany = vi.fn()
 const mockCourseCatalogFindMany = vi.fn()
 const mockGetCatalogCourseBySlug = vi.fn()
@@ -65,6 +70,12 @@ vi.mock("@/lib/prisma", () => ({
     },
     attendance: {
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
+      updateMany: (...args: unknown[]) => mockAttendanceUpdateMany(...args),
+      findUniqueOrThrow: (...args: unknown[]) => mockAttendanceFindUniqueOrThrow(...args),
+      count: (...args: unknown[]) => mockAttendanceCount(...args),
+    },
+    packageUsageLedger: {
+      create: (...args: unknown[]) => mockPackageUsageCreate(...args),
     },
     courseLink: {
       findMany: (...args: unknown[]) => mockCourseLinkFindMany(...args),
@@ -87,6 +98,11 @@ vi.mock("@/lib/clerk-users", () => ({
 
 vi.mock("@clerk/nextjs/server", () => ({
   clerkClient: (...args: unknown[]) => mockClerkClient(...args),
+}))
+
+vi.mock("@/lib/points/service", () => ({
+  awardPointsFromRule: (...args: unknown[]) => mockAwardPointsFromRule(...args),
+  getAttendanceMilestoneClasses: vi.fn().mockResolvedValue(5),
 }))
 
 vi.mock("@/lib/checkin/consecutive-offer", () => ({
@@ -182,6 +198,12 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockPurchaseFindMany.mockReset()
     mockClassSessionFindUnique.mockReset()
     mockAttendanceFindUnique.mockReset()
+    mockAttendanceUpdateMany.mockReset()
+    mockAttendanceFindUniqueOrThrow.mockReset()
+    mockAttendanceUpdateMany.mockResolvedValue({ count: 1 })
+    mockAttendanceCount.mockReset()
+    mockAwardPointsFromRule.mockReset()
+    mockPackageUsageCreate.mockReset()
     mockCourseLinkFindMany.mockReset()
     mockCourseCatalogFindMany.mockReset()
     mockGetCatalogCourseBySlug.mockReset()
@@ -204,6 +226,8 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     mockPurchaseCount.mockResolvedValue(0)
     mockClassSessionFindUnique.mockResolvedValue(null)
     mockAttendanceFindUnique.mockResolvedValue(null)
+    mockAttendanceCount.mockResolvedValue(1)
+    mockAwardPointsFromRule.mockResolvedValue({ awarded: false, points: 0 })
     mockCourseLinkFindMany.mockResolvedValue([])
     mockCourseCatalogFindMany.mockResolvedValue([])
     mockGetCatalogCourseBySlug.mockResolvedValue(COURSE_DATA)
@@ -493,6 +517,121 @@ describe("POST /api/checkin/phone/identify-and-bootstrap", () => {
     const data = await res.json()
     expect(data.path).toBe("fast")
     expect(data.hasExistingPurchaseForSession).toBe(true)
+  })
+
+  // Scenario: reserved class (scheduled attendance) is checked in at the kiosk
+  describe("reserved class check-in", () => {
+    const CLASS_DAY_NOW = new Date("2026-06-01T15:05:00.000Z")
+    const identifyOnClassDay = async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(CLASS_DAY_NOW)
+      try {
+        const { POST } = await import(
+          "@/app/api/checkin/phone/identify-and-bootstrap/route"
+        )
+        const res = await POST(makeRequest(BASE_BODY))
+        return { res, data: await res.json() }
+      } finally {
+        vi.useRealTimers()
+      }
+    }
+    const updatedAttendance = (status: string) => ({
+      id: "att_1",
+      status,
+      checkedInAt: CLASS_DAY_NOW,
+      session: { courseSlug: "salsa" },
+      packageUsage: null,
+    })
+
+    it("checks in a drop-in reservation as checked_in_no_package without charging", async () => {
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue({
+        id: "att_1", status: "scheduled", metadata: { bookedFrom: "web" }, packageUsage: null,
+      })
+      mockAttendanceFindUniqueOrThrow.mockResolvedValue(updatedAttendance("checked_in_no_package"))
+
+      const { res, data } = await identifyOnClassDay()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany).toHaveBeenCalledTimes(1)
+      expect(mockAttendanceUpdateMany.mock.calls[0][0]).toMatchObject({
+        where: { id: "att_1", status: "scheduled" },
+        data: {
+          status: "checked_in_no_package",
+          checkedInAt: CLASS_DAY_NOW,
+          metadata: { bookedFrom: "web", checkInSource: "kiosk_terminal", checkedInFromStatus: "scheduled" },
+        },
+      })
+      expect(mockPackageUsageCreate).not.toHaveBeenCalled()
+      expect(data.path).toBe("full")
+      expect(data.hasExistingPurchaseForSession).toBe(true)
+      expect(data.checkedInReservation).toBe(true)
+    })
+
+    it("checks in a package reservation as checked_in without using another credit", async () => {
+      mockPackagePurchaseFindFirst.mockResolvedValue(ACTIVE_PACKAGE)
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue({
+        id: "att_1", status: "scheduled", metadata: null, packageUsage: { packagePurchaseId: "pkg_purchase_1" },
+      })
+      mockAttendanceFindUniqueOrThrow.mockResolvedValue(updatedAttendance("checked_in"))
+
+      const { res, data } = await identifyOnClassDay()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany.mock.calls[0][0].data).toMatchObject({
+        status: "checked_in",
+        checkedInAt: CLASS_DAY_NOW,
+      })
+      expect(mockPackageUsageCreate).not.toHaveBeenCalled()
+      expect(data.path).toBe("fast")
+      expect(data.package.remainingCredits).toBe(4)
+      expect(data.hasExistingPurchaseForSession).toBe(true)
+      expect(data.checkedInReservation).toBe(true)
+    })
+
+    it("leaves an already checked-in attendance untouched", async () => {
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue({
+        id: "att_1", status: "checked_in", metadata: null, packageUsage: null,
+      })
+
+      const { res, data } = await identifyOnClassDay()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany).not.toHaveBeenCalled()
+      expect(data.hasExistingPurchaseForSession).toBe(true)
+      expect(data.checkedInReservation).toBeUndefined()
+    })
+
+    it("does not report a check-in when a concurrent request already flipped the reservation", async () => {
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+      mockAttendanceFindUnique.mockResolvedValue({
+        id: "att_1", status: "scheduled", metadata: null, packageUsage: null,
+      })
+      mockAttendanceUpdateMany.mockResolvedValue({ count: 0 })
+
+      const { res, data } = await identifyOnClassDay()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany.mock.calls[0][0].where).toEqual({ id: "att_1", status: "scheduled" })
+      expect(mockAttendanceFindUniqueOrThrow).not.toHaveBeenCalled()
+      expect(mockAttendanceCount).not.toHaveBeenCalled()
+      expect(mockAwardPointsFromRule).not.toHaveBeenCalled()
+      expect(data.hasExistingPurchaseForSession).toBe(true)
+      expect(data.checkedInReservation).toBeUndefined()
+    })
+
+    it("keeps the no-attendance flow unchanged", async () => {
+      mockClassSessionFindUnique.mockResolvedValue(CLASS_SESSION)
+
+      const { res, data } = await identifyOnClassDay()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany).not.toHaveBeenCalled()
+      expect(data.hasExistingPurchaseForSession).toBe(false)
+      expect(data.checkedInReservation).toBeUndefined()
+    })
   })
 
   // Scenario: multiple active packages for same course → uses earliest-expiry

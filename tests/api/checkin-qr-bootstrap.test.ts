@@ -20,6 +20,8 @@ const mockCreatePreparedCheckoutContext = vi.fn()
 const mockDayOfWeekFindUnique = vi.fn().mockResolvedValue(null)
 const mockClassSessionFindUnique = vi.fn().mockResolvedValue(null)
 const mockAttendanceFindUnique = vi.fn().mockResolvedValue(null)
+const mockAttendanceUpdateMany = vi.fn()
+const mockAttendanceFindUniqueOrThrow = vi.fn()
 
 const resetNestGatewayEnv = () => {
   delete process.env.NEST_GATEWAY_ENABLED
@@ -54,8 +56,16 @@ vi.mock("@/lib/prisma", () => ({
     },
     attendance: {
       findUnique: (...args: unknown[]) => mockAttendanceFindUnique(...args),
+      updateMany: (...args: unknown[]) => mockAttendanceUpdateMany(...args),
+      findUniqueOrThrow: (...args: unknown[]) => mockAttendanceFindUniqueOrThrow(...args),
+      count: vi.fn().mockResolvedValue(1),
     },
   },
+}))
+
+vi.mock("@/lib/points/service", () => ({
+  awardPointsFromRule: vi.fn().mockResolvedValue({ awarded: false, points: 0 }),
+  getAttendanceMilestoneClasses: vi.fn().mockResolvedValue(5),
 }))
 
 vi.mock("@clerk/nextjs/server", () => ({
@@ -112,6 +122,8 @@ describe("qr check-in bootstrap route", () => {
     mockClassSessionFindUnique.mockResolvedValue(null)
     mockAttendanceFindUnique.mockReset()
     mockAttendanceFindUnique.mockResolvedValue(null)
+    mockAttendanceUpdateMany.mockReset()
+    mockAttendanceFindUniqueOrThrow.mockReset()
     resetNestGatewayEnv()
 
     mockClerkClient.mockResolvedValue({
@@ -469,6 +481,97 @@ describe("qr check-in bootstrap route", () => {
     expect(mockUpsertUserByIdentifiers).not.toHaveBeenCalled()
     expect(getUser).toHaveBeenNthCalledWith(1, "melanie_clerk_1")
     expect(getUser).toHaveBeenNthCalledWith(2, "jhon_clerk_1")
+  })
+
+  it("checks in a reserved class when the kiosk identifies the student", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-02-24T15:05:00.000Z"))
+    try {
+      mockAuth.mockResolvedValue({ userId: null })
+      mockResolveTerminalKioskSession.mockResolvedValue({
+        ok: true,
+        terminalAuth: { ok: true, sessionId: "terminal_session_1", terminal: { id: "terminal_1" } },
+        session: {
+          id: "kiosk_session_1",
+          user: { id: "db_user_1", clerkId: null, email: "student@example.com", name: "Jane Student", phone: "15551112222" },
+        },
+      })
+      mockClassSessionFindUnique.mockResolvedValue({ id: "class_session_1" })
+      mockAttendanceFindUnique.mockResolvedValue({ id: "att_1", status: "scheduled", metadata: null, packageUsage: null })
+      mockAttendanceUpdateMany.mockResolvedValue({ count: 1 })
+      mockAttendanceFindUniqueOrThrow.mockResolvedValue({
+        id: "att_1",
+        status: "checked_in_no_package",
+        checkedInAt: new Date("2026-02-24T15:05:00.000Z"),
+        session: { courseSlug: "salsa-femenina-matutina" },
+        packageUsage: null,
+      })
+
+      const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+      const res = await POST(
+        createRequest({
+          courseSlug: "salsa-femenina-matutina",
+          date: "2026-02-24",
+          time: "11:00",
+          flowContext: "kiosk_terminal",
+          kioskSessionToken: "kiosk_session_1",
+        })
+      )
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany).toHaveBeenCalledTimes(1)
+      expect(mockAttendanceUpdateMany.mock.calls[0][0].where).toEqual({ id: "att_1", status: "scheduled" })
+      expect(mockAttendanceUpdateMany.mock.calls[0][0].data).toMatchObject({
+        status: "checked_in_no_package",
+        checkedInAt: new Date("2026-02-24T15:05:00.000Z"),
+      })
+      expect(data.hasExistingPurchaseForSession).toBe(true)
+      expect(data.checkedInReservation).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("still bootstraps the kiosk without the check-in flag when the reservation lookup fails", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-02-24T15:05:00.000Z"))
+    try {
+      mockAuth.mockResolvedValue({ userId: null })
+      mockResolveTerminalKioskSession.mockResolvedValue({
+        ok: true,
+        terminalAuth: { ok: true, sessionId: "terminal_session_1", terminal: { id: "terminal_1" } },
+        session: {
+          id: "kiosk_session_1",
+          user: { id: "db_user_1", clerkId: null, email: "student@example.com", name: "Jane Student", phone: "15551112222" },
+        },
+      })
+      // First lookup feeds the legacy decision (attendance exists); the reservation lookup then fails.
+      mockClassSessionFindUnique
+        .mockResolvedValueOnce({ id: "class_session_1" })
+        .mockRejectedValueOnce(new Error("db unavailable"))
+      mockAttendanceFindUnique.mockResolvedValue({ id: "att_1", status: "scheduled", metadata: null, packageUsage: null })
+      vi.spyOn(console, "error").mockImplementation(() => {})
+
+      const { POST } = await import("@/app/api/checkin/qr/bootstrap/route")
+      const res = await POST(
+        createRequest({
+          courseSlug: "salsa-femenina-matutina",
+          date: "2026-02-24",
+          time: "11:00",
+          flowContext: "kiosk_terminal",
+          kioskSessionToken: "kiosk_session_1",
+        })
+      )
+      const data = await res.json()
+
+      expect(res.status).toBe(200)
+      expect(mockAttendanceUpdateMany).not.toHaveBeenCalled()
+      expect(data.hasExistingPurchaseForSession).toBe(true)
+      expect(data.checkedInReservation).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("creates prepared checkout context and slims terminal-only bootstrap payload", async () => {

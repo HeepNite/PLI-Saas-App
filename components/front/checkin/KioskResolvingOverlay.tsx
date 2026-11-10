@@ -37,6 +37,7 @@ export function KioskDuplicatePurchaseOverlay({
   courseTitle,
   remainingCredits,
   hasConsecutiveOffer = false,
+  justCheckedIn = false,
   autoDoneMs,
   onDone,
 }: {
@@ -44,6 +45,8 @@ export function KioskDuplicatePurchaseOverlay({
   courseTitle?: string
   remainingCredits?: number | null
   hasConsecutiveOffer?: boolean
+  /** The kiosk just checked in the student's reserved class (not a repeat visit). */
+  justCheckedIn?: boolean
   autoDoneMs?: number
   onDone: () => void
 }) {
@@ -56,14 +59,16 @@ export function KioskDuplicatePurchaseOverlay({
   return (
     <div
       aria-live="polite"
-      aria-label="Already purchased"
+      aria-label={justCheckedIn ? "Checked in" : "Already purchased"}
       className="fixed inset-0 z-[11000] flex flex-col items-center justify-center bg-black/72 px-4 text-center"
     >
       <div className="flex max-w-md flex-col items-center rounded-[1.75rem] border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(191,30,30,0.18),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,255,255,0.06),transparent_28%),linear-gradient(180deg,rgba(18,20,29,0.98),rgba(11,13,20,0.99))] p-6 text-center shadow-[0_28px_60px_-36px_rgba(0,0,0,0.92)] ring-1 ring-white/5 sm:p-8">
         <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-400" />
-        <h2 className="mt-4 text-center text-2xl font-semibold text-white">Already checked in!</h2>
+        <h2 className="mt-4 text-center text-2xl font-semibold text-white">
+          {justCheckedIn ? "You\u2019re checked in!" : "Already checked in!"}
+        </h2>
         <p className="mt-2 text-base text-white/70">
-          {customerName ? `${customerName}, you` : "You"} are already checked in for{" "}
+          {customerName ? `${customerName}, you` : "You"} are {justCheckedIn ? "" : "already "}checked in for{" "}
           <span className="font-medium text-white">{courseTitle || "this class"}</span>.
         </p>
         {typeof remainingCredits === "number" ? (
