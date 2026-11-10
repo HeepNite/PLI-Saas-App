@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma"
 import { authorizeStaffPortalSectionRequest } from "@/lib/security/staff-portal-auth"
 import { withStaffGuard } from "@/lib/security/with-staff-guard"
 import { getMonthBoundariesNY } from "@/lib/monthly-boundary"
+import { EXCLUDE_TERMINAL_CHARGE_CARRIERS } from "@/app/api/staff/payments/shared"
 
 export const runtime = "nodejs"
 
@@ -97,6 +98,8 @@ export async function GET(req: Request) {
           { metadata: { path: ["date"], gte: monthStartStr, lt: monthEndStr } },
           { createdAt: { gte: start, lt: end } },
         ],
+        // Staff terminal charge carriers only transport the payment; their children hold the revenue.
+        ...EXCLUDE_TERMINAL_CHARGE_CARRIERS,
       },
       select: {
         userId: true,
