@@ -85,6 +85,7 @@ describe("useConsecutiveOfferActions", () => {
   let root: Root | null = null
   let container: HTMLDivElement | null = null
   let result: HookResult | null = null
+  let dismissSuccess: (() => void) | null = null
 
   afterEach(async () => {
     if (root) await act(async () => root?.unmount())
@@ -100,7 +101,17 @@ describe("useConsecutiveOfferActions", () => {
     document.body.appendChild(container)
     root = createRoot(container)
     function Harness() {
-      result = useConsecutiveOfferActions(params)
+      // Mirrors the controller: the success screen is real state the hook reads back.
+      const [consecutiveSuccess, setSuccess] = React.useState<{ courseTitle: string } | null>(null)
+      dismissSuccess = () => setSuccess(null)
+      result = useConsecutiveOfferActions({
+        ...params,
+        consecutiveSuccess,
+        setConsecutiveSuccess: (value) => {
+          params.setConsecutiveSuccess(value)
+          setSuccess(value)
+        },
+      })
       return null
     }
     await act(async () => root!.render(<Harness />))
@@ -291,6 +302,102 @@ describe("useConsecutiveOfferActions", () => {
     })
     expect(params.setConsecutiveQrCheckout).toHaveBeenCalledWith(expect.objectContaining({ phase: "creating" }))
     expect(params.setConsecutiveQrCheckout).toHaveBeenCalledWith(expect.objectContaining({ phase: "qr_ready", sessionId: "cs_1", url: "https://pay.test/qr" }))
+  })
+
+  // Owner rule: on the kiosk tablet every "Pay with Card" charges on the M2 reader.
+  it("charges the package-holder promo class on the M2 reader inside the kiosk app", async () => {
+    const runNativeCardCheckout = vi.fn().mockResolvedValue(undefined)
+    const { params, getResult } = await mount(defaultParams({
+      packageCheckInResult: packageResult,
+      resolveCardSurface: () => "native_m2",
+      runNativeCardCheckout,
+    }))
+
+    await act(async () => getResult().handleConsecutivePayCard())
+
+    expect(params.requestCheckoutSession).not.toHaveBeenCalled()
+    expect(params.setConsecutiveQrCheckout).not.toHaveBeenCalled()
+    expect(runNativeCardCheckout).toHaveBeenCalledTimes(1)
+    const input = runNativeCardCheckout.mock.calls[0][0]
+    expect(input.kioskCurrentCourseDuration).toBe(60)
+    expect(input.payload).toEqual(expect.objectContaining({
+      courseSlug: "bachata",
+      amount: 500,
+      serviceId: "svc_bachata",
+      photoContext: "kiosk_terminal",
+      consecutiveAddOnOnly: true,
+      linkedFromCourseSlug: "salsa",
+      linkedFromAttendanceId: "att_1",
+      consecutivePriceCents: 500,
+      consecutiveLinkedCourseSlug: "bachata",
+    }))
+
+    await act(async () => input.onPaid())
+    expect(params.setConsecutiveOffer).toHaveBeenCalledWith(null)
+    expect(params.setShowConsecutivePaymentSelection).toHaveBeenCalledWith(false)
+    expect(params.setConsecutiveSuccess).toHaveBeenCalledWith({ courseTitle: "Bachata" })
+    expect(params.handleStationCompletion).not.toHaveBeenCalled()
+
+    await act(async () => input.onComplete())
+    expect(params.setConsecutiveSuccess).toHaveBeenLastCalledWith(null)
+    expect(params.setShowConsecutiveOverlay).toHaveBeenCalledWith(false)
+    expect(params.refreshConsecutiveOffer).toHaveBeenCalled()
+    expect(params.handleStationCompletion).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not reset the station again when the operator already dismissed the M2 success screen", async () => {
+    const runNativeCardCheckout = vi.fn().mockResolvedValue(undefined)
+    const { params, getResult } = await mount(defaultParams({
+      packageCheckInResult: packageResult,
+      resolveCardSurface: () => "native_m2",
+      runNativeCardCheckout,
+    }))
+
+    await act(async () => getResult().handleConsecutivePayCard())
+    const input = runNativeCardCheckout.mock.calls[0][0]
+    await act(async () => input.onPaid())
+
+    // Operator taps Done: the UI handler closes the success screen and completes the station.
+    await act(async () => {
+      dismissSuccess?.()
+      void params.handleStationCompletion()
+    })
+    await act(async () => input.onComplete())
+
+    expect(params.handleStationCompletion).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the payment choices on screen when the M2 charge fails", async () => {
+    const runNativeCardCheckout = vi.fn(async (input: { setError: (message: string | null) => void }) => {
+      input.setError("The card reader did not respond.")
+    })
+    const { params, getResult } = await mount(defaultParams({
+      packageCheckInResult: packageResult,
+      resolveCardSurface: () => "native_m2",
+      runNativeCardCheckout,
+    }))
+
+    await act(async () => getResult().handleConsecutivePayCard())
+
+    expect(params.setConsecutiveError).toHaveBeenLastCalledWith("The card reader did not respond.")
+    expect(params.setShowConsecutivePaymentSelection).not.toHaveBeenCalledWith(false)
+    expect(params.handleStationCompletion).not.toHaveBeenCalled()
+  })
+
+  it("never falls back to the QR inside the kiosk app when the reader bridge is unavailable", async () => {
+    const runNativeCardCheckout = vi.fn()
+    const { params, getResult } = await mount(defaultParams({
+      packageCheckInResult: packageResult,
+      resolveCardSurface: () => "native_unavailable",
+      runNativeCardCheckout,
+    }))
+
+    await act(async () => getResult().handleConsecutivePayCard())
+
+    expect(params.requestCheckoutSession).not.toHaveBeenCalled()
+    expect(runNativeCardCheckout).not.toHaveBeenCalled()
+    expect(params.setConsecutiveError).toHaveBeenLastCalledWith("Card reader connection is unavailable. Reopen the PLI app and try again.")
+    expect(params.setConsecutiveProcessing).toHaveBeenLastCalledWith(false)
   })
 
   it("cancels and completes QR checkout with the existing reset behavior", async () => {
