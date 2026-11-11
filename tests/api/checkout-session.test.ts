@@ -232,6 +232,21 @@ describe("checkout session route", () => {
     expect(response.status).toBe(200)
   })
 
+  it("keeps the kiosk QR check-in hosted redirects and check-in surface unchanged", async () => {
+    const { POST } = await import("@/app/api/checkout/session/route")
+    const response = await POST(new Request("http://localhost/api/checkout/session", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ photoContext: "qr_phone", checkInBooking: true, firstName: "Ana" }),
+    }))
+
+    expect(response.status).toBe(200)
+    const session = mockCreateCheckoutSession.mock.calls[0][0]
+    expect(session.success_url).toBe("http://localhost:3000/checkin/booked?course=Course%20booking&name=Ana")
+    expect(session.cancel_url).toMatch(/^http:\/\/localhost:3000\/courses\/salsa-femenina-matutina\?enroll=1&qrBooking=1&.*&status=cancel$/)
+    expect(session.cancel_url).not.toContain("bookingSource")
+    expect(session.metadata).toMatchObject({ flowContext: "qr_phone", paymentSurface: "hosted_checkout" })
+  })
+
   it("keeps regular pricing when no bounded promotion is configured", async () => {
     mockValidate.mockResolvedValueOnce({
       courseSlug: "salsa-femenina-matutina",
