@@ -299,10 +299,18 @@ async function handleCheckoutSession(req: Request) {
     validation: initialValidation,
   })
 
+  // A public booking opened from a booking link reuses the compact QR booking and pays on
+  // Stripe hosted checkout, but it is a web reservation, not a check-in (no `checkInBooking`).
+  // Like the QR check-in it has no post-redirect client callback, so it returns to the same
+  // booked confirmation and, on cancel, to the same booking with its public-booking context.
+  const isPublicQrBooking = trustedChannel === "public_booking" && photoContext === FLOW_CONTEXT.QR_PHONE
+  const returnsToQrBooking = isMobileQrCheckInBooking || isPublicQrBooking
+  const isPublicBookingReturn = trustedChannel === "public_booking" || bookingSource === "public_booking"
+
   const base = getBaseUrl()
   const success = initialValidation.consecutiveAddOnOnly
     ? `${base}/checkin/promo-added?course=${encodeURIComponent(initialValidation.consecutiveCourseTitle ?? "")}&price=${initialValidation.consecutivePriceCents ?? 0}&remaining=${initialValidation.packageRemaining ?? ""}`
-    : isMobileQrCheckInBooking
+    : returnsToQrBooking
       ? `${base}/checkin/booked?course=${encodeURIComponent(initialValidation.courseTitle)}&name=${encodeURIComponent(firstName ?? "")}`
       : `${base}/client-profile?status=success`
   // On cancel, a plain `/courses/{slug}?status=cancel` drops ALL the QR/new-student
@@ -312,12 +320,13 @@ async function handleCheckoutSession(req: Request) {
   // same QR flow; for a new-student booking, force `newStudent=1` so the promo price
   // survives the Stripe round-trip. The server still re-verifies eligibility
   // (hasCompletedPurchase), so a genuine returning customer cannot abuse the flag.
-  const cancel = isMobileQrCheckInBooking
+  // A public booking keeps `bookingSource` so the retry goes back through the public checkout.
+  const cancel = returnsToQrBooking
     ? `${base}${buildQrBookingUrl({
         courseSlug: initialValidation.courseSlug,
         date: initialEffectiveSession.date ?? undefined,
         time: initialEffectiveSession.time ?? undefined,
-      })}${initialValidation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel${bookingSource === "public_booking" && heritagePinCountryCode ? `&bookingSource=public_booking&heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}` : ""}`
+      })}${initialValidation.serviceId === "new-student" ? "&newStudent=1" : ""}&status=cancel${isPublicBookingReturn ? `&bookingSource=public_booking${heritagePinCountryCode ? `&heritagePinCountryCode=${encodeURIComponent(heritagePinCountryCode)}` : ""}` : ""}`
     : `${base}/courses/${initialValidation.courseSlug}?status=cancel`
 
   const preparation = await resolveCheckoutPreparation(

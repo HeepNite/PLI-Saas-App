@@ -153,6 +153,55 @@ describe("public checkout session route", () => {
     }))
   })
 
+  describe("hosted checkout redirects for a public booking opened from a booking link", () => {
+    beforeEach(() => {
+      // After the Heritage pin window: public booking no longer requires a pin country.
+      vi.setSystemTime(new Date("2026-11-11T16:00:00.000Z"))
+      mockValidate.mockResolvedValue(promotionValidation({ date: "2026-11-12" }))
+    })
+
+    const postPublicQrBooking = async (body: Record<string, unknown> = {}) => {
+      const { POST } = await import("@/app/api/public/checkout/session/route")
+      const response = await POST(new Request("http://localhost/api/public/checkout/session", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bookingSource: "public_booking", phone: "+525512345678", photoContext: "qr_phone", firstName: "Ana", ...body,
+        }),
+      }))
+      expect(response.status, JSON.stringify(await response.clone().json().catch(() => null))).toBe(200)
+      return mockCreateCheckoutSession.mock.calls[0][0] as { success_url: string; cancel_url: string; metadata: Record<string, string> }
+    }
+
+    it("returns to the booked confirmation after paying, without marking the booking as a check-in", async () => {
+      const session = await postPublicQrBooking()
+
+      expect(session.success_url).toBe("http://localhost:3000/checkin/booked?course=Bachata%20Beginners&name=Ana")
+      expect(session.metadata).toMatchObject({ checkoutChannel: "public_booking", flowContext: "qr_phone", paymentSurface: "web_checkout" })
+    })
+
+    it("returns to the same public booking on cancel, keeping the public booking source", async () => {
+      const session = await postPublicQrBooking()
+
+      expect(session.cancel_url).toBe(
+        "http://localhost:3000/courses/bachata-beginners?enroll=1&qrBooking=1&date=2026-11-12&time=21%3A10&status=cancel&bookingSource=public_booking"
+      )
+    })
+
+    it("keeps the new-student price flag on cancel", async () => {
+      mockValidate.mockResolvedValue(promotionValidation({ date: "2026-11-12", serviceId: "new-student" }))
+      const session = await postPublicQrBooking()
+
+      expect(session.cancel_url).toContain("&newStudent=1&status=cancel&bookingSource=public_booking")
+    })
+
+    it("keeps the generic redirects for a public booking that did not come from a booking link", async () => {
+      const session = await postPublicQrBooking({ photoContext: undefined })
+
+      expect(session.success_url).toBe("http://localhost:3000/client-profile?status=success")
+      expect(session.cancel_url).toBe("http://localhost:3000/courses/bachata-beginners?status=cancel")
+    })
+  })
+
   it.each([
     ["missing", {}],
     ["empty", { phone: "" }],
